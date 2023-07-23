@@ -1,0 +1,3 @@
+*.xml
+.ipynb_checkpoints
+.idea
