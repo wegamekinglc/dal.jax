@@ -1,3 +1,5 @@
 *.xml
 .ipynb_checkpoints
 .idea
+*.pyc
+.virtual_documents
