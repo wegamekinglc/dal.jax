@@ -15,8 +15,8 @@ jobs:
       matrix:
         python: ["3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
       - name: Install
         run: uv sync --python ${{ matrix.python }}
       - name: Test (4 virtual CPU devices, dal-python oracle included)
@@ -26,8 +26,8 @@ jobs:
     name: Example notebooks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
       - name: Install
         run: uv sync --python 3.13 --group examples
       - name: Execute every notebook
