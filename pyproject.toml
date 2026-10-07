@@ -32,9 +32,6 @@ dev = [
     "dal-python>=2026.9.25",
 ]
 examples = [
-    "ipykernel>=6.29",
-    "matplotlib>=3.9",
-    "nbconvert>=7.16",
     "dal-python>=2026.9.25",
 ]
 

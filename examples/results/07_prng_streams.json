@@ -1,0 +1,110 @@
+{
+  "environment": {
+    "jax": "0.11.2",
+    "dal_python": "2026.9.25"
+  },
+  "configuration": {
+    "paths": 65536,
+    "repeat": 3,
+    "platform": "cpu",
+    "devices": 8
+  },
+  "comparisons": [
+    {
+      "label": "threefry2x32: statistical comparison (different streams)",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.009708110999781638,
+        "warm_min_seconds": 0.0017191520018968731,
+        "warm_median_seconds": 0.0020941050024703145,
+        "warm_runs_seconds": [
+          0.004148253996390849,
+          0.0017191520018968731,
+          0.0020941050024703145
+        ],
+        "compile_seconds": 0.3954101089912001,
+        "result": {
+          "PV": 91.4510312549478,
+          "d_div": -274.3530937648434,
+          "d_rate": -2.1316282072803006e-14,
+          "d_spot": 0.914510312549478,
+          "d_vol": 0.35332112842628716
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.028000269987387583,
+        "warm_min_seconds": 0.0015314290067180991,
+        "warm_median_seconds": 0.0017939130193553865,
+        "warm_runs_seconds": [
+          0.0021407589956652373,
+          0.0017939130193553865,
+          0.0015314290067180991
+        ],
+        "result": {
+          "PV": 91.6909228371174,
+          "d_div": -275.0727685113522,
+          "d_rate": 8.171241461241152e-14,
+          "d_spot": 0.9169092283711742,
+          "d_vol": 1.8934626674739898
+        }
+      }
+    },
+    {
+      "label": "rbg: statistical comparison (different streams)",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.008076199010247365,
+        "warm_min_seconds": 0.0019281249842606485,
+        "warm_median_seconds": 0.0029286759963724762,
+        "warm_runs_seconds": [
+          0.003213299991330132,
+          0.0019281249842606485,
+          0.0029286759963724762
+        ],
+        "compile_seconds": 0.31566520500928164,
+        "result": {
+          "PV": 91.53766802344164,
+          "d_div": -274.6130040703249,
+          "d_rate": -1.7763568394002505e-14,
+          "d_spot": 0.9153766802344163,
+          "d_vol": 0.9039366939074398
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.001930105994688347,
+        "warm_min_seconds": 0.0014558120165020227,
+        "warm_median_seconds": 0.001754377008182928,
+        "warm_runs_seconds": [
+          0.0014558120165020227,
+          0.001754377008182928,
+          0.0018376930092927068
+        ],
+        "result": {
+          "PV": 91.69092283711741,
+          "d_div": -275.07276851135225,
+          "d_rate": 8.171241461241152e-14,
+          "d_spot": 0.9169092283711744,
+          "d_vol": 1.8934626674739898
+        }
+      }
+    }
+  ],
+  "diagnostics": {
+    "analytic_pv": 91.39311852712282,
+    "standard_errors": {
+      "PV": 0.09433988871225442,
+      "d_spot": 0.0009433988871225442,
+      "d_div": 0.28301966613676327,
+      "d_vol": 0.6608083761412898,
+      "d_rate": 0.0
+    }
+  }
+}

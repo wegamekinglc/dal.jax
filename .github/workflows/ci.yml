@@ -26,19 +26,18 @@ jobs:
         run: uv run pytest
 
   examples:
-    name: Example notebooks
+    name: Python examples and DAL comparisons
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.13"
-          cache-suffix: examples  # installs an extra group, so it must not share the tests cache
+          cache-suffix: examples
       - name: Install
         run: uv sync --group examples
-      - name: Execute every notebook
-        working-directory: examples
+      - name: Run every Python example with DAL comparisons
         run: |
-          for notebook in *.ipynb; do
-            uv run --group examples jupyter nbconvert --to notebook --execute --output-dir "$RUNNER_TEMP" --ExecutePreprocessor.timeout=1200 "$notebook"
+          for example in examples/[0-9][0-9]_*.py; do
+            uv run --group examples python "$example" --paths 4096 --devices 4 --repeat 1 --output "$RUNNER_TEMP/$(basename "$example" .py).json"
           done

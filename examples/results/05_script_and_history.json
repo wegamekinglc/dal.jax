@@ -1,0 +1,198 @@
+{
+  "environment": {
+    "jax": "0.11.2",
+    "dal_python": "2026.9.25"
+  },
+  "configuration": {
+    "paths": 65536,
+    "repeat": 3,
+    "platform": "cpu",
+    "devices": 8
+  },
+  "comparisons": [
+    {
+      "label": "Historical SCALE assignment; past PAYS discarded",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.012489181011915207,
+        "warm_min_seconds": 0.001735552999889478,
+        "warm_median_seconds": 0.001778436009772122,
+        "warm_runs_seconds": [
+          0.001778436009772122,
+          0.002228762023150921,
+          0.001735552999889478
+        ],
+        "compile_seconds": 0.5335644249862526,
+        "result": {
+          "PV": 1.8278233839182614,
+          "d_div": -5.483470151754784,
+          "d_rate": -9.992007221626409e-16,
+          "d_spot": 0.018278233839182614,
+          "d_vol": -0.0003663725907346316,
+          "d_SCALE": 0.9139116919591307
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.023507411999162287,
+        "warm_min_seconds": 0.0013300730206537992,
+        "warm_median_seconds": 0.00138964899815619,
+        "warm_runs_seconds": [
+          0.0016143259999807924,
+          0.0013300730206537992,
+          0.00138964899815619
+        ],
+        "result": {
+          "PV": 1.8278233839182618,
+          "d_SCALE": 0.9139116919591309,
+          "d_div": -5.483470151754785,
+          "d_rate": 2.0539125955565396e-15,
+          "d_spot": 0.018278233839182614,
+          "d_vol": -0.00036637259073430545
+        }
+      }
+    },
+    {
+      "label": "Scalar monthly Asian",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.028176592983072624,
+        "warm_min_seconds": 0.01756599301006645,
+        "warm_median_seconds": 0.01842457300517708,
+        "warm_runs_seconds": [
+          0.023031798016745597,
+          0.01842457300517708,
+          0.01756599301006645
+        ],
+        "compile_seconds": 0.7060279180004727,
+        "result": {
+          "PV": 6.818395041886273,
+          "d_div": -85.2428890802969,
+          "d_rate": 64.78770395463809,
+          "d_spot": 0.5354426843246657,
+          "d_vol": 34.90697344592034,
+          "d_STRIKE": -0.46725873390580297
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.021087111002998427,
+        "warm_min_seconds": 0.020025884005008265,
+        "warm_median_seconds": 0.022164894005982205,
+        "warm_runs_seconds": [
+          0.020025884005008265,
+          0.022592741006519645,
+          0.022164894005982205
+        ],
+        "result": {
+          "PV": 6.818395041886273,
+          "d_STRIKE": -0.4672587339057936,
+          "d_div": -85.24288908029689,
+          "d_rate": 64.78770395463806,
+          "d_spot": 0.5354426843246658,
+          "d_vol": 34.906973445920364
+        }
+      }
+    },
+    {
+      "label": "DCF coupon schedule",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.002676484000403434,
+        "warm_min_seconds": 0.0009552029951009899,
+        "warm_median_seconds": 0.0011672300170175731,
+        "warm_runs_seconds": [
+          0.0012440609862096608,
+          0.0011672300170175731,
+          0.0009552029951009899
+        ],
+        "compile_seconds": 0.25116960797458887,
+        "result": {
+          "PV": 13.900183417265568,
+          "d_div": 0.0,
+          "d_rate": -20.909190325469442,
+          "d_spot": 0.0,
+          "d_vol": 0.0,
+          "d_COUPON": 2.7800366834531136
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.019250818993896246,
+        "warm_min_seconds": 0.015548089984804392,
+        "warm_median_seconds": 0.016126889997394755,
+        "warm_runs_seconds": [
+          0.016126889997394755,
+          0.015548089984804392,
+          0.01860797801055014
+        ],
+        "result": {
+          "PV": 13.900183417265971,
+          "d_COUPON": 2.780036683452939,
+          "d_div": 0.0,
+          "d_rate": -20.909190325469577,
+          "d_spot": 0.0,
+          "d_vol": 0.0
+        }
+      }
+    },
+    {
+      "label": "Delayed native payment vs DAL stored payoff paid later",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.00850567701854743,
+        "warm_min_seconds": 0.001913551997859031,
+        "warm_median_seconds": 0.0021300350199453533,
+        "warm_runs_seconds": [
+          0.0021300350199453533,
+          0.0022024339996278286,
+          0.001913551997859031
+        ],
+        "compile_seconds": 0.4626531589892693,
+        "result": {
+          "PV": 5.07240368973771,
+          "d_div": -98.02755047812187,
+          "d_rate": 80.281086062245,
+          "d_spot": 0.3267585015937395,
+          "d_vol": 58.10284563895249,
+          "d_STRIKE": -0.23002872058030202
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.002041909989202395,
+        "warm_min_seconds": 0.0018029860220849514,
+        "warm_median_seconds": 0.0018435959937050939,
+        "warm_runs_seconds": [
+          0.0018029860220849514,
+          0.0024895239912439138,
+          0.0018435959937050939
+        ],
+        "result": {
+          "PV": 5.072403689737712,
+          "d_STRIKE": -0.23002872058029966,
+          "d_div": -98.02755047812187,
+          "d_rate": 80.28108606224498,
+          "d_spot": 0.3267585015937396,
+          "d_vol": 58.10284563895251
+        }
+      }
+    }
+  ],
+  "diagnostics": {
+    "historical_scale_gradient": 0.9139116919591307,
+    "finite_difference": 0.9139116919798517
+  }
+}

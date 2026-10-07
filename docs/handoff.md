@@ -7,7 +7,7 @@
 | 里程碑 | 状态 | 位置 |
 |---|---|---|
 | P0 基础设施、BS 模型、随机数、MC 引擎 | 完成 | PR #2 |
-| 示例 notebook（`examples/`，4 个） | 完成 | PR #2 |
+| 普通 Python 示例（`examples/`，8 个，均含 DAL 数值和性能对照） | 完成 | PR #2 |
 | P1 Script 前端 | 完成 | PR #2（commit `8750dfd`、`e7caf50`） |
 | P2 exact 降级与事件引擎 | 完成 | PR #2 |
 | P3 fuzzy 降级、求导、scan 分组 | 完成 | PR #2 |
@@ -16,7 +16,7 @@
 
 - **分支**：所有工作都在 `feature/jax-mc-engine` 上，PR #2 的 base 是 `master`，还没有合并。`master` 上只有项目早期的探索性 notebook（PR #2 中已删除）。
 - **测试**：`uv run pytest` 为 594 passed、26 skipped（169.57 s），跳过的是默认关闭的 GPU 测试。26 个 GPU 测试已在实际 CUDA 13 环境通过，含百万路径 autocall 对照。P2 新增 120 个测试，其中 32 个与 dal-python 对照；P3 新增 67 个；P4 新增 22 个 CPU 测试和 26 个 GPU 测试。
-- **静态检查**：对应 Codacy 默认规范的 `lizard -C 8`、`pylint -E`、`bandit`、`semgrep --config p/python` 都已清零。本次采用本地等价检查；PR #2 当前显示的 Python 3.13、3.14 和 notebook CI 均成功。
+- **静态检查**：对应 Codacy 默认规范的 `lizard -C 8`、`pylint -E`、`bandit`、`semgrep --config p/python` 都已清零。本次采用本地等价检查；P4 commit `02018d2` 的 Python 3.13、3.14 和原 notebook CI 均成功；示例迁移后改为执行全部 Python 脚本。本地 8 个脚本均按默认 65,536 路径/8 设备/3 次热运行通过，CI 参数 4,096 路径/4 设备/1 次也通过，另在实际 GPU 上运行 08。每个脚本均有 DAL 数值和性能对照。
 
 ## 2. 代码地图
 
@@ -46,7 +46,7 @@ src/dal_jax/
     lower/events.py    事件常量槽、相邻同模板事件 lax.scan、短组展开
     lower/smoothing.py CSpr / BFly 及其带 lb/rb 的两参数形式；可选 C1 smoothstep
 tests/                 random/ models/ mc/ script/ dates/ test_index.py oracle/ gpu/（--run-gpu 可选）
-examples/              4 个已执行的 notebook + nbtools.py
+examples/              8 个普通 Python 脚本 + _common.py；results/ 保存逐个执行的数值和计时 JSON
 scripts/               export_sobol_directions.py、export_calendars.py（从 DAL 源码重新生成数据）
 benchmarks/bench_mc.py 与 dal-python 同机计时
 benchmarks/bench_script_compile.py 单路径脚本价格/参数梯度的编译和图规模；script_compile_cpu.json 为 CPU 实测
@@ -104,10 +104,10 @@ benchmarks/bench_suite.py 标量脚本端到端 CPU/GPU/DAL 基准；p4_*.json �
 uv sync                                   # 安装开发依赖，包括作为对照的 dal-python
 uv run pytest                             # 全部测试；oracle 测试在没有安装 dal-python 时跳过
 uv run pytest -m oracle                   # 只跑与 dal-python 的对照
-uvx lizard -C 8 -w src tests benchmarks scripts examples/nbtools.py
+uvx lizard -C 8 -w src tests benchmarks scripts examples
 uv run --with pylint python -m pylint -E --disable=import-error src tests
-uvx bandit -q -r src benchmarks scripts examples/nbtools.py
-uvx semgrep scan --config p/python --metrics off --error src scripts benchmarks examples/nbtools.py
+uvx bandit -q -r src benchmarks scripts examples
+uvx semgrep scan --config p/python --metrics off --error src scripts benchmarks examples
 ```
 
 - **DAL 源码**：本机的 DAL 源码在与本仓库同级的 `../Derivatives-Algorithms-Lib`（`dal-cpp/` 和 `dal-python/`）。移植时以其中的源码和测试为金标准。
@@ -157,7 +157,7 @@ P2 验收已完成：European、亚式（标量写法）、autocall 在相同 So
 
 ### 5.3 P4 的入口和实测
 
-- **提交位置**：P3 已以 `6e5242e` 推送到 PR #2，Python 3.13/3.14 与 notebook CI 已通过。P4 已提交到 PR #2。
+- **提交位置**：P3 已以 `6e5242e` 推送到 PR #2，Python 3.13/3.14 与原 notebook CI 已通过。P4 已提交到 PR #2。
 - **精度**：`dtype="float64"` 默认不变；显式 `"auto"` 为 CPU float64 / GPU float32。路径数组为 float32 时，随机数仍先以 float64 生成；块内 JAX reduction 使用路径 dtype，块间累加为 float64。不能把小型测试的容差理解为所有产品的保证。
 - **float32 边界修复**：`1-EPSILON` 在 float32 中会舍入为 1，原 `degree > 1-EPSILON` 因而不能识别满 degree。float32 用 `degree >= 1`，float64 保持 DAL 阈值，保证未选中 LOG(-1) 等分支不会污染值或梯度。
 - **块大小**：设置默认由 `8192` 改为 `"auto"`，CPU 仍解析成 8192。GPU 以最小设备 allocator limit 的 20% 为预算，计入 float64 RNG、Scenario 槽位及 16 倍 AAD / 4 倍 price 余量，向下取 2 的幂，范围 256–32768；缺少内存统计回退 8192。显式正整数总是优先。`engine.block_size` 是解析后的上限；小路径数仍按 layout 缩小实际块。

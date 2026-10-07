@@ -1,0 +1,314 @@
+{
+  "environment": {
+    "jax": "0.11.2",
+    "dal_python": "2026.9.25"
+  },
+  "configuration": {
+    "paths": 65536,
+    "repeat": 3,
+    "platform": "cpu",
+    "devices": 8
+  },
+  "comparisons": [
+    {
+      "label": "European: enable_aad=False",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.005560842982959002,
+        "warm_min_seconds": 0.001675091014476493,
+        "warm_median_seconds": 0.0021825160074513406,
+        "warm_runs_seconds": [
+          0.0036648960085585713,
+          0.0021825160074513406,
+          0.001675091014476493
+        ],
+        "compile_seconds": 0.21891588100697845,
+        "result": {
+          "PV": 5.200455992677282
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.003716725012054667,
+        "warm_min_seconds": 0.0009529980015940964,
+        "warm_median_seconds": 0.0009560100152157247,
+        "warm_runs_seconds": [
+          0.002290748991072178,
+          0.0009560100152157247,
+          0.0009529980015940964
+        ],
+        "result": {
+          "PV": 5.200455992677285
+        }
+      }
+    },
+    {
+      "label": "European: enable_aad=True",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.008084886998403817,
+        "warm_min_seconds": 0.0026105960132554173,
+        "warm_median_seconds": 0.0050321019953116775,
+        "warm_runs_seconds": [
+          0.0050321019953116775,
+          0.00686406999011524,
+          0.0026105960132554173
+        ],
+        "compile_seconds": 0.5019481390190776,
+        "result": {
+          "PV": 5.200455992677282,
+          "d_div": -100.50224578197648,
+          "d_rate": 84.90087780394462,
+          "d_spot": 0.3350074859399215,
+          "d_vol": 59.56964592664708,
+          "d_STRIKE": -0.23583577167762398
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.02766106100170873,
+        "warm_min_seconds": 0.001359085988951847,
+        "warm_median_seconds": 0.0013970139843877405,
+        "warm_runs_seconds": [
+          0.0013970139843877405,
+          0.0018593120039440691,
+          0.001359085988951847
+        ],
+        "result": {
+          "PV": 5.200455992677284,
+          "d_STRIKE": -0.23583577167762118,
+          "d_div": -100.50224578197647,
+          "d_rate": 84.90087780394461,
+          "d_spot": 0.33500748593992163,
+          "d_vol": 59.569645926647084
+        }
+      }
+    },
+    {
+      "label": "Convergence: sobol, 1024 paths",
+      "paths": 1024,
+      "jax": {
+        "first_seconds": 0.0009392329957336187,
+        "warm_min_seconds": 0.0005127039912622422,
+        "warm_median_seconds": 0.0007054029847495258,
+        "warm_runs_seconds": [
+          0.0005127039912622422,
+          0.0007054029847495258,
+          0.0007552159950137138
+        ],
+        "compile_seconds": 0.21497401798842475,
+        "result": {
+          "PV": 5.142190638705656
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 1024
+      },
+      "dal": {
+        "first_seconds": 0.0006553480052389205,
+        "warm_min_seconds": 0.0005752400029450655,
+        "warm_median_seconds": 0.0006940500170458108,
+        "warm_runs_seconds": [
+          0.0007174220227170736,
+          0.0006940500170458108,
+          0.0005752400029450655
+        ],
+        "result": {
+          "PV": 5.142190638705628
+        }
+      }
+    },
+    {
+      "label": "Convergence: mrg32, 1024 paths",
+      "paths": 1024,
+      "jax": {
+        "first_seconds": 0.0008458530064672232,
+        "warm_min_seconds": 0.0005390869919210672,
+        "warm_median_seconds": 0.0006057109858375043,
+        "warm_runs_seconds": [
+          0.0006057109858375043,
+          0.0005390869919210672,
+          0.0009183840011246502
+        ],
+        "compile_seconds": 0.19212038998375647,
+        "result": {
+          "PV": 4.775263489666008
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 1024
+      },
+      "dal": {
+        "first_seconds": 0.0007999679946806282,
+        "warm_min_seconds": 0.0006167259998619556,
+        "warm_median_seconds": 0.0006543970084749162,
+        "warm_runs_seconds": [
+          0.0006712920148856938,
+          0.0006543970084749162,
+          0.0006167259998619556
+        ],
+        "result": {
+          "PV": 4.187926044404518
+        }
+      }
+    },
+    {
+      "label": "Convergence: sobol, 4096 paths",
+      "paths": 4096,
+      "jax": {
+        "first_seconds": 0.003184818022418767,
+        "warm_min_seconds": 0.0005902700067963451,
+        "warm_median_seconds": 0.0006246989942155778,
+        "warm_runs_seconds": [
+          0.0007841429905965924,
+          0.0006246989942155778,
+          0.0005902700067963451
+        ],
+        "compile_seconds": 0.21457302800263278,
+        "result": {
+          "PV": 5.184371324089124
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 4096
+      },
+      "dal": {
+        "first_seconds": 0.0013006250082980841,
+        "warm_min_seconds": 0.000664729013806209,
+        "warm_median_seconds": 0.0007395370048470795,
+        "warm_runs_seconds": [
+          0.0007904130034148693,
+          0.0007395370048470795,
+          0.000664729013806209
+        ],
+        "result": {
+          "PV": 5.184371324089111
+        }
+      }
+    },
+    {
+      "label": "Convergence: mrg32, 4096 paths",
+      "paths": 4096,
+      "jax": {
+        "first_seconds": 0.002978383010486141,
+        "warm_min_seconds": 0.000870838004630059,
+        "warm_median_seconds": 0.0010219280084129423,
+        "warm_runs_seconds": [
+          0.0012108270020689815,
+          0.0010219280084129423,
+          0.000870838004630059
+        ],
+        "compile_seconds": 0.19094038801267743,
+        "result": {
+          "PV": 5.002872801299189
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 4096
+      },
+      "dal": {
+        "first_seconds": 0.0008489630126859993,
+        "warm_min_seconds": 0.0006898769934196025,
+        "warm_median_seconds": 0.0007384770142380148,
+        "warm_runs_seconds": [
+          0.0007384770142380148,
+          0.0013845530047547072,
+          0.0006898769934196025
+        ],
+        "result": {
+          "PV": 4.815666904689448
+        }
+      }
+    },
+    {
+      "label": "Convergence: sobol, 65536 paths",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.0028609110158868134,
+        "warm_min_seconds": 0.000787216005846858,
+        "warm_median_seconds": 0.0008511350024491549,
+        "warm_runs_seconds": [
+          0.000787216005846858,
+          0.0008511350024491549,
+          0.0010329950018785894
+        ],
+        "compile_seconds": 0.1656229530053679,
+        "result": {
+          "PV": 5.200455992677282
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.0009737520013004541,
+        "warm_min_seconds": 0.0008932700147852302,
+        "warm_median_seconds": 0.0009526220092084259,
+        "warm_runs_seconds": [
+          0.0009526220092084259,
+          0.0008932700147852302,
+          0.0012903890165034682
+        ],
+        "result": {
+          "PV": 5.200455992677285
+        }
+      }
+    },
+    {
+      "label": "Convergence: mrg32, 65536 paths",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.003773395001189783,
+        "warm_min_seconds": 0.0009442300070077181,
+        "warm_median_seconds": 0.0009596619929652661,
+        "warm_runs_seconds": [
+          0.0013523619854822755,
+          0.0009442300070077181,
+          0.0009596619929652661
+        ],
+        "compile_seconds": 0.19169471599161625,
+        "result": {
+          "PV": 5.216120116260002
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.0012933779798913747,
+        "warm_min_seconds": 0.0010477450268808752,
+        "warm_median_seconds": 0.0016470690025016665,
+        "warm_runs_seconds": [
+          0.0016470690025016665,
+          0.0010477450268808752,
+          0.0023219489958137274
+        ],
+        "result": {
+          "PV": 5.329561512380794
+        }
+      }
+    }
+  ],
+  "diagnostics": {
+    "closed_form": {
+      "PV": 5.201879014771816,
+      "d_spot": 0.335033358310326,
+      "d_vol": 59.586394845863566,
+      "d_rate": 84.90437044878234,
+      "d_div": -100.51000749309782,
+      "d_STRIKE": -0.23584547346883986
+    }
+  }
+}

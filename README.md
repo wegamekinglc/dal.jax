@@ -51,7 +51,7 @@ pv, grads = jax.value_and_grad(lambda p: f(p)[0])(params)
 ladder = jax.vmap(lambda s: f({**params, "model": params["model"] | {"spot": s}})[0])(jnp.linspace(80, 120, 9))
 ```
 
-In fuzzy mode (`enable_aad=True`, or `pricer(..., fuzzy=True)`) hand-written payoffs should smooth their discontinuities with DAL's kernels in `dal_jax.script.lower` (`cspr`, `bfly`). If they don't, `jax.grad` misses the barrier term. Script products apply smoothing automatically. `tests/support.py` and `examples/02_barrier_option.ipynb` have an up-and-out call that matches DAL's fuzzy `d_BARRIER` and `d_vol`.
+In fuzzy mode (`enable_aad=True`, or `pricer(..., fuzzy=True)`) hand-written payoffs should smooth their discontinuities with DAL's kernels in `dal_jax.script.lower` (`cspr`, `bfly`). If they don't, `jax.grad` misses the barrier term. Script products apply smoothing automatically. `tests/support.py` and `examples/02_barrier_option.py` have an up-and-out call that matches DAL's fuzzy `d_BARRIER` and `d_vol`.
 
 ### Script products
 
@@ -121,7 +121,7 @@ Valuation currently supports the scalar subset, including expanded `FOR` loops a
 
 ## Examples
 
-[`examples/`](examples/) has four runnable notebooks: getting started with a European option, barrier Greeks and fuzzy smoothing, composing the pricer with JAX transforms, and multi-device execution and precision options. Run `uv sync --group examples`, then `uv run --group examples --with jupyterlab jupyter lab examples/`.
+[`examples/`](examples/README.md) has eight ordinary Python scripts covering European and barrier pricing, JAX transforms, parallel execution, historical scripts and discounts, event scans and C1 smoothing, PRNG streams, and CPU/GPU precision. Every example prints numerical and synchronized performance comparisons with dal-python. Run `uv sync --group examples`, then `uv run --group examples python examples/01_european_option.py`. Saved numerical and timing reports are in `examples/results/`.
 
 ## Settings
 
@@ -214,7 +214,7 @@ src/dal_jax/
   script/             lexer, preprocessor, parser, ast, product, preparation, debug, diagnostics
   script/passes/      varindex, ifmeta, constfold, domain (+ intervals), constcond, eventgroup
   script/lower/       exact/fuzzy scalar events, grouped execution, DAL and C1 smoothing kernels
-examples/             runnable notebooks (see examples/README.md)
+examples/             Python scripts with DAL numerical/performance comparisons
 scripts/              export_sobol_directions.py, export_calendars.py (regenerate data from DAL)
 benchmarks/           bench_mc.py, bench_script_compile.py, bench_suite.py (+ measured JSON reports)
 tests/                random/, models/, mc/, script/, dates/, oracle/ (dal-python), gpu/ (opt-in)
