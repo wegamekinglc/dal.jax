@@ -9,14 +9,15 @@ import dal_jax.api as api
 from dal_jax import MonteCarloSettings, prepare
 from dal_jax.script.fixings import ValuationSettings
 from oracle.test_dal_rates import TODAY, native_date, model_pair
-from oracle.test_dal_hybrid import hybrid_pair, zero_rate_model
+from oracle.test_dal_hybrid import hybrid_pair, zero_rate_model, native_zero_slv_spot_delta
 
 pytestmark = pytest.mark.gpu
 
 
 @pytest.mark.parametrize("kind",["gsr","slv"])
-def test_gpu_live_rate_volatility_from_zero_model(gpu_devices,cpu_devices,dal,kind):
-    positive,native_model = hybrid_pair(dal,kind)
+@pytest.mark.parametrize("zero",[False,True])
+def test_gpu_live_rate_volatility_from_zero_model(gpu_devices,cpu_devices,dal,kind,zero):
+    positive,native_model = hybrid_pair(dal,kind,zero=zero)
     model = zero_rate_model(positive)
     dates = (TODAY.add_days(180),TODAY.add_days(365))
     events = ("pay PAYS MAX(FIX(EQ[A])-101,0) + 100*FIX(IR[USD,LIBOR_3M_CME])",)*2
@@ -26,8 +27,12 @@ def test_gpu_live_rate_volatility_from_zero_model(gpu_devices,cpu_devices,dal,ki
     cpu = prepared.engine(model,MonteCarloSettings(**common,platform="cpu",devices=cpu_devices))
     params = gpu.default_params() | {"model":positive.default_params()}
     actual,expected = gpu.value(257,params),cpu.value(257,params)
-    native = dal.MonteCarlo_ValueWithSettings(dal.Product_New([native_date(dal,d) for d in dates],events),native_model,257,
-        valuation=dal.ScriptValuationSettings_(evaluation_date=native_date(dal,TODAY)),simulation=dal.MonteCarloSettings_(enable_aad=True,use_bb=True))
+    product = dal.Product_New([native_date(dal,d) for d in dates],events)
+    valuation = dal.ScriptValuationSettings_(evaluation_date=native_date(dal,TODAY))
+    native = dict(dal.MonteCarlo_ValueWithSettings(product,native_model,257,valuation=valuation,
+                    simulation=dal.MonteCarloSettings_(enable_aad=True,use_bb=True)))
+    if zero and kind == "slv":
+        native["d_spot:EQ[A]"] = native_zero_slv_spot_delta(dal,product,valuation,257)
     for name in actual:
         for reference in (expected,native):
             np.testing.assert_allclose(actual[name],reference[name],rtol=1e-10 if name == "PV" else 1e-8,atol=1e-10,err_msg=name)
@@ -69,12 +74,14 @@ def test_gpu_lsmc_training_and_vmapped_policy_bumps(gpu_devices,cpu_devices,dal,
     common = dict(enable_aad=True,use_bb=True,block_size=128,lsmc_training_paths=256,lsmc_validation_paths=64,lsmc_policy_risk_mode=mode)
     if rqmc:
         common |= dict(lsmc_rqmc_replicates=2,lsmc_training_seed=17,lsmc_pricing_seed=29)
+    native_options = common.copy()
+    del native_options["block_size"]
     gpu = prepared.engine(model,MonteCarloSettings(**common,platform="gpu",devices=gpu_devices))
     cpu = prepared.engine(model,MonteCarloSettings(**common,platform="cpu",devices=cpu_devices))
     actual,expected = gpu.value(257),cpu.value(257)
     native = dal.MonteCarlo_ValueWithSettings(dal.Product_New([native_date(dal,d) for d in dates],(event,)*2),dal.BSModelData_New(100.,.2,.05,0.),257,
                 valuation=dal.ScriptValuationSettings_(evaluation_date=native_date(dal,TODAY)),
-                simulation=dal.MonteCarloSettings_(**{name:value for name,value in common.items() if name != "block_size"}))
+                simulation=dal.MonteCarloSettings_(**native_options))
     for name in actual:
         for reference in (expected,native):
             np.testing.assert_allclose(actual[name],reference[name],rtol=1e-8 if name != "PV" else 1e-6,atol=1e-9,err_msg=name)

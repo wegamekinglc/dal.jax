@@ -162,8 +162,7 @@ def test_high_degree_native_regression_and_rank_fallback(dal,degree):
         np.testing.assert_allclose(fit.coefficients,event["coefficients"],rtol=1e-8,atol=1e-10)
 
 
-@pytest.mark.parametrize("history,local",[(False,False),(True,False),(False,True)])
-def test_retrained_constants_history_and_zero_volatility_boundaries(dal,history,local):
+def boundary_model_pair(dal,history,local):
     if local:
         surface = LocalVolSurface(spots=(80.,120.),times=(0.,1.),vols=((0.,.2),(.2,.2)))
         model = LocalVol(spot=100.,surface=surface,index="EQ[A]",rate=.05,max_step=.25)
@@ -172,14 +171,26 @@ def test_retrained_constants_history_and_zero_volatility_boundaries(dal,history,
     else:
         model = BlackScholes(spot=100.,vol=.2 if history else 0.,rate=.05)
         nmodel = dal.BSModelData_New(model.spot,model.vol,model.rate,model.div)
+    return model,nmodel
+
+
+def boundary_product_pair(dal,history,default):
     dates,events = ("K",MID,END),("100","EXERCISE MAX(K-SPOT(),0)","EXERCISE MAX(K-SPOT(),0)")
     if history:
         past = TODAY.add_days(-1)
         dates,events = ("K",past,MID,END),("1.25","x=K*FIX(EQ[A])","EXERCISE MAX(x-FIX(EQ[A]),0)","EXERCISE MAX(x-FIX(EQ[A]),0)")
-    default = "EQ[A]" if history or local else ""
     data = Product_New(dates,events,settings=ScriptProductSettings(default_index=default))
     nproduct = dal.Product_New([_native_date(dal,d) if not isinstance(d,str) else d for d in dates],events,
                               settings=dal.ScriptProductSettings_(default_index=default))
+    return data,nproduct
+
+
+@pytest.mark.parametrize("history,local",[(False,False),(True,False),(False,True)])
+def test_retrained_constants_history_and_zero_volatility_boundaries(dal,history,local):
+    model,nmodel = boundary_model_pair(dal,history,local)
+    default = "EQ[A]" if history or local else ""
+    data,nproduct = boundary_product_pair(dal,history,default)
+    past = TODAY.add_days(-1)
     valuation = ValuationSettings(evaluation_date=TODAY,fixings=FixingSnapshot({"EQ[A]":{past:80.}}) if history else None)
     nfix = dal.MarketFixingSnapshot_New({"EQ[A]":{dal.DateTime_(_native_date(dal,past),0):80.}}) if history else None
     nv = dal.ScriptValuationSettings_(evaluation_date=_native_date(dal,TODAY),fixings=nfix)

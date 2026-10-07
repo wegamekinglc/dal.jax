@@ -10,17 +10,29 @@ from dal_jax import MonteCarloSettings, prepare
 from dal_jax.models.gsr import GSR
 from dal_jax.models.gsrslv import GSRSLV, GSRSLVSettings, GSRLeverage
 from dal_jax.models.hybrid import *
-from oracle.test_dal_rates import TODAY, native_date, model_pair
+from oracle.test_dal_rates import TODAY, native_date, model_pair, native_curve, native_vol
 
 
-def hybrid_pair(dal,kind):
-    equity = HybridBSEquity(name="A",index="EQ[A]",currency="USD",factor="FA",spot=100.,vol=.2,div=.01)
-    ne = dal.HybridBSEquityData_New("A","EQ[A]","USD","FA",100.,.2,.01)
+def hybrid_pair(dal,kind,*,zero=False,spot=100.):
+    equity,ne = equity_pair(dal,kind,spot)
+    rate,nr,links = hybrid_rate_pair(dal,kind,zero)
+    correlation = assemble_correlation((rate,equity),links)
+    native_correlation = dal.HybridCorrelation_Assemble("correlation",[nr,ne],[dal.HybridFactorLink_(*link) for link in links])
+    return Hybrid(domestic_currency="USD",components=(rate,equity),correlation=correlation), dal.HybridModelData_New("hybrid","USD",[nr,ne],native_correlation)
+
+
+def equity_pair(dal,kind,spot):
+    equity = HybridBSEquity(name="A",index="EQ[A]",currency="USD",factor="FA",spot=spot,vol=.2,div=.01)
+    ne = dal.HybridBSEquityData_New("A","EQ[A]","USD","FA",spot,.2,.01)
     if kind.startswith("local"):
         surface = api.LocalVolSurfaceData_New("surface",[60.,100.,150.],[0.,1.],[[.24,.23],[.2,.21],[.18,.19]])
-        equity = HybridLocalVolEquity(name="A",index="EQ[A]",currency="USD",factor="FA",spot=100.,surface=surface,div=.01,max_step=.25)
+        equity = HybridLocalVolEquity(name="A",index="EQ[A]",currency="USD",factor="FA",spot=spot,surface=surface,div=.01,max_step=.25)
         ns = dal.LocalVolSurfaceData_New("surface",[60.,100.,150.],[0.,1.],dal.DoubleMatrix_([[.24,.23],[.2,.21],[.18,.19]]))
-        ne = dal.HybridLocalVolEquityData_New("A","EQ[A]","USD","FA",100.,.01,ns,.25)
+        ne = dal.HybridLocalVolEquityData_New("A","EQ[A]","USD","FA",spot,.01,ns,.25)
+    return equity,ne
+
+
+def hybrid_rate_pair(dal,kind,zero):
     if kind in ("flat","local_flat"):
         rate = HybridDeterministicRate(name="R",currency="USD",rate=.03)
         nr = dal.HybridDeterministicRateData_New("R","USD",.03)
@@ -31,12 +43,9 @@ def hybrid_pair(dal,kind):
         nr = dal.HybridLogDfRateData_New("R","USD",list(rate.times),list(rate.log_df_values),scheme)
         links = []
     else:
-        rates,_ = model_pair(dal,multi=True,projections=True,knots=True)
+        rates,_ = model_pair(dal,multi=True,projections=True,knots=True,zero=zero)
         c,v = rates.curve,rates.vol
-        nc = dal.GSRCurveData_New("curve",native_date(dal,TODAY),"USD",[native_date(dal,d) for d in c.node_dates],list(c.discount_log_df),
-                                 list(c.projection_tenors),dal.DoubleMatrix_(list(map(list,c.projection_log_df))))
-        nv = dal.MultiFactorGSRVolData_New("vol",list(v.factor_names),[native_date(dal,d) for d in v.g_knot_dates],dal.DoubleMatrix_(list(map(list,v.g_values))),
-                                          [native_date(dal,d) for d in v.h_knot_dates],dal.DoubleMatrix_(list(map(list,v.h_values))),dal.DoubleMatrix_(list(map(list,v.correlations))))
+        nc,nv = native_curve(dal,c),native_vol(dal,v)
         if kind == "slv":
             leverage = GSRLeverage(rate_shifts=(-.05,.05),times=(0.,),values=((.9,),(1.2,)))
             smile = GSRSLV(gaussian=rates,leverage=leverage,settings=GSRSLVSettings(max_step=.25,variance_correlations=(.2,-.1)))
@@ -49,9 +58,7 @@ def hybrid_pair(dal,kind):
             rate = HybridGSRRate(name="R",model=rates,factors=v.factor_names)
             nr = dal.HybridGSRRateDataMulti_New("R",list(v.factor_names),nc,nv)
         links = [("FA","level",.2),("FA","slope",-.1)]
-    correlation = assemble_correlation((rate,equity),links)
-    native_correlation = dal.HybridCorrelation_Assemble("correlation",[nr,ne],[dal.HybridFactorLink_(*link) for link in links])
-    return Hybrid(domestic_currency="USD",components=(rate,equity),correlation=correlation), dal.HybridModelData_New("hybrid","USD",[nr,ne],native_correlation)
+    return rate,nr,links
 
 
 @pytest.mark.oracle
@@ -119,3 +126,35 @@ def zero_rate_model(positive):
     zero_kernel = replace(kernel,gaussian=zero_gaussian) if isinstance(kernel,GSRSLV) else zero_gaussian
     zero_rate = replace(positive.rate,model=zero_kernel)
     return replace(positive,components=tuple(zero_rate if c.name == positive.rate.name else c for c in positive.components))
+
+
+def native_zero_slv_spot_delta(dal,product,valuation,n_paths):
+    """Pinned native zero-rate SLV AAD has an incorrect spot risk; use its own FD."""
+    values = []
+    for spot in (100.001,99.999):
+        _,model = hybrid_pair(dal,"slv",zero=True,spot=spot)
+        value = dal.MonteCarlo_ValueWithSettings(product,model,n_paths,valuation=valuation,
+                    simulation=dal.MonteCarloSettings_(use_bb=True))
+        values.append(value["PV"])
+    return (values[0]-values[1])/.002
+
+
+@pytest.mark.oracle
+@pytest.mark.parametrize("kind",["gsr","slv"])
+def test_zero_rate_hybrid_prices_and_boundary_risks_match_native(dal,kind):
+    if not hasattr(dal,"HybridModelData_New"):
+        pytest.skip("zero-rate hybrid parity requires pinned source oracle")
+    model,native = hybrid_pair(dal,kind,zero=True)
+    dates = (TODAY.add_days(180),TODAY.add_days(365))
+    events = ("pay PAYS MAX(FIX(EQ[A])-101,0) + 100*FIX(IR[USD,LIBOR_3M_CME])",)*2
+    actual = prepare(api.Product_New(dates,events),TODAY,model=model).engine(model,
+                     MonteCarloSettings(enable_aad=True,use_bb=True,parallel="none",block_size=128)).value(257)
+    product = dal.Product_New([native_date(dal,d) for d in dates],events)
+    valuation = dal.ScriptValuationSettings_(evaluation_date=native_date(dal,TODAY))
+    expected = dict(dal.MonteCarlo_ValueWithSettings(product,native,257,valuation=valuation,
+                    simulation=dal.MonteCarloSettings_(enable_aad=True,use_bb=True)))
+    if kind == "slv":
+        # Native spot AAD is 85.55759 here; its common-path FD is 1.06558.
+        expected["d_spot:EQ[A]"] = native_zero_slv_spot_delta(dal,product,valuation,257)
+    for name in expected:
+        np.testing.assert_allclose(actual[name],expected[name],rtol=1e-10 if name == "PV" else 1e-8,atol=1e-10,err_msg=name)

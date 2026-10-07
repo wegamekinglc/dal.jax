@@ -504,6 +504,7 @@ class Hybrid:
         n = self.rate.model.n_factors if gsr else (self.rate.model.gaussian.n_factors if slv else 1)
         slots = tuple(self.factor_names.index(f) for f in component_factors(self.rate))
         equity_slots = jnp.asarray([self.factor_names.index(c.factor) for c in self.equities])
+        deterministic = self._live_numeraire_is_deterministic(state.params)
         def step(carry,data):
             logs,rate = carry
             x,y,variance,latent,log_n = rate
@@ -520,7 +521,7 @@ class Hybrid:
                                                                   named[jnp.asarray(slots[:-1])],named[slots[-1]])
             else:
                 log_n = log_n+state.initial_carry[i]
-            adjustment = log_n-old_log_n-state.initial_carry[i] if not self.numeraire_is_deterministic else 0.
+            adjustment = jnp.where(deterministic,0.,log_n-old_log_n-state.initial_carry[i])
             grid = jnp.asarray(plan.grid,dtype=logs.dtype)
             time,dt = grid[i],jnp.diff(grid)[i]
             vols = jnp.stack([c.surface.volatility(time,jnp.exp(logs[j]),vols=state.vols[j]) if isinstance(c,HybridLocalVolEquity)
@@ -571,6 +572,11 @@ class Hybrid:
                           for maturity in maturities]) if maturities else jnp.empty(0,dtype=dtype)
 
     def _bank_numeraire(self,state,plan,log_n,ids):
+        deterministic = jnp.exp(jnp.stack([-self.log_df(state.params,time) for time in plan.times])).astype(log_n.dtype)
+        return jnp.where(self._live_numeraire_is_deterministic(state.params),deterministic,jnp.exp(log_n[ids]))
+
+    def _live_numeraire_is_deterministic(self,params):
         if self.numeraire_is_deterministic:
-            return jnp.exp(jnp.stack([-self.log_df(state.params,time) for time in plan.times]))
-        return jnp.exp(log_n[ids])
+            return jnp.asarray(True)
+        values = jnp.stack([params[name] for name in self._gaussian_model()._labels("g")])
+        return jnp.all(values == 0.)

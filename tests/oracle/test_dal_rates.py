@@ -45,19 +45,27 @@ def model_pair(dal, *, multi=False, zero=False, projections=False, knots=False):
                                correlations=((1., .3), (.3, 1.)))
     else:
         vol = GSRVol(g_knot_dates=gdates, g_values=gs[:len(gdates)], h_knot_dates=hdates, h_values=(1., .7)[:len(hdates)])
-    nc = dal.GSRCurveData_New("curve", native_date(dal, TODAY), "USD", list(map(lambda d:native_date(dal,d), dates)),
+    return GSR(curve=curve, vol=vol), native_gsr(dal,curve,vol)
+
+
+def native_curve(dal,curve):
+    return dal.GSRCurveData_New("curve", native_date(dal, TODAY), "USD", [native_date(dal,d) for d in curve.node_dates],
                              list(curve.discount_log_df), list(curve.projection_tenors),
-                             dal.DoubleMatrix_(list(map(list, curve.projection_log_df))) if projections else dal.DoubleMatrix_(0,0))
-    if multi:
-        nv = dal.MultiFactorGSRVolData_New("vol", list(vol.factor_names), [native_date(dal,d) for d in gdates],
-                                          dal.DoubleMatrix_(list(map(list,vol.g_values))), [native_date(dal,d) for d in hdates],
+                             dal.DoubleMatrix_(list(map(list, curve.projection_log_df))) if curve.projection_tenors else dal.DoubleMatrix_(0,0))
+
+
+def native_vol(dal,vol):
+    if isinstance(vol,MultiFactorGSRVol):
+        return dal.MultiFactorGSRVolData_New("vol", list(vol.factor_names), [native_date(dal,d) for d in vol.g_knot_dates],
+                                          dal.DoubleMatrix_(list(map(list,vol.g_values))), [native_date(dal,d) for d in vol.h_knot_dates],
                                           dal.DoubleMatrix_(list(map(list,vol.h_values))), dal.DoubleMatrix_(list(map(list,vol.correlations))))
-        nm = dal.MultiFactorGSRModelData_New("rates", nc, nv)
-    else:
-        nv = dal.GSRVolData_New("vol", [native_date(dal,d) for d in gdates], list(vol.g_values),
-                               [native_date(dal,d) for d in hdates], list(vol.h_values))
-        nm = dal.GSRModelData_New("rates", nc, nv)
-    return GSR(curve=curve, vol=vol), nm
+    return dal.GSRVolData_New("vol", [native_date(dal,d) for d in vol.g_knot_dates], list(vol.g_values),
+                               [native_date(dal,d) for d in vol.h_knot_dates], list(vol.h_values))
+
+
+def native_gsr(dal,curve,vol):
+    factory = dal.MultiFactorGSRModelData_New if isinstance(vol,MultiFactorGSRVol) else dal.GSRModelData_New
+    return factory("rates",native_curve(dal,curve),native_vol(dal,vol))
 
 
 @pytest.mark.oracle

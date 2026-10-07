@@ -1,0 +1,33 @@
+name: JAX nightly compatibility
+
+on:
+  schedule:
+    - cron: "17 20 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nightly:
+    name: CPU tests with JAX nightly
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.13"
+          cache-suffix: jax-nightly
+      - name: Install baseline development dependencies
+        run: uv sync
+      - name: Upgrade JAX and jaxlib to nightly builds
+        # https://docs.jax.dev/en/latest/installation.html#jax-nightly-installation
+        run: >-
+          uv pip install --upgrade --prerelease allow
+          --index https://us-python.pkg.dev/ml-oss-artifacts-published/jax-public-nightly-artifacts-registry/simple/
+          jax jaxlib
+      - name: Test without restoring the stable dependency constraint
+        run: |
+          .venv/bin/python -c 'import jax; print("JAX nightly:", jax.__version__)'
+          .venv/bin/python -m pytest

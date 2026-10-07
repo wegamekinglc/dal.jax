@@ -7,18 +7,18 @@
 | 里程碑 | 状态 | 位置 |
 |---|---|---|
 | P0 基础设施、BS 模型、随机数、MC 引擎 | 完成 | PR #2 |
-| 普通 Python 示例（`examples/`，16 个，均含 DAL 数值和性能对照） | 完成 | PR #2/#3 与 P6/P7 分支 |
+| 普通 Python 示例（`examples/`，16 个，均含 DAL 数值和性能对照） | 完成 | PR #2/#3/#4 |
 | P1 Script 前端 | 完成 | PR #2（commit `8750dfd`、`e7caf50`） |
 | P2 exact 降级与事件引擎 | 完成 | PR #2 |
 | P3 fuzzy 降级、求导、scan 分组 | 完成 | PR #2 |
 | P4 并行与 GPU | 完成：CPU 调优、实际 CUDA 验证、GPU dtype/块策略、RBG 一致性和性能报告 | PR #2 |
-| P5 完整脚本能力与多资产 | 完成：向量、FIX/快照、PAYS ON、相关性 BS、local vol | `feature/script-p5`，独立 PR |
-| P6 EXERCISE/LSMC | 完成：三阶段、回归回退、验证选阶、RQMC、Frozen/RetrainedBump | `feature/lsmc-rates-p6-p7` |
-| P7 利率/混合模型、诊断、发布包 | 代码、文档及 0.1.0a1 wheel/sdist 完成；用户要求稍后上传 PyPI | `feature/lsmc-rates-p6-p7` |
+| P5 完整脚本能力与多资产 | 完成：向量、FIX/快照、PAYS ON、相关性 BS、local vol | PR #3 |
+| P6 EXERCISE/LSMC | 完成：三阶段、回归回退、验证选阶、RQMC、Frozen/RetrainedBump | PR #4 |
+| P7 利率/混合模型、诊断、发布包 | 代码、文档及 0.1.0a1 wheel/sdist 完成；用户要求稍后上传 PyPI | PR #4 |
 
-- **分支**：P0–P4 和示例 01–08 在 `feature/jax-mc-engine` / PR #2（base `master`），尚未合并。P5 在 `feature/script-p5`，独立 PR 的 base 为 `feature/jax-mc-engine`；PR #2 合并后可调整 base。P6/P7 在 `feature/lsmc-rates-p6-p7`，base 为 `feature/script-p5`，保持独立 stacked PR。
-- **测试**：P6/P7 首轮完整源码 oracle CPU 为 874 passed、61 skipped，随后新增的边界/多特征/诊断测试通过；最终完整回归结果随 PR 更新。实际 GPU 全量 61 passed，新增 LSMC 风险缓存后的 4 个 GPU 回归也通过。固定源码 oracle 覆盖 GSR/GSRSLV/Hybrid 的全部价格和风险，以及准备/模拟诊断的完整 schema。
-- **静态检查**：P6/P7 的 `lizard -C 8`、`pylint -E`、`bandit` 和 `semgrep --config p/python` 均无问题。准备、特征绑定、回归和模型观察拆为独立职责，保留 native 求值顺序。
+- **集成**：P0–P4、P5、P6/P7 分别由 PR #2、#3、#4 交付，依赖顺序为 #2 → #3 → #4。使用普通 merge 保留提交祖先关系，后续 PR 调整到 `master`；用户已要求完成全部检查、修复 review 并合并。
+- **测试**：固定源码 oracle 完整 CPU 回归及 Python 3.13/3.14 结果由 CI 保留；实际 GPU 全量验证后，最终 P6/P7 定向验证为 21 passed，覆盖实时参数重估和零波动率边界；重构后的 GPU LSMC 4 项也通过。源码 oracle 覆盖 GSR/GSRSLV/Hybrid 的价格和风险，以及准备/模拟诊断的完整 schema。零波动率 SLV 的原生 spot AAD 缺陷由 native 公共路径有限差分核验，详见 [P6/P7 文档](p6-p7.md)。
+- **静态检查**：全库 `lizard -C 8`、source/tests 的 `pylint -E`、`bandit` 和 `semgrep --config p/python` 均无问题，已加入 CI。准备、特征绑定、回归和模型观察拆为独立职责，保留 native 求值顺序。独立 nightly workflow 每晚运行 JAX nightly CPU 回归，提前发现 API 变化。
 - **报告和发布**：新增示例 13–16 全部按 65,536 条路径/4 CPU 设备/3 次热运行及 1 个实际 GPU 通过。百万定价路径 Bermudan 同机 CPU 1/4/GPU/DAL 报告在 `benchmarks/p6_*.json`。方法与迁移见 [P6/P7 文档](p6-p7.md)，计时口径和差异见 [性能报告](p6-p7-performance.md)。`scripts/smoke_install.py` 验证无 DAL 的独立 wheel 安装。CI 增加分发包检查，手动 release workflow 已准备，用户明确要求本次不上传 PyPI。
 
 ## 2. 代码地图
@@ -191,6 +191,7 @@ P2 验收已完成：European、亚式（标量写法）、autocall 在相同 So
 - exercise liveness 只删除死模型输出，保留日期和 Sobol 维度；历史解析和指数验证在裁剪前完成。仅作回归特征的指数也必须出现在 model_bindings。
 - rate 的日期、曲线范围和通货与 valuation 匹配；Hybrid 使用具名因子，相关块必须与 kernel 一致，SLV bridge 独立。GSRSLV 不提供延迟支付能力。
 - Gaussian PSD Cholesky 不对空 prefix 作 JAX reduction；这会触发 XLA remat/shard_map 转置的编译崩溃。所有 float32 scan 的初始状态、时间数组和 padding 必须保留路径 dtype。
+- Gaussian/SLV Hybrid 根据 live `g` 参数选择 numeraire 分支；不能按构造时的波动率永久缓存。全零参数保留 DAL 的确定性分支风险约定，非零重估与新建模型一致。
 - 首个 alpha 包已准备，当前 PyPI 上传按用户要求延后。下一步可配置 Trusted Publisher（`release.yml`、`pypi` 环境）并在明确安排发布时执行；校准仍在范围外。
 
 

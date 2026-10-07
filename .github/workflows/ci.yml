@@ -7,6 +7,26 @@ on:
   workflow_dispatch:
 
 jobs:
+  quality:
+    name: Code quality (Codacy rules)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.13"
+          cache-suffix: quality
+      - name: Install
+        run: uv sync
+      - name: Check complexity across source, tests and examples
+        run: uvx lizard -C 8 -w src tests scripts examples benchmarks
+      - name: Check Python errors
+        run: uv run --with pylint python -m pylint -E --disable=import-error src tests
+      - name: Check security patterns
+        run: |
+          uvx bandit -q -r src scripts examples benchmarks
+          uvx semgrep scan --config p/python --metrics off --error src scripts examples benchmarks
+
   test:
     name: CPU tests (Python ${{ matrix.python }})
     runs-on: ubuntu-latest

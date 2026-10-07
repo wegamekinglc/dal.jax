@@ -40,7 +40,7 @@ def results(output,greeks):
     return {"PV":float(pv),**{f"d_{name}":float(value) for group in risks.values() for name,value in group.items()}}
 
 
-def main():
+def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--paths",type=int,default=2**20)
     parser.add_argument("--training-paths",type=int,default=2**16)
@@ -51,6 +51,36 @@ def main():
     args = parser.parse_args()
     if min(args.paths,args.training_paths,args.devices,args.repeat) < 1:
         parser.error("path counts, devices and repeat must be positive")
+    return args
+
+
+def measure(args,prepared,model,native_product,native_model,greeks):
+    settings = dj.MonteCarloSettings(platform=args.platform,devices=dj.config.devices(args.platform)[:args.devices],
+        block_size=8192,use_bb=True,enable_aad=greeks,lsmc_training_paths=args.training_paths)
+    engine = prepared.engine(model,settings)
+    params = engine.default_params()
+    policy,training = timed(lambda:engine.train(args.paths,params),args.repeat)
+    price = engine.pricer(args.paths,policy=policy)
+    function = jax.value_and_grad(lambda p:price(p)[0]) if greeks else price
+    start = time.perf_counter()
+    executable = jax.jit(function).lower(params).compile()
+    compilation = time.perf_counter()-start
+    output,pricing = timed(lambda:executable(params),args.repeat)
+    full,complete = timed(lambda:engine.value(args.paths,params),args.repeat)
+    native_settings = dal.MonteCarloSettings_(use_bb=True,enable_aad=greeks,lsmc_training_paths=args.training_paths)
+    native,reference = timed(lambda:dict(dal.MonteCarlo_ValueWithSettings(native_product,native_model,args.paths,simulation=native_settings)),args.repeat)
+    computed = results(output,greeks)
+    for name,value in computed.items():
+        np.testing.assert_allclose(value,native[name],rtol=1e-6 if name == "PV" else 1e-8,atol=1e-10,err_msg=name)
+        np.testing.assert_allclose(full[name],value,rtol=1e-12,atol=1e-12,err_msg=name)
+    return {"mode":"greeks" if greeks else "price","jax":{"training":training,"compile_seconds":compilation,
+            "frozen_pricing":pricing,"end_to_end":complete,"result":computed,"backend":engine.devices[0].platform,
+            "device_kind":engine.devices[0].device_kind,"devices":len(engine.devices),"block_size":engine.layout(args.paths).block_size},
+            "dal":reference|{"result":native}}
+
+
+def main():
+    args = arguments()
     dj.config.configure(num_cpu_devices=args.devices)
     today = Date.ymd(2022,9,15)
     dates = [today.add_days(days) for days in (180,365,545,730)]
@@ -63,28 +93,7 @@ def main():
     report = {"environment":{"python":platform.python_version(),"jax":jax.__version__,"os":platform.platform()},
               "configuration":vars(args)|{"output":str(args.output)},"measurements":[]}
     for greeks in (False,True):
-        settings = dj.MonteCarloSettings(platform=args.platform,devices=dj.config.devices(args.platform)[:args.devices],
-            block_size=8192,use_bb=True,enable_aad=greeks,lsmc_training_paths=args.training_paths)
-        engine = prepared.engine(model,settings)
-        params = engine.default_params()
-        policy,training = timed(lambda:engine.train(args.paths,params),args.repeat)
-        price = engine.pricer(args.paths,policy=policy)
-        function = jax.value_and_grad(lambda p:price(p)[0]) if greeks else price
-        start = time.perf_counter()
-        executable = jax.jit(function).lower(params).compile()
-        compilation = time.perf_counter()-start
-        output,pricing = timed(lambda:executable(params),args.repeat)
-        full,complete = timed(lambda:engine.value(args.paths,params),args.repeat)
-        native_settings = dal.MonteCarloSettings_(use_bb=True,enable_aad=greeks,lsmc_training_paths=args.training_paths)
-        native,reference = timed(lambda:dict(dal.MonteCarlo_ValueWithSettings(native_product,native_model,args.paths,simulation=native_settings)),args.repeat)
-        computed = results(output,greeks)
-        for name,value in computed.items():
-            np.testing.assert_allclose(value,native[name],rtol=1e-6 if name == "PV" else 1e-8,atol=1e-10,err_msg=name)
-            np.testing.assert_allclose(full[name],value,rtol=1e-12,atol=1e-12,err_msg=name)
-        row = {"mode":"greeks" if greeks else "price","jax":{"training":training,"compile_seconds":compilation,
-                "frozen_pricing":pricing,"end_to_end":complete,"result":computed,"backend":engine.devices[0].platform,
-                "device_kind":engine.devices[0].device_kind,"devices":len(engine.devices),"block_size":engine.layout(args.paths).block_size},
-                "dal":reference|{"result":native}}
+        row = measure(args,prepared,model,native_product,native_model,greeks)
         report["measurements"].append(row)
         args.output.parent.mkdir(parents=True,exist_ok=True)
         args.output.write_text(json.dumps(report,indent=2)+"\n")

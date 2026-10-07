@@ -110,14 +110,10 @@ def test_gsr_jacfwd_reverse_and_common_path_differences_agree():
 def test_invalid_rate_inputs_fail_before_tracing(bad):
     model = rates()
     with pytest.raises((DalError,ValueError)):
-        if bad == "anchor":
-            replace(model.curve,discount_log_df=(.01,-.03,-.18))
-        elif bad == "dates":
-            replace(model.curve,node_dates=(TODAY,TODAY,TODAY.add_days(365)))
-        elif bad == "projection":
-            replace(model.curve,projection_tenors=("3M","3M"),projection_log_df=((0.,-.04,-.2),)*2)
-        elif bad == "correlation":
-            replace(model.vol,correlations=((1.,1.01),(1.01,1.)))
+        if bad in ("anchor","dates","projection","correlation"):
+            invalid_gaussian_input(model,bad)
+        elif bad in ("leverage","variance","step","hybrid_currency","bridge"):
+            invalid_smile_or_hybrid_input(bad)
         elif bad == "evaluation":
             prepare(api.Product_New((TODAY.add_days(365),),("pay PAYS 1",)),TODAY.add_days(1),model=model)
         elif bad == "fractional_time":
@@ -125,20 +121,34 @@ def test_invalid_rate_inputs_fail_before_tracing(bad):
             model.allocate((.5,),(SampleDef(),))
         elif bad == "maturity":
             prepare(api.Product_New((TODAY.add_days(365),),("pay PAYS FIX(IR[USD,DF,2040-01-01])",)),TODAY,model=model).engine(model)
-        elif bad == "leverage":
-            GSRLeverage(rate_shifts=(0.,),times=(0.,),values=((0.,),))
-        elif bad in ("variance","step"):
-            slv = rate_model("slv")
-            replace(slv,settings=replace(slv.settings,variance_correlations=(1.01,0.)) if bad == "variance" else replace(slv.settings,max_step=0.))
-        elif bad == "hybrid_currency":
-            replace(rate_model("hybrid"),domestic_currency="EUR")
-        else:
-            hybrid = rate_model("hybrid_slv")
-            names = hybrid.factor_names
-            matrix = hybrid.ordered_correlation()
-            a,b = names.index("FB"),names.index("FA")
-            matrix[a,b] = matrix[b,a] = .1
-            replace(hybrid,correlation=HybridCorrelation(factor_names=names,correlations=matrix))
+
+
+def invalid_gaussian_input(model,bad):
+    if bad == "correlation":
+        return replace(model.vol,correlations=((1.,1.01),(1.01,1.)))
+    options = {
+        "anchor":{"discount_log_df":(.01,-.03,-.18)},
+        "dates":{"node_dates":(TODAY,TODAY,TODAY.add_days(365))},
+        "projection":{"projection_tenors":("3M","3M"),"projection_log_df":((0.,-.04,-.2),)*2},
+    }
+    return replace(model.curve,**options[bad])
+
+
+def invalid_smile_or_hybrid_input(bad):
+    if bad == "leverage":
+        return GSRLeverage(rate_shifts=(0.,),times=(0.,),values=((0.,),))
+    if bad in ("variance","step"):
+        slv = rate_model("slv")
+        options = {"variance":{"variance_correlations":(1.01,0.)},"step":{"max_step":0.}}
+        return replace(slv,settings=replace(slv.settings,**options[bad]))
+    if bad == "hybrid_currency":
+        return replace(rate_model("hybrid"),domestic_currency="EUR")
+    hybrid = rate_model("hybrid_slv")
+    names = hybrid.factor_names
+    matrix = hybrid.ordered_correlation()
+    a,b = names.index("FB"),names.index("FA")
+    matrix[a,b] = matrix[b,a] = .1
+    return replace(hybrid,correlation=HybridCorrelation(factor_names=names,correlations=matrix))
 
 
 def test_rate_exercise_requires_a_feature_and_accepts_ir_regressors():
