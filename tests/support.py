@@ -53,7 +53,7 @@ def up_and_out_call(timeline: tuple[float, ...], barrier_dates: tuple[int, ...],
         x = scenario.spot - barrier
         survive = 1.0 - (cspr(x, BARRIER_EPS) if ctx.fuzzy else (x >= 0.0).astype(x.dtype))
         factors = jnp.ones_like(survive)
-        for k in range(int(multiplicity.max(initial=0))):
+        for k in range(int(multiplicity.max())):
             factors = factors * jnp.where(multiplicity > k, survive, 1.0)
         return jnp.prod(factors) * jnp.maximum(scenario.spot[-1] - strike, 0.0) / scenario.numeraire[-1]
 

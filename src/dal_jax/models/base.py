@@ -64,7 +64,7 @@ class Scenario(NamedTuple):
         mode, while one ``unstack`` per field transposes to a single ``stack``
         (an order of magnitude faster on CPU for a 36-date barrier).
         """
-        fields = [jnp.unstack(x, axis=0) for x in self]
+        fields = [jnp.unstack(x, axis=0) for x in (self.spot, self.numeraire, self.observations, self.discounts)]
         return tuple(Sample(*row) for row in zip(*fields))
 
 
@@ -97,19 +97,23 @@ def validate_timeline(model: Model, timeline: Sequence[float], sample_defs: Sequ
     """``Model_::ValidateTimeline``: increasing non-negative times, sane maturities, index budget."""
     if not timeline or len(timeline) != len(sample_defs):
         raise InvalidModelTimeline("sample definitions must match dates")
-    seen: list[str] = []
-    for i, (time, definition) in enumerate(zip(timeline, sample_defs)):
-        if not (math.isfinite(time) and time >= 0.0 and (i == 0 or time > timeline[i - 1])):
+    observed: set[str] = set()
+    previous = -math.inf
+    for time, definition in zip(timeline, sample_defs):
+        if not (math.isfinite(time) and time >= 0.0 and time > previous):
             raise InvalidModelTimeline("times must be nonnegative, finite and strictly increasing")
-        for maturity in definition.discount_mats:
-            if not (math.isfinite(maturity) and maturity >= time):
-                raise InvalidModelTimeline("discount maturities must be finite and not precede their sample")
-        if definition.discount_mats and not model.supports_discount_factors:
-            raise UnsupportedModelObservation("model does not provide discount factors")
-        if len(definition.index_names) > model.max_output_slots_per_sample:
-            raise UnsupportedModelObservation("too many outputs per sample")
-        for name in definition.index_names:
-            if name not in seen:
-                seen.append(name)
-            if len(seen) > model.max_observed_indices:
-                raise UnsupportedModelObservation("multiple future indices")
+        _validate_sample(model, time, definition, observed)
+        previous = time
+
+
+def _validate_sample(model: Model, time: float, definition: SampleDef, observed: set[str]) -> None:
+    """One date's requests; ``observed`` accumulates the distinct index names seen so far."""
+    if not all(math.isfinite(maturity) and maturity >= time for maturity in definition.discount_mats):
+        raise InvalidModelTimeline("discount maturities must be finite and not precede their sample")
+    if definition.discount_mats and not model.supports_discount_factors:
+        raise UnsupportedModelObservation("model does not provide discount factors")
+    if len(definition.index_names) > model.max_output_slots_per_sample:
+        raise UnsupportedModelObservation("too many outputs per sample")
+    observed.update(definition.index_names)
+    if len(observed) > model.max_observed_indices:
+        raise UnsupportedModelObservation("multiple future indices")

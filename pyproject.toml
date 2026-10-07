@@ -55,3 +55,7 @@ markers = [
 filterwarnings = [
     "ignore:An NVIDIA GPU may be present:UserWarning",
 ]
+
+[tool.pylint.typecheck]
+# Compiled extensions whose members astroid cannot introspect.
+ignored-modules = ["dal", "scipy.special"]

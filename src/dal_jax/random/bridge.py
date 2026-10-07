@@ -35,6 +35,17 @@ class BridgePlan:
     sqrt_dt: tuple[float, ...]
 
 
+def _interpolation(t: list[float], j: int, k: int, l: int) -> tuple[float, float, float]:
+    """Weights and conditional std of W(t_l) given W(t_{j-1}) (W(0) = 0 when j == 0) and W(t_k)."""
+    if j != 0:
+        return (
+            (t[k] - t[l]) / (t[k] - t[j - 1]),
+            (t[l] - t[j - 1]) / (t[k] - t[j - 1]),
+            math.sqrt(((t[l] - t[j - 1]) * (t[k] - t[l])) / (t[k] - t[j - 1])),
+        )
+    return (t[k] - t[l]) / t[k], t[l] / t[k], math.sqrt(t[l] * (t[k] - t[l]) / t[k])
+
+
 @functools.cache
 def bridge_plan(n: int) -> BridgePlan:
     """``BrownianBridgeTransform_::Initialize`` for ``n`` unit steps."""
@@ -65,14 +76,7 @@ def bridge_plan(n: int) -> BridgePlan:
         bridge_index[i] = l
         left_index[i] = j
         right_index[i] = k
-        if j != 0:
-            left_weight[i] = (t[k] - t[l]) / (t[k] - t[j - 1])
-            right_weight[i] = (t[l] - t[j - 1]) / (t[k] - t[j - 1])
-            std_dev[i] = math.sqrt(((t[l] - t[j - 1]) * (t[k] - t[l])) / (t[k] - t[j - 1]))
-        else:
-            left_weight[i] = (t[k] - t[l]) / t[k]
-            right_weight[i] = t[l] / t[k]
-            std_dev[i] = math.sqrt(t[l] * (t[k] - t[l]) / t[k])
+        left_weight[i], right_weight[i], std_dev[i] = _interpolation(t, j, k, l)
         j = k + 1
         if j >= n:
             j = 0

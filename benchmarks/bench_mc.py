@@ -51,7 +51,7 @@ def timed(fn, repeat: int) -> tuple[float, float]:
     return first, best
 
 
-def dal_cases(dal, paths):
+def dal_cases(dal):
     from support import BARRIER, DIV, MATURITY, RATE, SPOT, STRIKE, VOL
 
     today = dal.Date_(2022, 9, 15)
@@ -70,29 +70,30 @@ def dal_cases(dal, paths):
     return {"european": european, "barrier_1m": monthly, "barrier_1w": weekly, "barrier_1m_vec": monthly, "barrier_1w_vec": weekly}, model
 
 
-def main() -> int:
-    args = parse_args()
-    import dal_jax
-
-    if args.platform == "cpu":
-        dal_jax.config.configure(num_cpu_devices=args.devices)
-    import jax
-    from support import bs_model, european_call, monthly_barrier_timeline, up_and_out_call
-
-    from dal_jax import MonteCarloEngine, MonteCarloSettings
+def jax_products():
+    from support import european_call, monthly_barrier_timeline, up_and_out_call
 
     def barrier(timeline, vectorized):
         last = len(timeline) - 1
         return up_and_out_call(timeline, tuple(range(1, last + 1)) + (last,), vectorized=vectorized)
 
-    products = {
+    return {
         "european": european_call(),
         "barrier_1m": barrier(monthly_barrier_timeline(), False),
         "barrier_1w": barrier(weekly_timeline(), False),
         "barrier_1m_vec": barrier(monthly_barrier_timeline(), True),
         "barrier_1w_vec": barrier(weekly_timeline(), True),
     }
-    cases = [c for c in args.cases.split(",") if c]
+
+
+def bench_jax(args, cases) -> None:
+    import jax
+    from support import bs_model
+
+    import dal_jax
+    from dal_jax import MonteCarloEngine, MonteCarloSettings
+
+    products = jax_products()
     devices = dal_jax.config.devices(args.platform)
     print(f"jax {jax.__version__}, platform={args.platform}, devices={len(devices)} ({devices[0].device_kind}), "
           f"parallel={args.parallel}, dtype={args.dtype}, paths={args.paths}, block={args.block_size}")
@@ -105,22 +106,38 @@ def main() -> int:
                                           dtype=args.dtype, block_size=args.block_size)
             engine = MonteCarloEngine(products[case], bs_model(), settings)
             result = {}
-            first, best = timed(lambda: result.update(engine.value(args.paths)), args.repeat)
-            mode = "price + grad" if greeks else "price"
-            print(f"| {case} | {mode} | {first:.2f} | {best * 1e3:.1f} | {result['PV']:.10f} |")
+            first, best = timed(lambda engine=engine, result=result: result.update(engine.value(args.paths)), args.repeat)
+            print(f"| {case} | {'price + grad' if greeks else 'price'} | {first:.2f} | {best * 1e3:.1f} | {result['PV']:.10f} |")
 
+
+def bench_dal(args, cases) -> None:
+    import dal
+
+    products, model = dal_cases(dal)
+    print()
+    print("| case | mode | DAL warm (ms) | DAL PV |")
+    print("|---|---|---:|---:|")
+    for case in cases:
+        for greeks in (False, True):
+            result = {}
+
+            def run(product=products[case], greeks=greeks, result=result):
+                result.update(dict(dal.MonteCarlo_Value(product, model, args.paths, "sobol", False, greeks)))
+
+            _, best = timed(run, args.repeat)
+            print(f"| {case} | {'price + grad' if greeks else 'price'} | {best * 1e3:.1f} | {result['PV']:.10f} |")
+
+
+def main() -> int:
+    args = parse_args()
+    import dal_jax
+
+    if args.platform == "cpu":
+        dal_jax.config.configure(num_cpu_devices=args.devices)
+    cases = [c for c in args.cases.split(",") if c]
+    bench_jax(args, cases)
     if args.dal:
-        import dal
-
-        dal_products, model = dal_cases(dal, args.paths)
-        print()
-        print("| case | mode | DAL warm (ms) | DAL PV |")
-        print("|---|---|---:|---:|")
-        for case in cases:
-            for greeks in (False, True):
-                out = {}
-                _, best = timed(lambda: out.update(dict(dal.MonteCarlo_Value(dal_products[case], model, args.paths, "sobol", False, greeks))), args.repeat)
-                print(f"| {case} | {'price + grad' if greeks else 'price'} | {best * 1e3:.1f} | {out['PV']:.10f} |")
+        bench_dal(args, cases)
     return 0
 
 

@@ -18,6 +18,12 @@ from dal_jax.errors import InvalidModelParameter
 from dal_jax.models.base import ModelParams, SampleDef, Scenario, validate_timeline
 
 
+def _steps_from_today(times: tuple[float, ...]) -> tuple[float, ...]:
+    """Step lengths of DAL's model grid: today, then every positive product time."""
+    grid = [0.0] + [t for t in times if t > 0.0]
+    return tuple(right - left for left, right in zip(grid, grid[1:]))
+
+
 @dataclass(frozen=True, slots=True)
 class BSPlan:
     times: tuple[float, ...]  # product timeline
@@ -76,11 +82,10 @@ class BlackScholes:
     def allocate(self, timeline: Sequence[float], sample_defs: Sequence[SampleDef]) -> BSPlan:
         times = tuple(float(t) for t in timeline)
         validate_timeline(self, times, sample_defs)
-        grid = [0.0] + [t for t in times if t > 0.0]
         return BSPlan(
             times=times,
             today_on_timeline=times[0] == 0.0,
-            dts=tuple(grid[i + 1] - grid[i] for i in range(len(grid) - 1)),
+            dts=_steps_from_today(times),
             numeraire=tuple(d.numeraire for d in sample_defs),
             discount_mats=tuple(tuple(float(m) for m in d.discount_mats) for d in sample_defs),
             max_observations=max(len(d.index_names) for d in sample_defs),
