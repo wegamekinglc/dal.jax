@@ -17,10 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: ${{ matrix.python }}  # sets UV_PYTHON and keys the cache per version
+          cache-suffix: tests
       - name: Install
-        run: uv sync --python ${{ matrix.python }}
+        run: uv sync
       - name: Test (4 virtual CPU devices, dal-python oracle included)
-        run: uv run --python ${{ matrix.python }} pytest
+        run: uv run pytest
 
   examples:
     name: Example notebooks
@@ -28,11 +31,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.13"
+          cache-suffix: examples  # installs an extra group, so it must not share the tests cache
       - name: Install
-        run: uv sync --python 3.13 --group examples
+        run: uv sync --group examples
       - name: Execute every notebook
         working-directory: examples
         run: |
           for notebook in *.ipynb; do
-            uv run --python 3.13 --group examples jupyter nbconvert --to notebook --execute --output-dir "$RUNNER_TEMP" --ExecutePreprocessor.timeout=1200 "$notebook"
+            uv run --group examples jupyter nbconvert --to notebook --execute --output-dir "$RUNNER_TEMP" --ExecutePreprocessor.timeout=1200 "$notebook"
           done
