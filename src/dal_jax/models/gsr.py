@@ -233,7 +233,8 @@ class GSR:
 
     @property
     def numeraire_is_deterministic(self):
-        return all(x == 0. for row in self._rows("g") for x in row)
+        # g is active: live parameters can make a zero-volatility model stochastic.
+        return False
 
     def _rows(self, prefix):
         values = getattr(self.vol, f"{prefix}_values")

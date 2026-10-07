@@ -1,5 +1,7 @@
 """Joint equity/rate observations, bank accounts and risks against native DAL."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -87,3 +89,33 @@ def test_exact_at_the_money_tie_keeps_first_operand_risk(dal):
                                             valuation=dal.ScriptValuationSettings_(evaluation_date=native_date(dal,date)),
                                             simulation=dal.MonteCarloSettings_(enable_aad=True))
     assert ours["d_spot"] == theirs["d_spot"] == 2.
+
+
+@pytest.mark.oracle
+@pytest.mark.parametrize("kind",["gsr","slv"])
+def test_hybrid_bumped_from_zero_rate_volatility_matches_native(dal,kind):
+    if not hasattr(dal,"HybridModelData_New"):
+        pytest.skip("hybrid live-parameter parity requires pinned source oracle")
+    positive,native = hybrid_pair(dal,kind)
+    model = zero_rate_model(positive)
+    dates = (TODAY.add_days(180),TODAY.add_days(365))
+    events = ("pay PAYS MAX(FIX(EQ[A])-101,0) + 100*FIX(IR[USD,LIBOR_3M_CME])",)*2
+    engine = prepare(api.Product_New(dates,events),TODAY,model=model).engine(model,
+                     MonteCarloSettings(enable_aad=True,use_bb=True,parallel="none",block_size=128))
+    params = engine.default_params() | {"model":positive.default_params()}
+    actual = engine.value(257,params)
+    expected = dal.MonteCarlo_ValueWithSettings(dal.Product_New([native_date(dal,d) for d in dates],events),native,257,
+        valuation=dal.ScriptValuationSettings_(evaluation_date=native_date(dal,TODAY)),simulation=dal.MonteCarloSettings_(enable_aad=True,use_bb=True))
+    for name in expected:
+        np.testing.assert_allclose(actual[name],expected[name],rtol=1e-10 if name == "PV" else 1e-8,atol=1e-10,err_msg=name)
+
+
+def zero_rate_model(positive):
+    """Keep a hybrid's topology while zeroing its construction-time rate volatility."""
+    kernel = positive.rate.model
+    gaussian = kernel.gaussian if isinstance(kernel,GSRSLV) else kernel
+    zero_vol = replace(gaussian.vol,g_values=np.zeros_like(gaussian.vol.g_values).tolist())
+    zero_gaussian = replace(gaussian,vol=zero_vol)
+    zero_kernel = replace(kernel,gaussian=zero_gaussian) if isinstance(kernel,GSRSLV) else zero_gaussian
+    zero_rate = replace(positive.rate,model=zero_kernel)
+    return replace(positive,components=tuple(zero_rate if c.name == positive.rate.name else c for c in positive.components))

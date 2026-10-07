@@ -9,9 +9,28 @@ import dal_jax.api as api
 from dal_jax import MonteCarloSettings, prepare
 from dal_jax.script.fixings import ValuationSettings
 from oracle.test_dal_rates import TODAY, native_date, model_pair
-from oracle.test_dal_hybrid import hybrid_pair
+from oracle.test_dal_hybrid import hybrid_pair, zero_rate_model
 
 pytestmark = pytest.mark.gpu
+
+
+@pytest.mark.parametrize("kind",["gsr","slv"])
+def test_gpu_live_rate_volatility_from_zero_model(gpu_devices,cpu_devices,dal,kind):
+    positive,native_model = hybrid_pair(dal,kind)
+    model = zero_rate_model(positive)
+    dates = (TODAY.add_days(180),TODAY.add_days(365))
+    events = ("pay PAYS MAX(FIX(EQ[A])-101,0) + 100*FIX(IR[USD,LIBOR_3M_CME])",)*2
+    prepared = prepare(api.Product_New(dates,events),TODAY,model=model)
+    common = dict(enable_aad=True,use_bb=True,block_size=128)
+    gpu = prepared.engine(model,MonteCarloSettings(**common,platform="gpu",devices=gpu_devices))
+    cpu = prepared.engine(model,MonteCarloSettings(**common,platform="cpu",devices=cpu_devices))
+    params = gpu.default_params() | {"model":positive.default_params()}
+    actual,expected = gpu.value(257,params),cpu.value(257,params)
+    native = dal.MonteCarlo_ValueWithSettings(dal.Product_New([native_date(dal,d) for d in dates],events),native_model,257,
+        valuation=dal.ScriptValuationSettings_(evaluation_date=native_date(dal,TODAY)),simulation=dal.MonteCarloSettings_(enable_aad=True,use_bb=True))
+    for name in actual:
+        for reference in (expected,native):
+            np.testing.assert_allclose(actual[name],reference[name],rtol=1e-10 if name == "PV" else 1e-8,atol=1e-10,err_msg=name)
 
 
 @pytest.mark.parametrize("kind",["gsr","multi","hybrid","local_hybrid","slv_hybrid"])

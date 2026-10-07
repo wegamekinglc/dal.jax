@@ -68,6 +68,22 @@ def test_zero_rate_volatility_has_finite_risks_and_reprices_discount_curve(kind)
         assert result["d_volOfVol"] == 0.
 
 
+@pytest.mark.parametrize("kind",["hybrid","hybrid_slv"])
+def test_zero_volatility_hybrid_reprices_live_parameters_like_a_fresh_model(kind):
+    frozen = rate_model(kind,True)
+    fresh = rate_model(kind)
+    data = api.Product_New((TODAY.add_days(180),TODAY.add_days(365)),
+                          ("pay PAYS MAX(FIX(EQ[A])-101,0) + 100*FIX(IR[USD,LIBOR_3M_CME])",)*2)
+    settings = MonteCarloSettings(enable_aad=True,use_bb=True,parallel="none",block_size=128)
+    reused = prepare(data,TODAY,model=frozen).engine(frozen,settings)
+    reference = prepare(data,TODAY,model=fresh).engine(fresh,settings)
+    live = reused.default_params() | {"model":fresh.default_params()}
+    actual = reused.value(257,live)
+    expected = reference.value(257)
+    for name in expected:
+        np.testing.assert_allclose(actual[name],expected[name],rtol=1e-12,atol=1e-12,err_msg=name)
+
+
 def test_gaussian_rank_deficient_covariance_is_supported():
     model = rates(singular=True)
     product = prepare(api.Product_New((TODAY.add_days(365),),("pay PAYS FIX(IR[USD,DF,2028-10-01])",)),TODAY,model=model)
