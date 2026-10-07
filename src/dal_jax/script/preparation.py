@@ -1,7 +1,7 @@
-"""Prepare scalar scripts for exact and fuzzy Monte Carlo valuation.
+"""Prepare scalar/vector scripts for exact and fuzzy Monte Carlo valuation.
 
 The input event table stays immutable.  Preparation partitions dates, binds
-SPOT observations and replays history on the host. Exact events additionally
+SPOT/FIX observations and replays history on the host. Exact events additionally
 use domain/condition folding; fuzzy events retain continuous comparisons,
 following DAL's model-aware preparation. Both lower to grouped JAX events.
 """
@@ -10,15 +10,17 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
+import jax
 import jax.numpy as jnp
 
 from dal_jax.dates import Date
-from dal_jax.errors import InvalidSetting, InvalidScriptStructure, MissingFixing, UnboundHistoricalSpot, UnsupportedExecutionMode, script_error
+from dal_jax.errors import InvalidSetting, InvalidScriptStructure, UnsupportedExecutionMode
 from dal_jax.mc.engine import PathProduct
 from dal_jax.models.base import Sample, SampleDef
 from dal_jax.script import ast as A
 from dal_jax.script.lower.exact import lower_event, replay_events
 from dal_jax.script.lower.events import lower_events
+from dal_jax.script.lower.state import ScriptState, scalars, initial_state as empty_state
 from dal_jax.script.passes.constcond import process_const_conditions
 from dal_jax.script.passes.constfold import ConstProcessor
 from dal_jax.script.passes.domain import DomainProcessor
@@ -27,17 +29,10 @@ from dal_jax.script.passes.eventgroup import group_events
 from dal_jax.script.passes.intervals import Domain
 from dal_jax.script.passes.varindex import VarTable
 from dal_jax.script.product import ScriptProductData
+from dal_jax.script.fixings import ValuationSettings
+from dal_jax.script.observation import Observation, bind_observations, local_observations
 
-_VECTOR_NODES = (A.VectorEntry, A.VectorReduce, A.VectorAssign, A.VectorAppend)
-
-
-@dataclass(frozen=True, slots=True)
-class SpotObservation:
-    """One shared SPOT observation per event date, historical or simulated."""
-
-    date: Date
-    sample_id: int | None
-    value: float | None
+SpotObservation = Observation
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -56,6 +51,11 @@ class PreparedProduct:
     initial_values: tuple[float, ...]
     historical_spots: tuple[float, ...]
     max_nested_ifs: int
+    initial_vectors: tuple[tuple[float, ...], ...] = ()
+    initial_lengths: tuple[int, ...] = ()
+    event_to_sample: tuple[int, ...] = ()
+    event_observations: tuple[tuple[int, ...], ...] = ()
+    historical_observations: tuple[float, ...] = ()
 
     @property
     def script_params(self) -> tuple[tuple[str, float], ...]:
@@ -76,61 +76,68 @@ class PreparedProduct:
 
         def initial_state(params):
             state = jnp.asarray(self.initial_values, dtype=jnp.float64)
+            if self.variables.vector_names:
+                state = ScriptState(state, tuple(jnp.asarray(v) for v in self.initial_vectors),
+                                    jnp.asarray(self.initial_lengths, dtype=jnp.int32), jnp.zeros(2*len(self.initial_vectors), dtype=bool))
             if live_history:
-                state = jnp.zeros_like(state)
+                state = empty_state(len(self.initial_values), self.variables.vector_capacities, jnp)
                 for event, spot in zip(history, self.historical_spots):
-                    sample = Sample(jnp.asarray(spot, state.dtype), jnp.asarray(1.0, state.dtype), jnp.empty(0), jnp.empty(0))
+                    sample = Sample(jnp.asarray(spot, state.dtype), jnp.asarray(1.0, state.dtype), jnp.asarray(self.historical_observations), jnp.empty(0))
                     state = event(state, sample, params["script"])
             return state
 
         def payoff(params, scenario, ctx, initial=None):
             state = initial_state(params) if initial is None else initial
-            state = state.astype(scenario.spot.dtype)
+            state = jax.tree.map(lambda x: x.astype(scenario.spot.dtype) if jnp.issubdtype(x.dtype, jnp.floating) else x, state)
             events = self.fuzzy_events if ctx.fuzzy else self.events
-            state = lower_events(events, self.variables.const_names, ctx)(state, scenario, params["script"])
-            return state[self.payoff_index]
+            samples = self._event_scenario(scenario)
+            state = lower_events(events, self.variables.const_names, ctx)(state, samples, params["script"])
+            value = scalars(state)[self.payoff_index]
+            return jnp.concatenate((value[None], state.errors.astype(state.dtype))) if isinstance(state, ScriptState) else value
 
         return PathProduct(timeline=self.timeline, payoff=payoff, payoff_names=(self.variables.var_names[self.payoff_index],),
-                           sample_defs=self.sample_defs, script_params=self.script_params, initial_state=initial_state)
+                           sample_defs=self.sample_defs, script_params=self.script_params, initial_state=initial_state,
+                           path_state_size=len(self.initial_values)+sum(self.variables.vector_capacities)+3*len(self.initial_vectors),
+                           error_messages=tuple(f"{code}: {name}" for name in self.variables.vector_names
+                                                for code in ("VectorIndexOutOfRange", "EmptyVectorReduction")))
+
+    def _event_scenario(self, scenario):
+        from dal_jax.models.base import Scenario
+        ids = jnp.asarray(self.event_to_sample, dtype=jnp.int32)
+        fields = tuple(jnp.take(field, ids, axis=0) for field in (scenario.spot, scenario.numeraire, scenario.discounts))
+        return Scenario(fields[0], fields[1], self._event_observations(scenario), fields[2])
+
+    def _event_observations(self, scenario):
+        width = max((len(row) for row in self.event_observations), default=0)
+        shape = (len(self.events), width)
+        if not width:
+            return jnp.empty(shape, dtype=scenario.spot.dtype)
+        samples, outputs, known, live = _observation_arrays(self.observations, self.event_observations, width)
+        values = jnp.asarray(known, dtype=scenario.spot.dtype)
+        if any(any(row) for row in live):
+            simulated = scenario.observations[jnp.asarray(samples), jnp.asarray(outputs)]
+            values = jnp.where(jnp.asarray(live), simulated, values)
+        return values
+
+
+def _or_zero(value):
+    return 0 if value is None else value
+
+def _observation_arrays(observations, event_ids, width):
+    samples, outputs, known, live = [], [], [], []
+    for ids in event_ids:
+        row = [observations[i] for i in ids]
+        row += [Observation(date=None, value=0., historical=True)]*(width-len(row))
+        samples.append([_or_zero(r.sample_id) for r in row])
+        outputs.append([_or_zero(r.output_id) for r in row])
+        known.append([_or_zero(r.value) for r in row])
+        live.append([not r.historical for r in row])
+    return samples, outputs, known, live
 
 
 def _validate_node(node: A.Node) -> None:
-    if isinstance(node, A.Fix):
-        raise script_error(node.preparation_error())
-    if isinstance(node, _VECTOR_NODES):
-        raise UnsupportedExecutionMode("vector evaluation requires P5")
     if isinstance(node, A.Exercise):
         raise UnsupportedExecutionMode("EXERCISE statements require the LSMC simulation driver")
-    if isinstance(node, A.Pays) and node.payment_date is not None and node.payment_date != node.source.event_date:
-        raise script_error(f"PreparationRequired: PAYS ... ON {node.payment_date} requires model-aware preparation; {node.source.describe()}")
-
-
-def _bind_event(event: A.Event, date: Date, sample_id: int | None, observations: list[SpotObservation],
-                historical_spots: Mapping[Date, float]) -> A.Event:
-    uses = [node for statement in event for node in A.walk(statement) if isinstance(node, A.Spot)]
-    observation_id = None
-    if uses:
-        value = _historical_spot(date, uses[0], historical_spots) if sample_id is None else None
-        observation_id = len(observations)
-        observations.append(SpotObservation(date, sample_id, value))
-
-    def bind(node):
-        if isinstance(node, A.Spot):
-            return replace(node, observation_id=observation_id)
-        if isinstance(node, A.Pays):
-            node = replace(node, payment_date=None)
-        return node.with_args(tuple(bind(arg) for arg in node.args))
-
-    return tuple(bind(statement) for statement in event)
-
-
-def _historical_spot(date: Date, use: A.Spot, spots: Mapping[Date, float]) -> float:
-    if date not in spots:
-        raise UnboundHistoricalSpot(f"SPOT() requires a historical observation; event={date}; {use.source.describe()}")
-    value = float(spots[date])
-    if not math.isfinite(value):
-        raise MissingFixing(f"non-finite historical SPOT; event={date}")
-    return value
 
 
 class _ScalarDomains(DomainProcessor):
@@ -204,32 +211,75 @@ def _parse_product(data: ScriptProductData, evaluation_date: Date):
     return product
 
 
-def _bind_events(product, spots):
-    observations: list[SpotObservation] = []
-    past = tuple(_bind_event(event, date, None, observations, spots) for date, event in zip(product.past_event_dates, product.past_events))
-    future = tuple(_bind_event(event, date, i, observations, spots) for i, (date, event) in enumerate(zip(product.event_dates, product.events)))
-    observed = {observation.date: observation.value for observation in observations if observation.value is not None}
-    replay_spots = tuple(observed.get(date, 0.0) for date in product.past_event_dates)
-    return past, future, tuple(observations), replay_spots
+def _seed_metadata(initial):
+    metadata = {"initial_values": tuple(float(x) for x in scalars(initial))}
+    if isinstance(initial, ScriptState):
+        metadata["initial_vectors"] = tuple(tuple(float(x) for x in v) for v in initial.vectors)
+        metadata["initial_lengths"] = tuple(int(x) for x in initial.lengths)
+    return metadata
 
 
-def prepare(data: ScriptProductData, evaluation_date: Date, *, historical_spots: Mapping[Date, float] | None = None) -> PreparedProduct:
-    """Prepare scalar SPOT scripts; explicit historical spots are keyed by event date.
 
-    FIX, mutable vectors, delayed payments and EXERCISE keep their front-end
-    support but require later milestones for valuation.
+def _with_snapshot(valuation, fixings):
+    if valuation.fixings is not None and valuation.fixings is not fixings:
+        raise InvalidSetting("expected one explicit fixing snapshot")
+    return replace(valuation, fixings=fixings)
+
+
+def _with_date(valuation, date):
+    if valuation.evaluation_date is not None and date != valuation.evaluation_date:
+        raise InvalidSetting("evaluation_date and valuation.evaluation_date disagree")
+    return replace(valuation, evaluation_date=date)
+
+
+def _valuation(evaluation_date, valuation, fixings, today_fixing_policy):
+    valuation = valuation or ValuationSettings()
+    if evaluation_date is not None:
+        valuation = _with_date(valuation, evaluation_date)
+    if fixings is not None:
+        valuation = _with_snapshot(valuation, fixings)
+    if today_fixing_policy is not None:
+        valuation = replace(valuation, today_fixing_policy=today_fixing_policy)
+    if valuation.evaluation_date is None:
+        from dal_jax.api import EvaluationDate_Get
+        valuation = replace(valuation, evaluation_date=EvaluationDate_Get())
+    return valuation
+
+
+def prepare(data: ScriptProductData, evaluation_date: Date | None = None, *, model=None, valuation=None,
+            historical_spots: Mapping[Date, float] | None = None, fixings=None, today_fixing_policy=None) -> PreparedProduct:
+    """Prepare vectors, observations, history and discounts; EXERCISE requires P6.
+
+    FIX and delayed payments need ``model=...``. An immutable valuation setting
+    or explicit fixing snapshot selects history; future quotes are always model
+    outputs. Legacy SPOT history can also be supplied by event date.
     """
-    product = _parse_product(data, evaluation_date)
-    past, future, observations, replay_spots = _bind_events(product, {} if historical_spots is None else historical_spots)
-    annotated, _ = process_ifs(past)
-    past = tuple(annotated)
+    valuation = _valuation(evaluation_date, valuation, fixings, today_fixing_policy)
+    date = valuation.evaluation_date
+    product = _parse_product(data, date)
+    plan = bind_observations(product, data, date, valuation, historical_spots or {}, model)
+    past, _ = process_ifs(plan.past)
+    past = tuple(past)
     table = product.vars
-    initial = replay_events(past, replay_spots, len(table.var_names), table.const_names, dict(zip(table.const_names, table.const_values)))
-    fuzzy_future, fuzzy_depth = _analyse(past, future, len(table.var_names), observations, fuzzy=True)
-    future, depth = _analyse(past, future, len(table.var_names), observations)
-    return PreparedProduct(evaluation_date=evaluation_date, event_dates=tuple(product.event_dates), events=future,
-                           fuzzy_events=fuzzy_future, past_event_dates=tuple(product.past_event_dates), past_events=past,
-                           timeline=tuple((date - evaluation_date) / 365.0 for date in product.event_dates),
-                           sample_defs=tuple(SampleDef(numeraire=True) for _ in product.event_dates), variables=table,
-                           payoff_index=product.payoff_index, observations=observations, initial_values=initial,
-                           historical_spots=replay_spots, max_nested_ifs=max(depth, fuzzy_depth))
+    history_values = tuple(o.value if o.value is not None else 0. for o in plan.observations)
+    initial = _replay_initial(past, plan, table, history_values)
+    fuzzy_future, fuzzy_depth = _analyse(past, plan.future, len(table.var_names), plan.observations, fuzzy=True)
+    future, depth = _analyse(past, plan.future, len(table.var_names), plan.observations)
+    return PreparedProduct(evaluation_date=date, event_dates=tuple(product.event_dates),
+                           events=local_observations(future, plan.event_observations),
+                           fuzzy_events=local_observations(fuzzy_future, plan.event_observations),
+                           past_event_dates=tuple(product.past_event_dates), past_events=past,
+                           timeline=tuple((day-date)/365. for day in plan.sample_dates), sample_defs=plan.definitions, variables=table,
+                           payoff_index=product.payoff_index, observations=plan.observations, **_seed_metadata(initial),
+                           historical_spots=plan.historical_spots, historical_observations=history_values,
+                           event_to_sample=plan.event_to_sample, event_observations=plan.event_observations,
+                           max_nested_ifs=max(depth, fuzzy_depth))
+
+
+def _replay_initial(past, plan, table, history_values):
+    if not plan.future:
+        import numpy as np
+        return empty_state(len(table.var_names), table.vector_capacities, np)
+    return replay_events(past, plan.historical_spots, len(table.var_names), table.const_names,
+                         dict(zip(table.const_names, table.const_values)), capacities=table.vector_capacities,
+                         observations=history_values)

@@ -21,6 +21,7 @@ from jax import Array
 from jax.typing import ArrayLike
 
 from dal_jax.errors import InvalidModelTimeline, UnsupportedModelObservation
+from dal_jax.index import Index
 
 type ModelParams = Mapping[str, ArrayLike]
 
@@ -83,6 +84,8 @@ class Model(Protocol):
     def default_params(self) -> dict[str, Array]: ...
 
     def validate_params(self, params: ModelParams) -> None: ...
+
+    def supports_index(self, index: Index) -> bool: ...
 
     def allocate(self, timeline: Sequence[float], sample_defs: Sequence[SampleDef]): ...
 

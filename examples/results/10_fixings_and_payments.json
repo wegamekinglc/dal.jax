@@ -1,0 +1,158 @@
+{
+  "environment": {
+    "jax": "0.11.2",
+    "dal_python": "2026.9.25"
+  },
+  "configuration": {
+    "paths": 65536,
+    "repeat": 3,
+    "platform": "cpu",
+    "devices": 8
+  },
+  "comparisons": [
+    {
+      "label": "Today's FIX: Model",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.002467648999299854,
+        "warm_min_seconds": 0.000697382987709716,
+        "warm_median_seconds": 0.0007616659859195352,
+        "warm_runs_seconds": [
+          0.0010125419939868152,
+          0.0007616659859195352,
+          0.000697382987709716
+        ],
+        "compile_seconds": 0.17417364899301901,
+        "result": {
+          "PV": 100.0,
+          "d_div": 0.0,
+          "d_rate": 0.0,
+          "d_spot": 1.0,
+          "d_vol": 0.0
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.024368087004404515,
+        "warm_min_seconds": 0.0009631889988668263,
+        "warm_median_seconds": 0.0011225809867028147,
+        "warm_runs_seconds": [
+          0.0009631889988668263,
+          0.0011225809867028147,
+          0.0011820369982160628
+        ],
+        "result": {
+          "PV": 100.0,
+          "d_div": 0.0,
+          "d_rate": 0.0,
+          "d_spot": 1.0,
+          "d_vol": 0.0
+        }
+      }
+    },
+    {
+      "label": "Today's FIX: RequireHistorical",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.0025193770125042647,
+        "warm_min_seconds": 0.000575458980165422,
+        "warm_median_seconds": 0.0007781599997542799,
+        "warm_runs_seconds": [
+          0.0009317649819422513,
+          0.0007781599997542799,
+          0.000575458980165422
+        ],
+        "compile_seconds": 0.10174473997903988,
+        "result": {
+          "PV": 97.0,
+          "d_div": 0.0,
+          "d_rate": 0.0,
+          "d_spot": 0.0,
+          "d_vol": 0.0
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.0015717239875812083,
+        "warm_min_seconds": 0.0010778119903989136,
+        "warm_median_seconds": 0.0010875439911615103,
+        "warm_runs_seconds": [
+          0.001251337002031505,
+          0.0010875439911615103,
+          0.0010778119903989136
+        ],
+        "result": {
+          "PV": 97.0,
+          "d_div": 0.0,
+          "d_rate": 0.0,
+          "d_spot": 0.0,
+          "d_vol": 0.0
+        }
+      }
+    },
+    {
+      "label": "Dated equity FIX and two-year payment",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.008567987009882927,
+        "warm_min_seconds": 0.0031153930176515132,
+        "warm_median_seconds": 0.0033214279974345118,
+        "warm_runs_seconds": [
+          0.004067942994879559,
+          0.0033214279974345118,
+          0.0031153930176515132
+        ],
+        "compile_seconds": 0.5931957029970363,
+        "result": {
+          "PV": 4.284225216283389,
+          "d_div": -25.152369293062268,
+          "d_rate": 16.58391886049549,
+          "d_spot": 0.5100341551093183,
+          "d_vol": 25.32481265756,
+          "d_K": -0.46719190294648427
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.0019594960031099617,
+        "warm_min_seconds": 0.0016059460176620632,
+        "warm_median_seconds": 0.0020564610022120178,
+        "warm_runs_seconds": [
+          0.0020628380007110536,
+          0.0020564610022120178,
+          0.0016059460176620632
+        ],
+        "result": {
+          "PV": 4.284225216283389,
+          "d_K": -0.4671919029464922,
+          "d_div": -25.152369293062268,
+          "d_rate": 16.583918860495483,
+          "d_spot": 0.5100341551093182,
+          "d_vol": 25.324812657560013
+        }
+      }
+    }
+  ],
+  "diagnostics": {
+    "timeline": [
+      0.4931506849315068,
+      1.0
+    ],
+    "observation_requests": 1,
+    "discount_maturities": [
+      [],
+      [
+        2.0
+      ]
+    ]
+  }
+}

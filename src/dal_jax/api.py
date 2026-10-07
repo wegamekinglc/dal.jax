@@ -18,10 +18,11 @@ from dal_jax.dates.date import Date
 from dal_jax.errors import InvalidPathCount, InvalidSetting, script_error
 from dal_jax.mc import MonteCarloEngine, MonteCarloSettings
 from dal_jax.mc.settings import DEFAULT_SMOOTH
-from dal_jax.models import BlackScholes
+from dal_jax.models import BlackScholes, CorrelatedBlackScholes, LocalVol, LocalVolSurface
 from dal_jax.models.base import Model
 from dal_jax.script import diagnostics
 from dal_jax.script.preparation import prepare
+from dal_jax.script.fixings import FixingSnapshot, TodayFixingPolicy, ValuationSettings
 from dal_jax.script.product import ScriptProductData, ScriptProductSettings
 
 _lock = threading.Lock()
@@ -88,11 +89,25 @@ def BSModelData_New(spot: float, vol: float, rate: float = 0.0, div: float = 0.0
     return BlackScholes(spot=spot, vol=vol, rate=rate, div=div)
 
 
+def CorrelatedBSModelData_New(indices, spots, vols, divs, rate, correlations):  # noqa: N802
+    return CorrelatedBlackScholes(indices=indices, spots=spots, vols=vols, divs=divs, rate=rate, correlations=correlations)
+
+
+def LocalVolSurfaceData_New(name, spots, times, vols):  # noqa: N802
+    return LocalVolSurface(name=name, spots=spots, times=times, vols=vols)
+
+
+def BSLocalVolModelData_New(name, index, currency, factor, bs, surface, max_step=1./12.):  # noqa: N802
+    return LocalVol(name=name, index=index, currency=currency, factor=factor, spot=bs.spot,
+                    rate=bs.rate, div=bs.div, surface=surface, max_step=max_step)
+
+
 def MonteCarlo_Value(product: ScriptProductData, model: Model, n_paths: int, rsg: str = "sobol", use_bb: bool = False,  # noqa: N802
                     enable_aad: bool = False, smooth: float = DEFAULT_SMOOTH, compiled: bool | None = None, *,
                     evaluation_date: Date | _dt.date | None = None, historical_spots: Mapping[Date | _dt.date, float] | None = None,
-                    method: str | None = None, **execution_settings) -> dict[str, float]:
-    """Value scalar scripts, returning PV and, with AAD, all ``d_<label>`` risks.
+                    method: str | None = None, valuation: ValuationSettings | None = None, fixings: FixingSnapshot | None = None,
+                    today_fixing_policy: TodayFixingPolicy | str | None = None, **execution_settings) -> dict[str, float]:
+    """Value prepared scripts, returning PV and, with AAD, all ``d_<label>`` risks.
 
     ``method`` aliases ``rsg`` for dal-python callers.  Execution options such
     as ``block_size``, ``parallel`` and ``devices`` go to MonteCarloSettings.
@@ -103,10 +118,29 @@ def MonteCarlo_Value(product: ScriptProductData, model: Model, n_paths: int, rsg
     rsg = _random_sequence(rsg, method)
     _compiled_option(compiled)
     settings = MonteCarloSettings(rsg=rsg, use_bb=use_bb, enable_aad=enable_aad, smooth=smooth, **execution_settings)
-    date = EvaluationDate_Get() if evaluation_date is None else _to_date(evaluation_date)
+    date = None if evaluation_date is None else _to_date(evaluation_date)
     spots = None if historical_spots is None else {_to_date(day): value for day, value in historical_spots.items()}
-    prepared = prepare(product, date, historical_spots=spots)
+    prepared = prepare(product, date, model=model, valuation=valuation, fixings=fixings,
+                       today_fixing_policy=today_fixing_policy, historical_spots=spots)
     return MonteCarloEngine(prepared.path_product(), model, settings).value(int(n_paths))
+
+
+TodayFixingPolicy_ = TodayFixingPolicy
+
+
+def MarketFixingSnapshot_New(values) -> FixingSnapshot:  # noqa: N802
+    return FixingSnapshot(values)
+
+
+def ScriptValuationSettings_(*, evaluation_date=None, fixings=None, today_fixing="Model") -> ValuationSettings:  # noqa: N802
+    return ValuationSettings(evaluation_date=evaluation_date, fixings=fixings, today_fixing_policy=today_fixing)
+
+
+def MonteCarlo_ValueWithSettings(product, model, n_paths, *, valuation=None, simulation=None):  # noqa: N802
+    """Snapshot valuation settings before preparing and running a Monte Carlo simulation."""
+    _path_count(n_paths)
+    prepared = prepare(product, model=model, valuation=valuation)
+    return MonteCarloEngine(prepared.path_product(), model, simulation).value(int(n_paths))
 
 
 def _path_count(n_paths: int) -> None:
@@ -131,4 +165,6 @@ def _compiled_option(compiled: bool | None) -> None:
 
 
 __all__ = ["BSModelData_New", "EvaluationDate_Get", "EvaluationDate_Set", "MonteCarlo_Value", "Product_Debug", "Product_DebugJson",
-           "Product_DebugTree", "Product_Describe", "Product_New"]
+           "Product_DebugTree", "Product_Describe", "Product_New", "MarketFixingSnapshot_New", "ScriptValuationSettings_",
+           "TodayFixingPolicy_", "MonteCarlo_ValueWithSettings", "CorrelatedBSModelData_New",
+           "LocalVolSurfaceData_New", "BSLocalVolModelData_New"]

@@ -171,6 +171,30 @@ class MissingDefaultIndex(ScriptError):
     code = "MissingDefaultIndex"
 
 
+class InvalidFixingSnapshot(ScriptError):
+    code = "InvalidFixingSnapshot"
+
+
+class InvalidFixing(ScriptError):
+    code = "InvalidFixing"
+
+
+class MultipleModelIndices(ScriptError):
+    code = "MultipleModelIndices"
+
+
+class UnsupportedHistoricalIndex(ScriptError):
+    code = "UnsupportedHistoricalIndex"
+
+
+class UnsupportedDelayedPayment(ScriptError):
+    code = "UnsupportedDelayedPayment"
+
+
+class UnsettledDelayedPayment(ScriptError):
+    code = "UnsettledDelayedPayment"
+
+
 class DebugSchemaUnsupported(ScriptError):
     code = "DebugSchemaUnsupported"
 
@@ -194,6 +218,22 @@ class UnsupportedModelObservation(DalError):
     code = "UnsupportedModelObservation"
 
 
+class InvalidModelIndex(DalError):
+    code = "InvalidModelIndex"
+
+
+class DuplicateModelIndex(DalError):
+    code = "DuplicateModelIndex"
+
+
+class InvalidCorrelation(DalError):
+    code = "InvalidCorrelation"
+
+
+class InvalidLocalVolSurface(DalError):
+    code = "InvalidLocalVolSurface"
+
+
 class InvalidRandomSequence(DalError):
     code = "InvalidRandomSequence"
 
@@ -213,7 +253,8 @@ _SCRIPT_CODES = {
         InvalidAssignmentTarget, InvalidPaymentTarget, DuplicateElse, InvalidFor, InvalidVectorDefinition, InvalidVectorEntry,
         InvalidVectorReduction, InvalidVectorAppend, ImmutableVector, VectorNameConflict, VectorIndexOutOfRange, EmptyVectorReduction,
         DuplicateExercise, UnsupportedExerciseNesting, InvalidExerciseCondition, UnsupportedExercisePayoff, PreparationRequired,
-        UnboundHistoricalSpot, LookAheadObservation, MissingFixing, MissingDefaultIndex, DebugSchemaUnsupported,
+        UnboundHistoricalSpot, LookAheadObservation, MissingFixing, MissingDefaultIndex, InvalidFixingSnapshot, InvalidFixing, MultipleModelIndices, UnsupportedHistoricalIndex,
+        UnsupportedDelayedPayment, UnsettledDelayedPayment, UnsupportedModelObservation, DebugSchemaUnsupported,
     )
 }
 

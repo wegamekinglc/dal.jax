@@ -18,22 +18,28 @@ import numpy as np
 
 from dal_jax.errors import UnsupportedExecutionMode
 from dal_jax.script import ast as A
+from dal_jax.script.lower.state import scalars, write, merge_vectors, initial_state
+from dal_jax.script.lower.vectors import VectorLowering
 
 _BINARY = {A.Add: operator.add, A.Sub: operator.sub, A.Mul: operator.mul}
 _COMPARISONS = {A.Equal: operator.eq, A.Sup: operator.gt, A.SupEqual: operator.ge}
 
 
-class _Lowerer:
+class _Lowerer(VectorLowering):
     def __init__(self, const_names: tuple[str, ...], *, historical: bool, backend) -> None:
         self.const_names = const_names
         self.historical = historical
         self.xp = backend
+        self._checks = []
         self._expressions = {
             A.Const: self._constant,
             A.EventConst: lambda n: lambda state, sample, params, active: self.xp.where(active, sample.constants[n.index], 0.0),
-            A.Var: lambda n: lambda state, sample, params, active: self.xp.where(active, state[n.index], 0.0),
+            A.Var: lambda n: lambda state, sample, params, active: self.xp.where(active, scalars(state)[n.index], 0.0),
             A.ConstVar: lambda n: lambda state, sample, params, active: self.xp.where(active, params[self.const_names[n.index]], 0.0),
+            A.Fix: lambda n: lambda state, sample, params, active: self.xp.where(active, sample.observations[n.observation_id], 0.0),
             A.Spot: lambda n: lambda state, sample, params, active: self.xp.where(active, sample.spot, 0.0),
+            A.VectorEntry: self._vector_entry,
+            A.VectorReduce: self._vector_reduce,
             A.Div: self._divide,
             A.Pow: self._power,
             A.Max: lambda n: self._extremum(n, self.xp.maximum),
@@ -49,7 +55,7 @@ class _Lowerer:
             A.TrueNode: lambda n: lambda state, sample, params, active: True,
             A.FalseNode: lambda n: lambda state, sample, params, active: False,
         }
-        self._statements = {A.Assign: self._assign, A.Pays: self._pays, A.If: self._if, A.Collect: lambda n: self.event(n.args)}
+        self._statements = {A.VectorAssign: self._vector_assign, A.VectorAppend: self._vector_append, A.Assign: self._assign, A.Pays: self._pays, A.If: self._if, A.Collect: lambda n: self.event(n.args)}
 
     def expression(self, node: A.Node) -> Callable:
         kind = type(node)
@@ -106,11 +112,7 @@ class _Lowerer:
         return lambda state, sample, params, active: reduce(op, (f(state, sample, params, active) for f in operands))
 
     def _write(self, state, index, value):
-        if self.xp is np:
-            result = state.copy()
-            result[index] = value
-            return result
-        return state.at[index].set(value)
+        return write(state, index, value, self.xp)
 
     def _assign(self, node: A.Assign) -> Callable:
         index, value = node.args[0].index, self.expression(node.args[1])
@@ -124,7 +126,9 @@ class _Lowerer:
             if self.historical:
                 return state
             numeraire = self.xp.where(active, sample.numeraire, 1.0)
-            return self._write(state, index, state[index] + amount / numeraire)
+            if node.discount_id is not None:
+                amount = amount*self.xp.where(active, sample.discounts[node.discount_id], 1.0)
+            return self._write(state, index, scalars(state)[index] + amount / numeraire)
 
         return evaluate
 
@@ -141,8 +145,9 @@ class _Lowerer:
                 return (then if take_then else otherwise)(state, sample, params, active)
             left = then(state, sample, params, self.xp.logical_and(active, take_then))
             right = otherwise(state, sample, params, self.xp.logical_and(active, self.xp.logical_not(take_then)))
-            values = self.xp.where(take_then, left[indices], right[indices])
-            return self._write(state, indices, values)
+            values = self.xp.where(take_then, scalars(left)[indices], scalars(right)[indices])
+            state = self._write(state, indices, values)
+            return merge_vectors(state, left, right, node.affected_vectors, lambda a, b: self.xp.where(take_then, a, b), self.xp)
 
         return evaluate
 
@@ -160,7 +165,12 @@ class _Lowerer:
         handler = self._statements.get(type(node))
         if handler is None:
             raise UnsupportedExecutionMode(f"exact scalar lowering does not support {type(node).__name__}")
-        return handler(node)
+        outer_checks = self._checks
+        self._checks = []
+        statement = handler(node)
+        checks = self._checks
+        self._checks = outer_checks
+        return self._checked_statement(statement, checks) if checks else statement
 
 
 def lower_event(event: A.Event, const_names: tuple[str, ...] = (), *, historical: bool = False) -> Callable:
@@ -169,14 +179,14 @@ def lower_event(event: A.Event, const_names: tuple[str, ...] = (), *, historical
 
 
 def replay_events(events: tuple[A.Event, ...], spots: tuple[float, ...], n_vars: int,
-                  const_names: tuple[str, ...], params: Mapping[str, float]) -> tuple[float, ...]:
+                  const_names: tuple[str, ...], params: Mapping[str, float], *, capacities=(), observations=()):
     """Replay one historical path on the host, using DAL's hard branch semantics."""
     from dal_jax.models.base import Sample  # avoid coupling the lowering to the MC engine
 
     lowerer = _Lowerer(const_names, historical=True, backend=np)
-    state = np.zeros(n_vars, dtype=np.float64)
+    state = initial_state(n_vars, capacities, np)
     with np.errstate(all="ignore"):
         for event, spot in zip(events, spots):
-            sample = Sample(np.asarray(spot), np.asarray(1.0), np.empty(0), np.empty(0))
+            sample = Sample(np.asarray(spot), np.asarray(1.0), np.asarray(observations), np.empty(0))
             state = lowerer.event(event)(state, sample, params)
-    return tuple(float(value) for value in state)
+    return state if capacities else tuple(float(value) for value in state)

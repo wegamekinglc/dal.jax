@@ -36,8 +36,14 @@ def _identity_fields(node):
         return {"name": str(node.index), "is_const": False, "const_val": 0.0}
     if isinstance(node, A.Spot):
         return {"source": _SOURCE, "observation_id": None, "is_const": False, "const_val": 0.0}
+    if isinstance(node, (A.VectorEntry, A.VectorReduce)):
+        return {"source": _SOURCE, "name": str(node.index), "is_const": False, "const_val": 0.0}
+    if isinstance(node, A.VectorAppend):
+        return {"source": _SOURCE, "name": str(node.index)}
+    if isinstance(node, A.Fix):
+        return {"source": _SOURCE, "fixing_date": None, "is_const": False, "const_val": 0.0}
     if isinstance(node, A.Pays):
-        return {"source": _SOURCE}
+        return {"source": _SOURCE, "payment_date": None}
     if isinstance(node, A.Expr):
         return {"is_const": False, "const_val": 0.0}
     return {}

@@ -6,6 +6,7 @@ import numpy as np
 from dal_jax.script import ast as A
 from dal_jax.script.lower import smoothing as S
 from dal_jax.script.lower.exact import _Lowerer
+from dal_jax.script.lower.state import scalars, merge_vectors
 from dal_jax.script.passes.intervals import EPSILON
 
 _KERNELS = {
@@ -56,9 +57,12 @@ class _FuzzyLowerer(_Lowerer):
             right = otherwise(state, sample, params, jnp.logical_and(active, jnp.logical_not(full)))
             # Both branch inputs are safe at the endpoints; selecting explicitly
             # also drops the condition's adjoint when DAL executes only one side.
-            blend = degree * left[indices] + (1.0 - degree) * right[indices]
-            values = jnp.where(full, left[indices], jnp.where(zero, right[indices], blend))
-            return self._write(state, indices, values)
+            blend = degree * scalars(left)[indices] + (1.0 - degree) * scalars(right)[indices]
+            choose = lambda a, b, middle: jnp.where(full, a, jnp.where(zero, b, middle))
+            values = choose(scalars(left)[indices], scalars(right)[indices], blend)
+            state = self._write(state, indices, values)
+            return merge_vectors(state, left, right, node.affected_vectors, choose, jnp,
+                                 blend=lambda a, b: degree*a+(1.0-degree)*b)
 
         return evaluate
 

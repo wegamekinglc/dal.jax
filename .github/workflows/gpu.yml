@@ -26,5 +26,7 @@ jobs:
         run: uv sync --extra "${{ inputs.cuda }}"
       - name: Verify hardware
         run: nvidia-smi
+      - name: Build pinned DAL source oracle
+        run: bash scripts/build_dal_oracle.sh "$RUNNER_TEMP/dal-oracle" "$GITHUB_WORKSPACE/.venv/bin/python"
       - name: Run actual GPU tests
-        run: uv run pytest tests/gpu --run-gpu
+        run: .venv/bin/python -m pytest tests/gpu --run-gpu

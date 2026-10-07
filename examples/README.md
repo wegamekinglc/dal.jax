@@ -12,6 +12,10 @@
 | [06_scan_and_smoothing.py](06_scan_and_smoothing.py) | 扫描与展开、事件分组、C1 核与 DAL 等价三次多项式 |
 | [07_prng_streams.py](07_prng_streams.py) | Threefry/RBG 的统计检验与并行流一致性 |
 | [08_gpu_and_precision.py](08_gpu_and_precision.py) | CPU/GPU 选择、float64/float32/auto、自动块大小与 DAL 对照 |
+| [09_vectors.py](09_vectors.py) | 向量 Asian、FOR/下标/归约、fuzzy 长度混合、具名错误 |
+| [10_fixings_and_payments.py](10_fixings_and_payments.py) | 快照、当日定盘策略、跨日期 FIX、延迟 PAYS ON |
+| [11_correlated_bs.py](11_correlated_bs.py) | 双资产 basket/worst-of、多因子 bridge、default_index |
+| [12_local_vol.py](12_local_vol.py) | 平坦/非平坦曲面、全部 bucket vega、共同路径有限差分 |
 
 在仓库根目录运行：
 
@@ -21,11 +25,21 @@ uv run --group examples python examples/01_european_option.py
 uv run --group examples python examples/06_scan_and_smoothing.py --paths 65536 --devices 8 --repeat 3 --output /tmp/scan.json
 ```
 
-所有脚本接受 `--paths`、`--devices`、`--repeat`、`--platform` 和 `--output`。CPU 设备在首次 JAX 运算前配置；重新配置设备数需启动新进程。快速运行全部脚本：
+所有脚本接受 `--paths`、`--devices`、`--repeat`、`--platform` 和 `--output`。CPU 设备在首次 JAX 运算前配置；重新配置设备数需启动新进程。01–08 可直接使用 PyPI 的 dal-python。09–12 需要固定的 DAL 源码版本 `4feabe89b105e0a3883fd4e2d74a2d70d618d8c7`，其 Python 包版本号仍是 2026.9.25，不能仅凭版本号识别新功能。以下命令建立隔离环境，编译 C++ 并安装源码 oracle（需要 Git、CMake、C++17 编译器和 uv）：
+
+```bash
+uv venv /tmp/dal-jax-native --python 3.13
+uv pip install --python /tmp/dal-jax-native/bin/python -e . pytest scipy
+bash scripts/build_dal_oracle.sh /tmp/dal-jax-native-build /tmp/dal-jax-native/bin/python
+/tmp/dal-jax-native/bin/python examples/09_vectors.py
+/tmp/dal-jax-native/bin/python examples/12_local_vol.py --output /tmp/local-vol.json
+```
+
+使用该隔离环境运行全部脚本：
 
 ```bash
 for example in examples/[0-9][0-9]_*.py; do
-  uv run --group examples python "$example" --paths 4096 --devices 4 --repeat 1
+  /tmp/dal-jax-native/bin/python "$example" --paths 4096 --devices 4 --repeat 1
 done
 ```
 
@@ -42,4 +56,4 @@ JAX 的编译时间单独记录；首次执行和热运行都等待设备完成�
 
 Sobol 的 float64 对照使用 PV 相对容差 1e-10、Greeks 1e-8，近零值绝对容差 1e-10。JAX 与 DAL 的 MRG32 名称使用不同随机流；01 展示收敛结果，07 按解析标准误校验统计差异。C1 示例的 DAL 脚本显式实现相同三次核；05 的延迟支付用 DAL 的“保存金额、到支付日付款”脚本对照。Gamma 对照来自 DAL delta 的有限差分。
 
-[results/](results/) 保存本机按默认参数依次运行全部脚本的 JSON，以及 08 在实际 RTX 4060 Laptop / CUDA 13 上的额外报告。耗时受机器和负载影响；重新运行即可生成自己的报告。CI 在 Python 3.13 上运行全部脚本（4,096 路径、4 个 CPU 设备、1 次热运行）。
+[results/](results/) 保存本机按默认参数依次运行全部脚本的 JSON，以及 08–12 在实际 RTX 4060 Laptop / CUDA 13 上的额外报告。耗时受机器和负载影响；重新运行即可生成自己的报告。CI 分别使用 PyPI oracle 执行 01–08、固定源码 oracle 执行 09–12（4,096 路径、4 个 CPU 设备、1 次热运行），源码 oracle 任务还运行完整 CPU 测试。P5 的 CPU/GPU 实测见 [P5 报告](../docs/p5.md)。

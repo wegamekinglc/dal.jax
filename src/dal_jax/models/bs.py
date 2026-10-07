@@ -14,6 +14,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 
+from dal_jax.index import Index
 from dal_jax.errors import InvalidModelParameter
 from dal_jax.models.base import ModelParams, SampleDef, Scenario, validate_timeline
 
@@ -22,6 +23,18 @@ def _steps_from_today(times: tuple[float, ...]) -> tuple[float, ...]:
     """Step lengths of DAL's model grid: today, then every positive product time."""
     grid = [0.0] + [t for t in times if t > 0.0]
     return tuple(right - left for left, right in zip(grid, grid[1:]))
+
+
+def deterministic_outputs(rate, plan):
+    times = jnp.asarray(plan.times, dtype=jnp.float64)
+    numeraires = jnp.where(jnp.asarray(plan.numeraire), jnp.exp(rate * times), 1.0)
+    mats = np.ones((len(plan.times), plan.max_discounts))
+    has_mat = np.zeros_like(mats, dtype=bool)
+    for i, row in enumerate(plan.discount_mats):
+        mats[i, : len(row)] = row
+        has_mat[i, : len(row)] = True
+    discounts = jnp.where(has_mat, jnp.exp(-rate * (jnp.asarray(mats) - times[:, None])), 1.0)
+    return numeraires, discounts
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +66,7 @@ class BlackScholes:
 
     param_labels: ClassVar[tuple[str, ...]] = ("spot", "vol", "rate", "div")
     n_factors: ClassVar[int] = 1
+    num_assets: ClassVar[int] = 1
     numeraire_is_deterministic: ClassVar[bool] = True
     supports_discount_factors: ClassVar[bool] = True
     max_observed_indices: ClassVar[int] = 1
@@ -64,6 +78,9 @@ class BlackScholes:
     @property
     def supports_bb(self) -> bool:
         return self.n_factors == 1
+
+    def supports_index(self, index: Index) -> bool:
+        return index.kind == "EQ" and index.name.endswith("]")
 
     def default_params(self) -> dict[str, Array]:
         return {label: jnp.asarray(getattr(self, label), dtype=jnp.float64) for label in self.param_labels}
@@ -99,14 +116,7 @@ class BlackScholes:
         spot, vol, rate, div = (jnp.asarray(params[label]) for label in self.param_labels)
         mu = rate - div
         dts = jnp.asarray(plan.dts, dtype=jnp.float64)
-        times = jnp.asarray(plan.times, dtype=jnp.float64)
-        numeraires = jnp.where(jnp.asarray(plan.numeraire), jnp.exp(rate * times), 1.0)
-        mats = np.ones((len(plan.times), plan.max_discounts))
-        has_mat = np.zeros_like(mats, dtype=bool)
-        for i, row in enumerate(plan.discount_mats):
-            mats[i, : len(row)] = row
-            has_mat[i, : len(row)] = True
-        discounts = jnp.where(has_mat, jnp.exp(-rate * (jnp.asarray(mats) - times[:, None])), 1.0)
+        numeraires, discounts = deterministic_outputs(rate, plan)
         return BSState(
             spot=spot,
             log_spot=jnp.log(spot),

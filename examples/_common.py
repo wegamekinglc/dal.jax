@@ -56,6 +56,11 @@ def oracle_product(rows):
     return dal.Product_New(dates, events)
 
 
+def require_p5_oracle():
+    if not hasattr(dal, "CorrelatedBSModelData_New"):
+        raise RuntimeError("This example needs the pinned DAL source oracle. Run scripts/build_dal_oracle.sh as documented in examples/README.md.")
+
+
 def prepare(rows):
     return dj.prepare(Product_New(*rows), TODAY)
 
@@ -118,8 +123,12 @@ def measure_jax(engine, args, payoff_index=0):
                      "dtype": str(engine.dtype), "block_size": engine.layout(args.paths).block_size}
 
 
-def measure_dal(product, bs, args, mc):
-    run = lambda: dict(dal.MonteCarlo_Value(product, bs, args.paths, mc.rsg, mc.use_bb, mc.enable_aad, mc.smooth))
+def measure_dal(product, bs, args, mc, valuation=None):
+    if valuation is None:
+        run = lambda: dict(dal.MonteCarlo_Value(product, bs, args.paths, mc.rsg, mc.use_bb, mc.enable_aad, mc.smooth))
+    else:
+        simulation = dal.MonteCarloSettings_(method=mc.rsg, use_bb=mc.use_bb, enable_aad=mc.enable_aad, smooth=mc.smooth)
+        run = lambda: dict(dal.MonteCarlo_ValueWithSettings(product, bs, args.paths, valuation=valuation, simulation=simulation))
     output, timing = timed(run, args.repeat)
     return timing | {"result": output}
 
@@ -133,9 +142,10 @@ def check_results(ours, theirs, dtype="float64"):
                                    atol=atol, err_msg=name)
 
 
-def compare(label, engine, rows, args, *, bs=None, check=True, payoff_index=0):
+def compare(label, engine, rows, args, *, bs=None, check=True, payoff_index=0, valuation=None, product=None):
     ours = measure_jax(engine, args, payoff_index)
-    theirs = measure_dal(oracle_product(rows), oracle_model() if bs is None else bs, args, engine.settings)
+    theirs = measure_dal(oracle_product(rows) if product is None else product, oracle_model() if bs is None else bs,
+                         args, engine.settings, valuation)
     if check:
         check_results(ours["result"], theirs["result"], ours["dtype"])
     print(f"\n{label}")

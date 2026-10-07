@@ -65,6 +65,27 @@ def test_source_locations_and_identifier_case_do_not_split_a_run():
     assert float(jax.jit(lambda s: payoff({"script": {}}, s, EvalContext()))(scenario([1., 2., 3., 4.]))) == 30.0
 
 
+@pytest.mark.parametrize("aad", [False, True])
+def test_delayed_payment_dates_share_template_but_keep_discount_slots(aad, cpu_devices):
+    from p5_cases import case, compare
+    from dal_jax import MonteCarloEngine, MonteCarloSettings
+    rows, model = case("payment_schedule")
+    product = prepare(Product_New(*rows), TODAY, model=model)
+    group, = product.event_groups(fuzzy=aad)
+    assert group.scanned and group.size == 8
+    payments = [n for statement in group.template for n in A.walk(statement) if isinstance(n, A.Pays)]
+    assert payments[0].payment_date is None and payments[0].discount_id == 0
+    # Slot ids carry runtime meaning even after payment dates are normalized.
+    from dataclasses import replace
+    changed = (replace(group.template[0], discount_id=1),)
+    assert len(group_events((group.template, changed))) == 2
+    values = []
+    for threshold in (0, 4):
+        settings = MonteCarloSettings(enable_aad=aad, devices=cpu_devices, block_size=128, scan_group_threshold=threshold)
+        values.append(MonteCarloEngine(product.path_product(), model, settings).value(513))
+    compare(values[1], values[0])
+
+
 @pytest.mark.parametrize("fuzzy", [False, True])
 @pytest.mark.parametrize("n", [36, 64])
 def test_scan_and_unrolled_payoffs_and_gradients_agree(fuzzy, n):
