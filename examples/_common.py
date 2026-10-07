@@ -13,7 +13,7 @@ import jax
 import numpy as np
 
 import dal_jax as dj
-from dal_jax.api import Product_New
+from dal_jax.api import Product_New, EvaluationDate_Set
 from dal_jax.dates import Date
 
 TODAY = Date.ymd(2022, 9, 15)
@@ -33,6 +33,7 @@ def arguments(description):
         parser.error("paths, repeat and devices must be positive")
     dj.config.configure(num_cpu_devices=args.devices)
     dal.EvaluationDate_Set(dal.Date_(TODAY.year, TODAY.month, TODAY.day))
+    EvaluationDate_Set(TODAY)
     print(f"JAX {jax.__version__}; {args.platform}; {args.paths:,} paths; DAL {version('dal-python')}")
     return args
 
@@ -110,7 +111,9 @@ def scalar_results(output, greeks):
 
 def measure_jax(engine, args, payoff_index=0):
     params = engine.default_params()
+    start = time.perf_counter()
     price = engine.pricer(args.paths)
+    training = time.perf_counter()-start if isinstance(engine,dj.LsmcEngine) else None
     greeks = engine.settings.enable_aad
     scalar = lambda p: price(p)[payoff_index]
     fn = jax.value_and_grad(scalar) if greeks else scalar
@@ -118,25 +121,31 @@ def measure_jax(engine, args, payoff_index=0):
     compiled = jax.jit(fn).lower(params).compile()
     compilation = time.perf_counter() - start
     output, timing = timed(lambda: compiled(params), args.repeat)
-    return timing | {"compile_seconds": compilation, "result": scalar_results(output, greeks),
+    return timing | {"compile_seconds": compilation, "training_first_seconds":training, "result": scalar_results(output, greeks),
                      "backend": engine.devices[0].platform, "devices": len(engine.devices),
                      "dtype": str(engine.dtype), "block_size": engine.layout(args.paths).block_size}
 
 
 def measure_dal(product, bs, args, mc, valuation=None):
-    if valuation is None:
+    fields = ("lsmc_basis_degree","lsmc_training_paths","lsmc_validation_paths","lsmc_rqmc_replicates",
+              "lsmc_training_seed","lsmc_pricing_seed","lsmc_policy_risk_mode","lsmc_policy_bump_relative")
+    exercise = mc.lsmc_training_paths is not None or mc.lsmc_rqmc_replicates is not None
+    if valuation is None and not exercise:
         run = lambda: dict(dal.MonteCarlo_Value(product, bs, args.paths, mc.rsg, mc.use_bb, mc.enable_aad, mc.smooth))
     else:
-        simulation = dal.MonteCarloSettings_(method=mc.rsg, use_bb=mc.use_bb, enable_aad=mc.enable_aad, smooth=mc.smooth)
+        extra = {name:getattr(mc,name) for name in fields if getattr(mc,name) is not None} if exercise else {}
+        simulation = dal.MonteCarloSettings_(method=mc.rsg, use_bb=mc.use_bb, enable_aad=mc.enable_aad, smooth=mc.smooth,**extra)
         run = lambda: dict(dal.MonteCarlo_ValueWithSettings(product, bs, args.paths, valuation=valuation, simulation=simulation))
     output, timing = timed(run, args.repeat)
     return timing | {"result": output}
 
 
-def check_results(ours, theirs, dtype="float64"):
+def check_results(ours, theirs, dtype="float64", *, exercise=False):
     assert ours.keys() == theirs.keys()  # nosec B101: executable numerical validation
     tolerances = {"float64": (1e-10, 1e-8, 1e-10), "float32": (2e-5, 5e-3, 2e-4)}
     pv_rtol, risk_rtol, atol = tolerances[dtype]
+    if exercise and dtype == "float64":
+        pv_rtol = 1e-6
     for name in ours:
         np.testing.assert_allclose(ours[name], theirs[name], rtol=pv_rtol if name == "PV" else risk_rtol,
                                    atol=atol, err_msg=name)
@@ -147,7 +156,7 @@ def compare(label, engine, rows, args, *, bs=None, check=True, payoff_index=0, v
     theirs = measure_dal(oracle_product(rows) if product is None else product, oracle_model() if bs is None else bs,
                          args, engine.settings, valuation)
     if check:
-        check_results(ours["result"], theirs["result"], ours["dtype"])
+        check_results(ours["result"], theirs["result"], ours["dtype"],exercise=isinstance(engine,dj.LsmcEngine))
     print(f"\n{label}")
     table(["quantity", "JAX", "DAL", "absolute difference"],
           [[name, value, theirs["result"][name], abs(value-theirs["result"][name])] for name, value in ours["result"].items()])

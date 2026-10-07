@@ -73,6 +73,7 @@ class PathProduct:
     initial_state: Callable[[Params], ArrayLike] | None = None
     error_messages: tuple[str, ...] = ()
     path_state_size: int = 0
+    path_offset: int = 0
 
     def __post_init__(self) -> None:
         timeline = tuple(float(t) for t in self.timeline)
@@ -84,8 +85,13 @@ class PathProduct:
         if not names or len(set(names)) != len(names):
             raise InvalidSetting("payoff_names must be non-empty and unique")
         object.__setattr__(self, "payoff_names", names)
-        if not isinstance(self.path_state_size, int) or self.path_state_size < 0:
-            raise InvalidSetting("path_state_size must be a nonnegative integer")
+        _nonnegative_size("path_state_size", self.path_state_size)
+        _nonnegative_size("path_offset", self.path_offset)
+
+
+def _nonnegative_size(name, value):
+    if not isinstance(value, int) or value < 0:
+        raise InvalidSetting(f"{name} must be a nonnegative integer")
 
 
 def _script_params(params: tuple[tuple[str, float], ...] | Mapping[str, float]) -> tuple[tuple[str, float], ...]:
@@ -163,7 +169,7 @@ class MonteCarloEngine:
             n_blocks = _next_pow2(n_blocks)
         n_devices = len(self.devices)
         n_blocks = math.ceil(n_blocks / n_devices) * n_devices
-        if self.settings.rsg == "sobol" and n_blocks * block_size > MAX_POINTS:
+        if self.settings.rsg == "sobol" and self.product.path_offset+n_blocks * block_size > MAX_POINTS:
             raise InvalidPathCount(f"Sobol supports at most {MAX_POINTS} paths including block padding")
         return BlockLayout(block_size, n_blocks, n_devices)
 
@@ -210,14 +216,17 @@ class MonteCarloEngine:
     def _model_state(self, params: Params):
         return self._cast(self.model.init(params["model"], self.plan))
 
+    def _random_normals(self, params, block_id, path_ids):
+        return self._normals(block_id, path_ids)
+
     def _simulation_state(self, params: Params):
         """Model precomputations and optional product history, outside path/block loops."""
         initial = None if self.product.initial_state is None else self._cast(self.product.initial_state(params))
         return self._model_state(params), initial
 
     def _block_paths(self, params: Params, state, block_id: Array, block_size: int, ctx: EvalContext) -> tuple[Array, Array]:
-        path_ids = block_id * block_size + jnp.arange(block_size, dtype=jnp.int64)
-        normals = self._normals(block_id, path_ids).astype(self.dtype)
+        path_ids = self.product.path_offset+block_id * block_size + jnp.arange(block_size, dtype=jnp.int64)
+        normals = self._random_normals(params, block_id, path_ids).astype(self.dtype)
         cast_params = self._cast(params)
         n_payoffs = self._output_count
         model_state, initial = state
@@ -231,7 +240,7 @@ class MonteCarloEngine:
 
     def _block_sum(self, params: Params, state, block_id: Array, n_paths: Array, block_size: int, ctx: EvalContext) -> Array:
         path_ids, values = self._block_paths(params, state, block_id, block_size, ctx)
-        live = (path_ids < n_paths)[:, None]
+        live = (path_ids < self.product.path_offset+n_paths)[:, None]
         return jnp.sum(jnp.where(live, values, 0.0), axis=0).astype(jnp.float64)
 
     def _context(self, fuzzy: bool | None) -> EvalContext:

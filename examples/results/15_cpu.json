@@ -1,0 +1,320 @@
+{
+  "environment": {
+    "jax": "0.11.2",
+    "dal_python": "2026.9.25"
+  },
+  "configuration": {
+    "paths": 65536,
+    "repeat": 3,
+    "platform": "cpu",
+    "devices": 4
+  },
+  "comparisons": [
+    {
+      "label": "Single-factor GSR",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.025449220999689715,
+        "warm_min_seconds": 0.01982255199982319,
+        "warm_median_seconds": 0.02092373800041969,
+        "warm_runs_seconds": [
+          0.022510486000101082,
+          0.02092373800041969,
+          0.01982255199982319
+        ],
+        "compile_seconds": 2.8846759130001374,
+        "training_first_seconds": null,
+        "result": {
+          "PV": 0.9884821259891964,
+          "d_H:2022-09-15": 0.009576225126975674,
+          "d_g:2022-09-15": 0.47881125634878374,
+          "d_logdf:3M:2023-09-15": 0.22704212182246294,
+          "d_logdf:3M:2030-09-13": -0.2270421218224631,
+          "d_logdf:OIS:2023-09-15": 0.8546727261856294,
+          "d_logdf:OIS:2030-09-13": 0.13380939980356707,
+          "d_K": -0.6056209885726682
+        },
+        "backend": "cpu",
+        "devices": 4,
+        "dtype": "float64",
+        "block_size": 1024
+      },
+      "dal": {
+        "first_seconds": 0.05888690700066945,
+        "warm_min_seconds": 0.022013753999999608,
+        "warm_median_seconds": 0.023140723000324215,
+        "warm_runs_seconds": [
+          0.023140723000324215,
+          0.024240153999926406,
+          0.022013753999999608
+        ],
+        "result": {
+          "PV": 0.9884821259891964,
+          "d_H:2022-09-15": 0.009576225126975675,
+          "d_K": -0.6056209885726683,
+          "d_g:2022-09-15": 0.47881125634878385,
+          "d_logdf:3M:2023-09-15": 0.22704212182246294,
+          "d_logdf:3M:2030-09-13": -0.22704212182246308,
+          "d_logdf:OIS:2023-09-15": 0.8546727261856293,
+          "d_logdf:OIS:2030-09-13": 0.13380939980356704
+        }
+      }
+    },
+    {
+      "label": "Two-factor GSR",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.022054946999560343,
+        "warm_min_seconds": 0.014099496000198997,
+        "warm_median_seconds": 0.014191979999850446,
+        "warm_runs_seconds": [
+          0.01476357100000314,
+          0.014191979999850446,
+          0.014099496000198997
+        ],
+        "compile_seconds": 2.776806263999788,
+        "training_first_seconds": null,
+        "result": {
+          "PV": 0.988093728883891,
+          "d_H:level:2022-09-15": 0.009266341301242584,
+          "d_H:slope:2022-09-15": 0.000493134229592437,
+          "d_g:level:2022-09-15": 0.4633170650621292,
+          "d_g:slope:2022-09-15": -0.019725369183697473,
+          "d_logdf:3M:2023-09-15": 0.2276955447915312,
+          "d_logdf:3M:2030-09-13": -0.2276955447915313,
+          "d_logdf:OIS:2023-09-15": 0.85429213798774,
+          "d_logdf:OIS:2030-09-13": 0.1338015908961509,
+          "d_K": -0.6103315866777433
+        },
+        "backend": "cpu",
+        "devices": 4,
+        "dtype": "float64",
+        "block_size": 1024
+      },
+      "dal": {
+        "first_seconds": 0.026623953000125766,
+        "warm_min_seconds": 0.02744561200051976,
+        "warm_median_seconds": 0.027626659999441472,
+        "warm_runs_seconds": [
+          0.027626659999441472,
+          0.02744561200051976,
+          0.030327200000101584
+        ],
+        "result": {
+          "PV": 0.9880937288838909,
+          "d_H:level:2022-09-15": 0.009266341301242586,
+          "d_H:slope:2022-09-15": 0.0004931342295924367,
+          "d_K": -0.6103315866777435,
+          "d_g:level:2022-09-15": 0.46331706506212916,
+          "d_g:slope:2022-09-15": -0.019725369183697473,
+          "d_logdf:3M:2023-09-15": 0.22769554479153126,
+          "d_logdf:3M:2030-09-13": -0.22769554479153134,
+          "d_logdf:OIS:2023-09-15": 0.8542921379877402,
+          "d_logdf:OIS:2030-09-13": 0.13380159089615096
+        }
+      }
+    },
+    {
+      "label": "Rate Bermudan with IR regressor",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.02234542599944689,
+        "warm_min_seconds": 0.013903127000048698,
+        "warm_median_seconds": 0.015030173999548424,
+        "warm_runs_seconds": [
+          0.015092997000465402,
+          0.013903127000048698,
+          0.015030173999548424
+        ],
+        "compile_seconds": 1.9239752040002713,
+        "training_first_seconds": 1.1195583319995421,
+        "result": {
+          "PV": 0.01031771301498817,
+          "d_H:level:2022-09-15": 0.007374591159932285,
+          "d_H:slope:2022-09-15": 0.0003915662160707219,
+          "d_g:level:2022-09-15": 0.3687295579966144,
+          "d_g:slope:2022-09-15": -0.01566264864282887,
+          "d_logdf:3M:2023-09-15": 0.018221705816954592,
+          "d_logdf:3M:2030-09-13": -0.0766382235615822,
+          "d_logdf:OIS:2023-09-15": 0.009525216295457667,
+          "d_logdf:OIS:2030-09-13": -1.934681547748743e-18
+        },
+        "backend": "cpu",
+        "devices": 4,
+        "dtype": "float64",
+        "block_size": 1024
+      },
+      "dal": {
+        "first_seconds": 0.01534068099954311,
+        "warm_min_seconds": 0.015325700999710534,
+        "warm_median_seconds": 0.015677172999858158,
+        "warm_runs_seconds": [
+          0.018132197999875643,
+          0.015677172999858158,
+          0.015325700999710534
+        ],
+        "result": {
+          "PV": 0.010317713014988178,
+          "d_H:level:2022-09-15": 0.007374591159932281,
+          "d_H:slope:2022-09-15": 0.0003915662160707215,
+          "d_g:level:2022-09-15": 0.36872955799661417,
+          "d_g:slope:2022-09-15": -0.015662648642828868,
+          "d_logdf:3M:2023-09-15": 0.018221705816957083,
+          "d_logdf:3M:2030-09-13": -0.07663822356158255,
+          "d_logdf:OIS:2023-09-15": 0.00952521629545771,
+          "d_logdf:OIS:2030-09-13": 3.469446951953614e-18
+        }
+      }
+    }
+  ],
+  "diagnostics": {
+    "preparation": {
+      "schema": "dal.script-valuation/1",
+      "evaluation_date": "2022-09-15",
+      "today_fixing": "Model",
+      "source_kind": "GlobalSnapshot",
+      "simulation": {
+        "rsg": "sobol",
+        "use_bb": false,
+        "enable_aad": false,
+        "smooth": 0.01,
+        "compiled": false,
+        "lsmc_basis_degree": 3,
+        "lsmc_training_paths": null,
+        "lsmc_validation_paths": null,
+        "lsmc_rqmc_replicates": null,
+        "lsmc_training_seed": null,
+        "lsmc_pricing_seed": null
+      },
+      "all_expired": false,
+      "observation_mode": "Named",
+      "model_bindings": [
+        {
+          "asset": "spot",
+          "index_original": "IR:USD,LIBOR_3M_CME",
+          "index_canonical": "IR:USD,LIBOR_3M_CME"
+        }
+      ],
+      "requests": [
+        {
+          "request_id": 0,
+          "index_canonical": "IR:USD,LIBOR_3M_CME",
+          "fixing_time": "2023-03-14 00:00:00",
+          "source": "Model",
+          "resolution": "Resolved",
+          "uses": [
+            {
+              "event_id": 0,
+              "statement_id": 0,
+              "node_id": "n3",
+              "source": {
+                "row": 1,
+                "offset": 17,
+                "line": 1,
+                "column": 18,
+                "event_date": "2023-03-14"
+              },
+              "index_original": "IR[USD,LIBOR_3M_CME]",
+              "fixing_date_mode": "EventDate",
+              "fixing_date_literal": null,
+              "observation_type": "Fix"
+            }
+          ],
+          "history_value_id": null,
+          "value": null,
+          "model_slot": {
+            "sample_id": 0,
+            "output_id": 0
+          }
+        },
+        {
+          "request_id": 1,
+          "index_canonical": "IR:USD,LIBOR_3M_CME",
+          "fixing_time": "2023-09-15 00:00:00",
+          "source": "Model",
+          "resolution": "Resolved",
+          "uses": [
+            {
+              "event_id": 1,
+              "statement_id": 0,
+              "node_id": "n9",
+              "source": {
+                "row": 2,
+                "offset": 17,
+                "line": 1,
+                "column": 18,
+                "event_date": "2023-09-15"
+              },
+              "index_original": "IR[USD,LIBOR_3M_CME]",
+              "fixing_date_mode": "EventDate",
+              "fixing_date_literal": null,
+              "observation_type": "Fix"
+            }
+          ],
+          "history_value_id": null,
+          "value": null,
+          "model_slot": {
+            "sample_id": 1,
+            "output_id": 0
+          }
+        }
+      ],
+      "sample_dates": [
+        "2023-03-14",
+        "2023-09-15"
+      ],
+      "timeline": [
+        0.4931506849315068,
+        1.0
+      ],
+      "event_to_sample": [
+        0,
+        1
+      ],
+      "live_events": [
+        {
+          "event_id": 0,
+          "future_event_index": 0
+        },
+        {
+          "event_id": 1,
+          "future_event_index": 1
+        }
+      ],
+      "sample_definitions": [
+        {
+          "sample_id": 0,
+          "numeraire": true,
+          "index_names": [
+            "IR:USD,LIBOR_3M_CME"
+          ],
+          "discount_maturities": [],
+          "forward_maturities": [],
+          "libor_definitions": []
+        },
+        {
+          "sample_id": 1,
+          "numeraire": true,
+          "index_names": [
+            "IR:USD,LIBOR_3M_CME"
+          ],
+          "discount_maturities": [],
+          "forward_maturities": [],
+          "libor_definitions": []
+        }
+      ],
+      "numeraire_requests": [
+        {
+          "event_id": 0,
+          "future_event_index": 0,
+          "sample_id": 0
+        },
+        {
+          "event_id": 1,
+          "future_event_index": 1,
+          "sample_id": 1
+        }
+      ]
+    }
+  }
+}

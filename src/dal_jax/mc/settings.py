@@ -28,6 +28,7 @@ _CHOICES = {
     "parallel": ("shard_map", "auto", "pmap", "none"),
     "dtype": ("float64", "float32", "auto"),
     "smoothing_kernel": ("dal", "smoothstep"),
+    "lsmc_policy_risk_mode": ("Frozen", "RetrainedBump"),
 }
 _DAL_FIELD_NAMES = {"rsg": "simulation.rsg_"}
 
@@ -92,6 +93,14 @@ class MonteCarloSettings:
     deterministic_reduction: bool = False
     block_bucketing: bool = False
     checkpoint: bool = True
+    lsmc_basis_degree: int = 3
+    lsmc_training_paths: int | None = None
+    lsmc_validation_paths: int | None = None
+    lsmc_rqmc_replicates: int | None = None
+    lsmc_training_seed: int | None = None
+    lsmc_pricing_seed: int | None = None
+    lsmc_policy_risk_mode: str = "Frozen"
+    lsmc_policy_bump_relative: float = 1e-3
 
     def __post_init__(self) -> None:
         _check_choices(self)
@@ -113,6 +122,26 @@ class MonteCarloSettings:
             object.__setattr__(self, "devices", tuple(self.devices))
             if not self.devices:
                 raise InvalidSetting("devices must not be empty")
+        self._check_lsmc()
+
+    def _check_lsmc(self) -> None:
+        _check_integer("lsmc_basis_degree", self.lsmc_basis_degree, 1, 8)
+        for name, low in (("lsmc_training_paths", 1), ("lsmc_validation_paths", 0), ("lsmc_rqmc_replicates", 2),
+                          ("lsmc_training_seed", 0), ("lsmc_pricing_seed", 0)):
+            value = getattr(self, name)
+            if value is not None:
+                _check_integer(name, value, low, 2**31-1)
+        if not math.isfinite(self.lsmc_policy_bump_relative) or not 0 < self.lsmc_policy_bump_relative <= 0.1:
+            raise InvalidSetting("lsmc_policy_bump_relative must be finite and in (0, 0.1]")
+        self._check_lsmc_modes()
+
+    def _check_lsmc_modes(self) -> None:
+        if self.lsmc_policy_risk_mode == "RetrainedBump" and not self.enable_aad:
+            raise InvalidSetting("lsmc_policy_risk_mode=RetrainedBump requires enable_aad=True")
+        if self.lsmc_rqmc_replicates is not None and self.rsg != "sobol":
+            raise InvalidSetting("lsmc_rqmc_replicates requires rsg=sobol")
+        if self.lsmc_rqmc_replicates is None and (self.lsmc_training_seed is not None or self.lsmc_pricing_seed is not None):
+            raise InvalidSetting("LSMC seeds require lsmc_rqmc_replicates")
 
     def resolved_devices(self) -> tuple[jax.Device, ...]:
         if self.devices is not None:

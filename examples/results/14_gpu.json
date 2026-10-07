@@ -1,0 +1,191 @@
+{
+  "environment": {
+    "jax": "0.11.2",
+    "dal_python": "2026.9.25"
+  },
+  "configuration": {
+    "paths": 65536,
+    "repeat": 3,
+    "platform": "gpu",
+    "devices": 1
+  },
+  "comparisons": [
+    {
+      "label": "Validated RQMC frozen policy",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.018319163999876764,
+        "warm_min_seconds": 0.00880508699992788,
+        "warm_median_seconds": 0.00884040199980518,
+        "warm_runs_seconds": [
+          0.00880508699992788,
+          0.00884040199980518,
+          0.009932267999829492
+        ],
+        "compile_seconds": 1.6841398750002554,
+        "training_first_seconds": 3.212112036999315,
+        "result": {
+          "PV": 5.730985328023063,
+          "d_div": 53.23693641356269,
+          "d_rate": -60.31033649045645,
+          "d_spot": -0.4017957890138255,
+          "d_vol": 46.78244170579653
+        },
+        "backend": "gpu",
+        "devices": 1,
+        "dtype": "float64",
+        "block_size": 1024
+      },
+      "dal": {
+        "first_seconds": 0.02926476700031344,
+        "warm_min_seconds": 0.02313744700040843,
+        "warm_median_seconds": 0.024008278999644972,
+        "warm_runs_seconds": [
+          0.025500667999949655,
+          0.024008278999644972,
+          0.02313744700040843
+        ],
+        "result": {
+          "PV": 5.730985328023061,
+          "d_div": 53.23693641356265,
+          "d_rate": -60.31033649045642,
+          "d_spot": -0.4017957890138249,
+          "d_vol": 46.782441705796494
+        }
+      }
+    }
+  ],
+  "diagnostics": {
+    "uncertainty": {
+      "mode": "rqmc_conditional_policy",
+      "scramble": "sobol-digital-shift-splitmix64-v1",
+      "replicate_count": 3,
+      "training_seed": 17,
+      "pricing_seed": 29,
+      "training_paths": 4096,
+      "validation_paths": 1024,
+      "pricing_paths_per_replicate": 65536,
+      "pricing_paths_total": 196608,
+      "replicate_means": [
+        5.731947934875941,
+        5.730487111464884,
+        5.730574649062037
+      ],
+      "replicate_mean_se": 0.0004730270015712653,
+      "payoff_dispersion_se": 0.01779182883760644
+    },
+    "exercise": [
+      {
+        "event_id": 0,
+        "date": "2023-09-15",
+        "basis_degree": 1,
+        "basis": "NormalizedMonomial",
+        "effective_rank": 2,
+        "solver": "MomentsCholesky",
+        "fallback_reason": null,
+        "validation_mse": 53.08076316355794,
+        "regressor_index": null,
+        "regression_features": [
+          "SPOT()"
+        ],
+        "normalization_means": [
+          89.44440158093754
+        ],
+        "normalization_sigmas": [
+          7.6343440469760475
+        ],
+        "basis_powers": [
+          [
+            0
+          ],
+          [
+            1
+          ]
+        ],
+        "num_cond_true_paths": 1971,
+        "num_coefficients": 2,
+        "coefficients": [
+          10.985854876476097,
+          -6.2543300399960335
+        ],
+        "degenerate": false,
+        "degenerate_reason": null,
+        "exercise_rate": 0.16307576497395834
+      },
+      {
+        "event_id": 1,
+        "date": "2024-03-13",
+        "basis_degree": 1,
+        "basis": "NormalizedMonomial",
+        "effective_rank": 2,
+        "solver": "MomentsCholesky",
+        "fallback_reason": null,
+        "validation_mse": 0.0,
+        "regressor_index": null,
+        "regression_features": [
+          "SPOT()"
+        ],
+        "normalization_means": [
+          87.30624038890825
+        ],
+        "normalization_sigmas": [
+          8.943850665691395
+        ],
+        "basis_powers": [
+          [
+            0
+          ],
+          [
+            1
+          ]
+        ],
+        "num_cond_true_paths": 1933,
+        "num_coefficients": 2,
+        "coefficients": [
+          0.0,
+          0.0
+        ],
+        "degenerate": false,
+        "degenerate_reason": null,
+        "exercise_rate": 0.314605712890625
+      }
+    ],
+    "retrained": {
+      "paths": 4096,
+      "jax": {
+        "first_seconds": 6.4900333149998914,
+        "warm_min_seconds": 0.10669034900001861,
+        "warm_median_seconds": 0.11190404900025896,
+        "warm_runs_seconds": [
+          0.11190404900025896,
+          0.11529470799996488,
+          0.10669034900001861
+        ],
+        "result": {
+          "PV": 5.764543673198557,
+          "d_spot": -0.4150186348057556,
+          "d_vol": 48.2366322558175,
+          "d_rate": -58.38749856836362,
+          "d_div": 51.50795151193026
+        }
+      },
+      "dal": {
+        "first_seconds": 0.008338137999999162,
+        "warm_min_seconds": 0.010468109000612458,
+        "warm_median_seconds": 0.011251408000134688,
+        "warm_runs_seconds": [
+          0.013011346999519446,
+          0.011251408000134688,
+          0.010468109000612458
+        ],
+        "result": {
+          "PV": 5.764543673198554,
+          "d_div": 51.507951511929534,
+          "d_rate": -58.38749856836112,
+          "d_spot": -0.41501863480577367,
+          "d_vol": 48.236632255819764
+        }
+      }
+    }
+  }
+}

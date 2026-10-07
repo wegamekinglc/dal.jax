@@ -1,0 +1,301 @@
+{
+  "environment": {
+    "jax": "0.11.2",
+    "dal_python": "2026.9.25"
+  },
+  "configuration": {
+    "paths": 65536,
+    "repeat": 3,
+    "platform": "gpu",
+    "devices": 1
+  },
+  "comparisons": [
+    {
+      "label": "Bermudan frozen policy",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.028089968000131194,
+        "warm_min_seconds": 0.020675816999755625,
+        "warm_median_seconds": 0.020742157000313455,
+        "warm_runs_seconds": [
+          0.020675816999755625,
+          0.020742157000313455,
+          0.021205211999586027
+        ],
+        "compile_seconds": 1.7054290710002533,
+        "training_first_seconds": 1.2217962939994322,
+        "result": {
+          "PV": 6.492142842254208,
+          "d_div": 60.16318709164382,
+          "d_rate": -68.43214570884629,
+          "d_spot": -0.40527240662636793,
+          "d_vol": 51.56993927494499,
+          "d_K": 0.47044196336846295
+        },
+        "backend": "gpu",
+        "devices": 1,
+        "dtype": "float64",
+        "block_size": 1024
+      },
+      "dal": {
+        "first_seconds": 0.020244303999788826,
+        "warm_min_seconds": 0.020072265000635525,
+        "warm_median_seconds": 0.02111584800059063,
+        "warm_runs_seconds": [
+          0.02270093800052564,
+          0.02111584800059063,
+          0.020072265000635525
+        ],
+        "result": {
+          "PV": 6.492142842254203,
+          "d_K": 0.47044196336846505,
+          "d_div": 60.163187091643884,
+          "d_rate": -68.43214570884636,
+          "d_spot": -0.4052724066263672,
+          "d_vol": 51.569939274944986
+        }
+      }
+    }
+  ],
+  "diagnostics": {
+    "training": {
+      "first_seconds": 0.06237191000036546,
+      "warm_min_seconds": 0.05286317499940196,
+      "warm_median_seconds": 0.05483850299970072,
+      "warm_runs_seconds": [
+        0.05560115099979157,
+        0.05286317499940196,
+        0.05483850299970072
+      ]
+    },
+    "end_to_end": {
+      "first_seconds": 1.7561852979997639,
+      "warm_min_seconds": 0.0835622409995267,
+      "warm_median_seconds": 0.08523108400004276,
+      "warm_runs_seconds": [
+        0.08671526299985999,
+        0.08523108400004276,
+        0.0835622409995267
+      ]
+    },
+    "exercise": {
+      "schema": "dal.script-simulation/1",
+      "evaluation_date": "2022-09-15",
+      "simulation": {
+        "rsg": "sobol",
+        "use_bb": true,
+        "enable_aad": false,
+        "smooth": 0.01,
+        "compiled": false,
+        "lsmc_basis_degree": 3,
+        "lsmc_training_paths": 65536,
+        "lsmc_validation_paths": null,
+        "lsmc_rqmc_replicates": null,
+        "lsmc_training_seed": null,
+        "lsmc_pricing_seed": null
+      },
+      "n_paths": 65536,
+      "uncertainty": {
+        "mode": "deterministic",
+        "scramble": "none",
+        "replicate_count": 1,
+        "training_seed": null,
+        "pricing_seed": null,
+        "training_paths": 65536,
+        "validation_paths": 0,
+        "pricing_paths_per_replicate": 65536,
+        "pricing_paths_total": 65536,
+        "replicate_means": [],
+        "replicate_mean_se": null,
+        "payoff_dispersion_se": 0.030985931843677827
+      },
+      "exercise_events": [
+        {
+          "event_id": 0,
+          "date": "2023-03-14",
+          "basis_degree": 3,
+          "basis": "NormalizedMonomial",
+          "effective_rank": 4,
+          "solver": "MomentsCholesky",
+          "fallback_reason": null,
+          "validation_mse": null,
+          "regressor_index": null,
+          "regression_features": [
+            "SPOT()"
+          ],
+          "normalization_means": [
+            92.26401222272476
+          ],
+          "normalization_sigmas": [
+            5.609280501149718
+          ],
+          "basis_powers": [
+            [
+              0
+            ],
+            [
+              1
+            ],
+            [
+              2
+            ],
+            [
+              3
+            ]
+          ],
+          "num_cond_true_paths": 31714,
+          "num_coefficients": 4,
+          "coefficients": [
+            9.736874648697475,
+            -3.4627464644261705,
+            0.4694575942787869,
+            0.040000111071074866
+          ],
+          "degenerate": false,
+          "degenerate_reason": null,
+          "exercise_rate": 0.0614776611328125
+        },
+        {
+          "event_id": 1,
+          "date": "2023-09-15",
+          "basis_degree": 3,
+          "basis": "NormalizedMonomial",
+          "effective_rank": 4,
+          "solver": "MomentsCholesky",
+          "fallback_reason": null,
+          "validation_mse": null,
+          "regressor_index": null,
+          "regression_features": [
+            "SPOT()"
+          ],
+          "normalization_means": [
+            89.33528084582795
+          ],
+          "normalization_sigmas": [
+            7.597532976610224
+          ],
+          "basis_powers": [
+            [
+              0
+            ],
+            [
+              1
+            ],
+            [
+              2
+            ],
+            [
+              3
+            ]
+          ],
+          "num_cond_true_paths": 31230,
+          "num_coefficients": 4,
+          "coefficients": [
+            11.137607135352173,
+            -5.6263206699249935,
+            0.7481579816448592,
+            0.10336216668174121
+          ],
+          "degenerate": false,
+          "degenerate_reason": null,
+          "exercise_rate": 0.1244049072265625
+        },
+        {
+          "event_id": 2,
+          "date": "2024-03-13",
+          "basis_degree": 3,
+          "basis": "NormalizedMonomial",
+          "effective_rank": 4,
+          "solver": "MomentsCholesky",
+          "fallback_reason": null,
+          "validation_mse": null,
+          "regressor_index": null,
+          "regression_features": [
+            "SPOT()"
+          ],
+          "normalization_means": [
+            87.28421968873316
+          ],
+          "normalization_sigmas": [
+            8.953510201849365
+          ],
+          "basis_powers": [
+            [
+              0
+            ],
+            [
+              1
+            ],
+            [
+              2
+            ],
+            [
+              3
+            ]
+          ],
+          "num_cond_true_paths": 30897,
+          "num_coefficients": 4,
+          "coefficients": [
+            12.1092893692172,
+            -7.507129339701173,
+            0.8603304418192742,
+            0.15823374131831358
+          ],
+          "degenerate": false,
+          "degenerate_reason": null,
+          "exercise_rate": 0.1231689453125
+        },
+        {
+          "event_id": 3,
+          "date": "2024-09-14",
+          "basis_degree": 3,
+          "basis": "NormalizedMonomial",
+          "effective_rank": 4,
+          "solver": "MomentsCholesky",
+          "fallback_reason": null,
+          "validation_mse": null,
+          "regressor_index": null,
+          "regression_features": [
+            "SPOT()"
+          ],
+          "normalization_means": [
+            85.59085652954201
+          ],
+          "normalization_sigmas": [
+            10.055227771195362
+          ],
+          "basis_powers": [
+            [
+              0
+            ],
+            [
+              1
+            ],
+            [
+              2
+            ],
+            [
+              3
+            ]
+          ],
+          "num_cond_true_paths": 30616,
+          "num_coefficients": 4,
+          "coefficients": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "degenerate": false,
+          "degenerate_reason": null,
+          "exercise_rate": 0.1916046142578125
+        }
+      ]
+    },
+    "spot_ladder": [
+      19.286262870972582,
+      6.492142842254207,
+      1.6734464514731187
+    ]
+  }
+}

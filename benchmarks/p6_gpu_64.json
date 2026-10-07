@@ -1,0 +1,131 @@
+{
+  "environment": {
+    "python": "3.13.9",
+    "jax": "0.11.2",
+    "os": "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.43"
+  },
+  "configuration": {
+    "paths": 1048576,
+    "training_paths": 65536,
+    "devices": 1,
+    "platform": "gpu",
+    "repeat": 3,
+    "output": "benchmarks/p6_gpu_64.json"
+  },
+  "measurements": [
+    {
+      "mode": "price",
+      "jax": {
+        "training": {
+          "first_seconds": 1.1351753930002815,
+          "warm_median_seconds": 0.042157046999818704,
+          "warm_runs_seconds": [
+            0.04184993999933795,
+            0.042157046999818704,
+            0.043050835999565606
+          ]
+        },
+        "compile_seconds": 0.5177938169999834,
+        "frozen_pricing": {
+          "first_seconds": 0.026220180999189324,
+          "warm_median_seconds": 0.0238135740000871,
+          "warm_runs_seconds": [
+            0.02428595299988956,
+            0.0238135740000871,
+            0.022999803999482538
+          ]
+        },
+        "end_to_end": {
+          "first_seconds": 0.5776946739997584,
+          "warm_median_seconds": 0.07156818699968426,
+          "warm_runs_seconds": [
+            0.07200334500066674,
+            0.07156818699968426,
+            0.06944920500063745
+          ]
+        },
+        "result": {
+          "PV": 6.496690584083347
+        },
+        "backend": "gpu",
+        "device_kind": "NVIDIA GeForce RTX 4060 Laptop GPU",
+        "devices": 1,
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.019136787000206823,
+        "warm_median_seconds": 0.016625688999738486,
+        "warm_runs_seconds": [
+          0.016527255999790214,
+          0.016946611999628658,
+          0.016625688999738486
+        ],
+        "result": {
+          "PV": 6.49669058408335
+        }
+      }
+    },
+    {
+      "mode": "greeks",
+      "jax": {
+        "training": {
+          "first_seconds": 0.4482502969995039,
+          "warm_median_seconds": 0.040563398999438505,
+          "warm_runs_seconds": [
+            0.04118670299976657,
+            0.040563398999438505,
+            0.038316177000524476
+          ]
+        },
+        "compile_seconds": 1.6542196059999696,
+        "frozen_pricing": {
+          "first_seconds": 0.11247649000051751,
+          "warm_median_seconds": 0.09807498000009218,
+          "warm_runs_seconds": [
+            0.10283446899939008,
+            0.09788289399966743,
+            0.09807498000009218
+          ]
+        },
+        "end_to_end": {
+          "first_seconds": 1.7309429269998873,
+          "warm_median_seconds": 0.15312692600036826,
+          "warm_runs_seconds": [
+            0.15132799399998476,
+            0.15312692600036826,
+            0.15567800699955114
+          ]
+        },
+        "result": {
+          "PV": 6.496643258643058,
+          "d_div": 57.907453613685476,
+          "d_rate": -66.18240066808487,
+          "d_spot": -0.3946947321866298,
+          "d_vol": 50.70187390378998,
+          "d_K": 0.4289948834558373
+        },
+        "backend": "gpu",
+        "device_kind": "NVIDIA GeForce RTX 4060 Laptop GPU",
+        "devices": 1,
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.12437100700026349,
+        "warm_median_seconds": 0.11351273199943535,
+        "warm_runs_seconds": [
+          0.11511211899960472,
+          0.10667904100046144,
+          0.11351273199943535
+        ],
+        "result": {
+          "PV": 6.496643258643058,
+          "d_K": 0.4289948834558327,
+          "d_div": 57.907453613685554,
+          "d_rate": -66.18240066808498,
+          "d_spot": -0.3946947321866295,
+          "d_vol": 50.70187390379002
+        }
+      }
+    }
+  ]
+}

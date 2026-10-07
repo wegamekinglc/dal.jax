@@ -10,6 +10,8 @@ The full plan is in [issue #1](https://github.com/wegamekinglc/dal.jax/issues/1)
 - **milestone P3**: fuzzy scalar scripts and all model/script Greeks, safe nested IF blending, adjacent event scan grouping, and optional C1 smoothing. Barrier and autocall sensitivities match DAL on identical Sobol paths.
 - **milestone P4**: CPU device and block tuning, actual CUDA validation, GPU precision and memory-based block sizing, repeatable RBG streams under parallel transforms, and an end-to-end benchmark suite.
 - **milestone P5**: mutable vector valuation, dated `FIX` and immutable fixing snapshots, delayed payments, correlated Black-Scholes with factor-aware bridges, and local volatility with every surface-node risk.
+- **milestone P6**: three-phase LSMC exercise valuation, guarded normalized regression, held-out degree selection, RQMC replicas and frozen/retrained-policy risks.
+- **milestone P7**: single/multi-factor GSR, GSRSLV, domestic equity/rate hybrids and preparation/simulation diagnostics. The `0.1.0a1` release package is prepared; PyPI upload is deferred.
 
 ## Install
 
@@ -120,13 +122,13 @@ The front end follows DAL's current `master`, so it also supports what dal-pytho
 
 Valuation supports mutable vectors, expanded `FOR`, reductions, dated `FIX` and delayed payments. Vectors use fixed capacities and dynamic lengths; fuzzy branches blend padded values and use the longer length only inside the transition. Invalid reads and empty non-SUM reductions raise DAL-named exceptions through `engine.value`. For pure JAX code, `engine.checked_pricer(n_paths)` returns `(prices, error_rates)`; `pricer` returns NaN when a live path has a vector error.
 
-`prepare(..., model=model, valuation=ValuationSettings(...))` binds index observations and discount maturities before folding branches. `FixingSnapshot` copies historical quotes and supports exact timestamp lookup and inverse FX quotes. Today's default policy uses the model; `RequireHistorical` requires today's snapshot quote. Missing historical quotes do not fall back to the model. A `default_index` in `ScriptProductSettings` binds legacy `SPOT()` when using FIX or multiple assets. Future plain equity observations are supported by BS, correlated BS and local vol; historical equity/FX/Libor fixings can come from snapshots. Future FX/rate observations require P7 models. Past events with an unsettled delayed payment raise `UnsettledDelayedPayment`.
+`prepare(..., model=model, valuation=ValuationSettings(...))` binds index observations and discount maturities before folding branches. `FixingSnapshot` copies historical quotes and supports exact timestamp lookup and inverse FX quotes. Today's default policy uses the model; `RequireHistorical` requires today's snapshot quote. Missing historical quotes do not fall back to the model. A `default_index` in `ScriptProductSettings` binds legacy `SPOT()` when using FIX or multiple assets. Future plain equity observations are supported by BS, correlated BS and local vol; historical equity/FX/Libor fixings can come from snapshots. GSR and hybrid models support future domestic rate observations; future FX models are outside this alpha. Past events with an unsettled delayed payment raise `UnsettledDelayedPayment`.
 
-`CorrelatedBlackScholes` takes equity index names, spots, volatilities, dividends and a positive-definite correlation matrix. Its per-asset parameters are differentiable; correlation is passive. `LocalVol` uses log-spot/time bilinear interpolation with flat extrapolation, subdivides each product time gap by `max_step`, and runs checkpointed log-Euler steps. Its surface replaces the scalar BS volatility; `vol_grid(gradient_model_params)` reconstructs the bucket-vega matrix. `EXERCISE` valuation remains P6; GSR and mixed equity/rate models remain P7. See [P5 usage and verification](docs/p5.md).
+`CorrelatedBlackScholes` takes equity index names, spots, volatilities, dividends and a positive-definite correlation matrix. Its per-asset parameters are differentiable; correlation is passive. `LocalVol` uses log-spot/time bilinear interpolation with flat extrapolation, subdivides each product time gap by `max_step`, and runs checkpointed log-Euler steps. Its surface replaces the scalar BS volatility; `vol_grid(gradient_model_params)` reconstructs the bucket-vega matrix. See [P5 usage and verification](docs/p5.md) for those models. Exercise valuation, single/multi-factor GSR, GSRSLV, domestic hybrids and both valuation/simulation diagnostics are covered in [P6/P7 methods and migration](docs/p6-p7.md). For exercise scripts, bind the model with `prepare(..., model=model)` and use `prepared.engine(model, settings)`; this selects the LSMC engine automatically.
 
 ## Examples
 
-[`examples/`](examples/README.md) has twelve ordinary Python scripts covering European and barrier pricing, JAX transforms, parallel execution, historical scripts and discounts, event scans and C1 smoothing, PRNG streams, CPU/GPU precision, vectors, fixing policies, correlated assets and local volatility. Every example prints numerical and synchronized performance comparisons with dal-python. Run `uv sync --group examples`, then `uv run --group examples python examples/01_european_option.py`. Saved numerical and timing reports are in `examples/results/`. Examples 09–12 need the pinned source-built dal-python oracle; installation commands are in the examples README.
+[`examples/`](examples/README.md) has sixteen ordinary Python scripts covering European and barrier pricing, JAX transforms, parallel execution, historical scripts and discounts, event scans and C1 smoothing, PRNG streams, CPU/GPU precision, vectors, fixing policies, correlated assets, local volatility, Bermudan exercise, RQMC, rates and hybrids. Every example prints numerical and synchronized performance comparisons with dal-python. Run `uv sync --group examples`, then `uv run --group examples python examples/01_european_option.py`. Saved numerical and timing reports are in `examples/results/`. Examples 09–16 need the pinned source-built dal-python oracle; installation commands are in the examples README.
 
 ## Settings
 
@@ -199,7 +201,7 @@ For the script front end, `tests/oracle/test_dal_script_frontend.py` checks that
 
 `uv run python benchmarks/bench_suite.py --devices 8 --dal --output cpu.json` runs the five scalar script products with 2²⁰ paths, exact prices and fuzzy prices plus all Greeks. It records lowering, compilation, synchronized warm times, results and memory estimates. GPU runs select `--platform gpu --dtype float64` or `float32`.
 
-The [P4 performance report](docs/performance.md) contains CPU 1/4/8/16/32 device runs, block and strategy comparisons, checkpoint storage, actual RTX 4060 Laptop GPU results, DAL comparisons and the limits of float32 Greeks. On this machine CPU 8 balances the long workloads; GPU auto sizing uses 32768 price paths per block and 8192–32768 for Greeks. Narrow autocall conditions require float64 for reliable Greeks. Raw reports are in `benchmarks/p4_*.json`; `bench_mc.py` remains the earlier hand-written payoff benchmark.
+The [P6/P7 performance report](docs/p6-p7-performance.md) adds million-path Bermudan phase timings on CPU 1/4 and GPU, plus rate/SLV/hybrid comparisons. The [P4 performance report](docs/performance.md) contains CPU 1/4/8/16/32 device runs, block and strategy comparisons, checkpoint storage, actual RTX 4060 Laptop GPU results, DAL comparisons and the limits of float32 Greeks. On this machine CPU 8 balances the long workloads; GPU auto sizing uses 32768 price paths per block and 8192–32768 for Greeks. Narrow autocall conditions require float64 for reliable Greeks. Raw reports are in `benchmarks/p4_*.json`; `bench_mc.py` remains the earlier hand-written payoff benchmark.
 
 `uv run python benchmarks/bench_script_compile.py --output benchmarks/script_compile_cpu.json` isolates compilation of script price and parameter gradients from path generation. It reports graph equation counts, StableHLO size, lowering time and compilation time for grouped and unrolled daily schedules. The checked-in JSON records a CPU run; timings vary by machine.
 
@@ -214,11 +216,11 @@ src/dal_jax/
   index.py            index names (EQ, FX, IR) and their canonical forms
   dates/              Date, increments, holidays (+ calendar_data.py), schedules, day bases
   random/             sobol (+ directions.npy), inverse_normal, bridge, prng
-  models/             base (protocol, SampleDef, Scenario), bs, correlated_bs, localvol
-  mc/                 settings, engine, parallel, tuning (precision and memory-based GPU blocks)
-  script/             lexer, preprocessor, parser, ast, product, preparation, observation, fixings, debug, diagnostics
+  models/             base (protocol, SampleDef, Scenario), bs, correlated_bs, localvol, gsr, gsrslv, hybrid
+  mc/                 settings, engine, parallel, tuning, lsmc, regression, regression_device
+  script/             lexer, preprocessor, parser, ast, product, preparation, observation, fixings, debug, diagnostics, explain, lsmcprep
   script/passes/      varindex, ifmeta, constfold, domain (+ intervals), constcond, eventgroup
-  script/lower/       exact/fuzzy scalar and vector events, state, grouped execution, smoothing kernels
+  script/lower/       exact/fuzzy/LSMC events, state, grouped execution, smoothing kernels
 examples/             Python scripts with DAL numerical/performance comparisons
 scripts/              data exporters, build_dal_oracle.sh (pinned native reference)
 benchmarks/           bench_mc.py, bench_script_compile.py, bench_suite.py (+ measured JSON reports)

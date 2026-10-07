@@ -209,3 +209,28 @@ def local_observations(events, event_indices):
             return replace(node, observation_id=indices.index(node.observation_id))
         return node.with_args(tuple(remap(arg, indices) for arg in node.args))
     return tuple(tuple(remap(node, indices) for node in event) for event, indices in zip(events, event_indices))
+
+
+def compact_lsmc_outputs(plan,events,features):
+    """Drop dead output slots after validating requests; preserve dates/Sobol dimensions."""
+    from dal_jax.script.lsmcprep import bind_regression_outputs
+    ids = _event_requests(events)
+    live = {index for row in ids for index in row}
+    records = list(plan.observations)
+    definitions = [replace(definition,index_names=()) for definition in plan.definitions]
+    _compact_outputs(records,definitions,live)
+    definitions, features = bind_regression_outputs(events,plan.event_to_sample,definitions,features)
+    return replace(plan,observations=tuple(records),definitions=definitions,event_observations=ids),features
+
+
+def _compact_outputs(records,definitions,live):
+    for i,record in enumerate(records):
+        if record.historical or not record.index_name:
+            continue
+        if i not in live:
+            records[i] = replace(record,sample_id=None,output_id=None)
+            continue
+        sample = record.sample_id
+        names = definitions[sample].index_names
+        records[i] = replace(record,output_id=len(names))
+        definitions[sample] = replace(definitions[sample],index_names=names+(record.index_name,))
