@@ -28,10 +28,16 @@ MAX_POINTS = 2**N_BITS - 1  # largest Sobol point index a 32-bit state reaches
 _MASK64 = (1 << 64) - 1
 
 
+def _read_only(array: np.ndarray) -> np.ndarray:
+    """Cached tables are shared by every caller, so they must not be writable."""
+    array.setflags(write=False)
+    return array
+
+
 @functools.cache
 def _direction_table() -> np.ndarray:
     with resources.files("dal_jax.random").joinpath("directions.npy").open("rb") as stream:
-        return np.load(stream)
+        return _read_only(np.load(stream))
 
 
 @functools.cache
@@ -42,7 +48,7 @@ def directions(dim: int) -> np.ndarray:
             f"Sobol dimension {dim} outside [1, {N_KNOWN - 1}]; "
             "not enough primitive polynomials available to generate Sobol sequences"
         )
-    return np.ascontiguousarray(_direction_table()[:dim].T)
+    return _read_only(np.ascontiguousarray(_direction_table()[:dim].T))
 
 
 def _next_split_mix64(state: int) -> tuple[int, int]:
@@ -61,7 +67,7 @@ def digital_shifts(dim: int, key: int) -> np.ndarray:
     for i in range(dim):
         state, value = _next_split_mix64(state)
         shifts[i] = value >> 32
-    return shifts
+    return _read_only(shifts)
 
 
 def sobol_state(path_id: Array, dirs: Array) -> Array:

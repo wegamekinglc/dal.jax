@@ -20,7 +20,14 @@ from support import (
 )
 
 from dal_jax import BlackScholes, MonteCarloEngine, MonteCarloSettings, PathProduct
-from dal_jax.errors import InvalidPathCount, InvalidPayoff, InvalidSetting, InvalidSmoothing, UnsupportedBrownianBridge
+from dal_jax.errors import (
+    InvalidPathCount,
+    InvalidPayoff,
+    InvalidSetting,
+    InvalidSmoothing,
+    ReservedIdentifier,
+    UnsupportedBrownianBridge,
+)
 
 
 @pytest.fixture
@@ -218,6 +225,28 @@ def test_invalid_inputs(one_cpu):
         MonteCarloSettings(parallel="threads")
     with pytest.raises(InvalidSetting):
         PathProduct(timeline=(1.0,), payoff=call_payoff, payoff_names=())
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [{"block_size": 8192.0}, {"block_size": True}, {"seed": 1.5}, {"sobol_shift_key": -1}, {"sobol_shift_key": 2**64}],
+)
+def test_integer_settings_reject_other_types(settings):
+    with pytest.raises(InvalidSetting):
+        MonteCarloSettings(**settings)
+
+
+def test_integer_settings_accept_numpy_integers():
+    settings = MonteCarloSettings(block_size=np.int64(1024), seed=np.int32(7))
+    assert type(settings.block_size) is int and type(settings.seed) is int
+
+
+def test_script_parameters_cannot_shadow_model_labels(one_cpu):
+    product = PathProduct(timeline=(1.0,), payoff=call_payoff, script_params={"STRIKE": 100.0, "spot": 1.0})
+    with pytest.raises(ReservedIdentifier):
+        engine(product, devices=one_cpu)
+    with pytest.raises(InvalidSetting):
+        PathProduct(timeline=(1.0,), payoff=call_payoff, script_params=(("STRIKE", 100.0), ("STRIKE", 90.0)))
 
 
 def test_bridge_requires_model_support(one_cpu):

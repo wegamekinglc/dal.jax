@@ -24,6 +24,10 @@ class InvalidSmoothing(InvalidSetting):
     code = "InvalidSmoothing"
 
 
+class ReservedIdentifier(DalError):
+    code = "ReservedIdentifier"
+
+
 class InvalidPathCount(DalError):
     code = "InvalidPathCount"
 

@@ -23,7 +23,7 @@ import numpy as np
 from jax import Array
 from jax.typing import ArrayLike
 
-from dal_jax.errors import InvalidPathCount, InvalidPayoff, InvalidSetting, UnsupportedBrownianBridge
+from dal_jax.errors import InvalidPathCount, InvalidPayoff, InvalidSetting, ReservedIdentifier, UnsupportedBrownianBridge
 from dal_jax.mc import parallel
 from dal_jax.mc.settings import DEFAULT_SMOOTH, MonteCarloSettings
 from dal_jax.models.base import Model, SampleDef, Scenario
@@ -67,12 +67,19 @@ class PathProduct:
         object.__setattr__(self, "timeline", timeline)
         defs = tuple(SampleDef() for _ in timeline) if self.sample_defs is None else tuple(self.sample_defs)
         object.__setattr__(self, "sample_defs", defs)
-        items = self.script_params.items() if isinstance(self.script_params, Mapping) else self.script_params
-        object.__setattr__(self, "script_params", tuple((str(k), float(v)) for k, v in items))
+        object.__setattr__(self, "script_params", _script_params(self.script_params))
         names = tuple(self.payoff_names)
         if not names or len(set(names)) != len(names):
             raise InvalidSetting("payoff_names must be non-empty and unique")
         object.__setattr__(self, "payoff_names", names)
+
+
+def _script_params(params: tuple[tuple[str, float], ...] | Mapping[str, float]) -> tuple[tuple[str, float], ...]:
+    items = params.items() if isinstance(params, Mapping) else params
+    normalized = tuple((str(name), float(value)) for name, value in items)
+    if len({name for name, _ in normalized}) != len(normalized):
+        raise InvalidSetting("script parameter names must be unique")
+    return normalized
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +87,13 @@ class BlockLayout:
     block_size: int
     n_blocks: int  # padded to a multiple of n_devices (and to a power of two when bucketing)
     n_devices: int
+
+
+def _check_risk_labels(product: PathProduct, model: Model) -> None:
+    """Model and script parameters share the ``d_<name>`` namespace of the results."""
+    clashes = sorted(set(model.param_labels) & {name for name, _ in product.script_params})
+    if clashes:
+        raise ReservedIdentifier(f"script parameters {clashes} reuse model parameter labels; both would report as d_<name>")
 
 
 def _next_pow2(n: int) -> int:
@@ -91,6 +105,7 @@ class MonteCarloEngine:
         self.product = product
         self.model = model
         self.settings = settings = settings or MonteCarloSettings()
+        _check_risk_labels(product, model)
         self.expired = not product.timeline
         self.plan = None if self.expired else model.allocate(product.timeline, product.sample_defs)
         self.sim_dim = 0 if self.expired else model.sim_dim(self.plan)
@@ -284,26 +299,30 @@ class MonteCarloEngine:
         params = self.default_params() if params is None else params
         self.model.validate_params(params["model"])
         index = 0 if payoff is None else self.payoff_names.index(payoff)
-        greeks = self.settings.enable_aad
-        layout = self.layout(n_paths)
-        key = (layout, greeks, index)
+        if self.settings.parallel == "none":
+            params = jax.device_put(params, self.devices[0])
+        compiled = self._value_function(self.layout(n_paths), index)
+        result = self._dal_result(compiled(params, jnp.asarray(n_paths, dtype=jnp.int64)))
+        if not all(np.all(np.isfinite(v)) for v in result.values()):
+            raise InvalidPayoff("non-finite path value")
+        return result
+
+    def _value_function(self, layout: BlockLayout, index: int) -> Callable:
+        """Jitted ``(params, n_paths) -> pv`` (or ``(pv, grads)`` with AAD), cached per layout and payoff."""
+        key = (layout, self.settings.enable_aad, index)
         if key not in self._compiled:
             core = self._core(layout, self._context(None))
             scalar = lambda p, n: core(p, n)[index]
-            self._compiled[key] = jax.jit(jax.value_and_grad(scalar) if greeks else scalar)
-        if self.settings.parallel == "none":
-            params = jax.device_put(params, self.devices[0])
-        out = self._compiled[key](params, jnp.asarray(n_paths, dtype=jnp.int64))
+            self._compiled[key] = jax.jit(jax.value_and_grad(scalar) if self.settings.enable_aad else scalar)
+        return self._compiled[key]
 
-        pv, grads = out if greeks else (out, None)
+    def _dal_result(self, out) -> dict[str, float | np.ndarray]:
+        if not self.settings.enable_aad:
+            return {"PV": _to_host(out)}
+        pv, grads = out
         result: dict[str, float | np.ndarray] = {"PV": _to_host(pv)}
-        if grads is not None:
-            for label in self.model.param_labels:
-                result[f"d_{label}"] = _to_host(grads["model"][label])
-            for name in self.script_param_names:
-                result[f"d_{name}"] = _to_host(grads["script"][name])
-        if not all(np.all(np.isfinite(v)) for v in result.values()):
-            raise InvalidPayoff("non-finite path value")
+        result |= {f"d_{label}": _to_host(grads["model"][label]) for label in self.model.param_labels}
+        result |= {f"d_{name}": _to_host(grads["script"][name]) for name in self.script_param_names}
         return result
 
 

@@ -1,6 +1,7 @@
 """Monte Carlo settings: DAL's ``MonteCarloSettings_`` plus JAX execution fields."""
 
 import math
+import numbers
 from dataclasses import dataclass
 from typing import Literal
 
@@ -18,10 +19,28 @@ DEFAULT_SMOOTH = 0.01
 DEFAULT_BLOCK_SIZE = 8192
 DEFAULT_PRNG_SEED = 1024
 
-_RSGS = ("sobol", "mrg32", "irn")
-_PARALLEL = ("shard_map", "auto", "pmap", "none")
-_INVERSE_NORMALS = ("acklam", "acklam_polish", "acklam_polish_precise", "ndtri")
-_DTYPES = ("float64", "float32")
+#  Allowed values per field; ``rsg`` is reported under DAL's field name.
+_CHOICES = {
+    "rsg": ("sobol", "mrg32", "irn"),
+    "inverse_normal": ("acklam", "acklam_polish", "acklam_polish_precise", "ndtri"),
+    "parallel": ("shard_map", "auto", "pmap", "none"),
+    "dtype": ("float64", "float32"),
+}
+_DAL_FIELD_NAMES = {"rsg": "simulation.rsg_"}
+
+
+def _check_choices(settings: "MonteCarloSettings") -> None:
+    for name, allowed in _CHOICES.items():
+        value = getattr(settings, name)
+        if value not in allowed:
+            raise InvalidSetting(f"{_DAL_FIELD_NAMES.get(name, name)}={value}; expected one of {', '.join(allowed)}")
+
+
+def _check_integer(name: str, value: object, low: float = -math.inf, high: float = math.inf) -> None:
+    """Integers only: ``True`` and ``8192.0`` would fail later as JAX shapes or seeds."""
+    is_integer = isinstance(value, numbers.Integral) and not isinstance(value, bool)
+    if not (is_integer and low <= value <= high):
+        raise InvalidSetting(f"{name}={value!r}; expected an integer in [{low}, {high}]")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -64,20 +83,18 @@ class MonteCarloSettings:
     checkpoint: bool = True
 
     def __post_init__(self) -> None:
-        if self.rsg not in _RSGS:
-            raise InvalidSetting(f"simulation.rsg_={self.rsg}; expected sobol, mrg32 or irn; rng method is not known")
+        _check_choices(self)
         if not (math.isfinite(self.smooth) and self.smooth > 0.0):
             raise InvalidSmoothing(f"simulation.smooth_={self.smooth}; expected a finite positive width")
-        if self.inverse_normal not in _INVERSE_NORMALS:
-            raise InvalidSetting(f"inverse_normal={self.inverse_normal}; expected one of {', '.join(_INVERSE_NORMALS)}")
-        if self.sobol_shift_key is not None and self.rsg != "sobol":
-            raise InvalidSetting("a Sobol digital shift requires simulation.rsg_=sobol")
-        if self.block_size <= 0:
-            raise InvalidSetting(f"block_size={self.block_size}; expected a positive integer")
-        if self.parallel not in _PARALLEL:
-            raise InvalidSetting(f"parallel={self.parallel}; expected one of {', '.join(_PARALLEL)}")
-        if self.dtype not in _DTYPES:
-            raise InvalidSetting(f"dtype={self.dtype}; expected float64 or float32")
+        _check_integer("block_size", self.block_size, low=1)
+        _check_integer("seed", self.seed)
+        object.__setattr__(self, "block_size", int(self.block_size))
+        object.__setattr__(self, "seed", int(self.seed))
+        if self.sobol_shift_key is not None:
+            _check_integer("sobol_shift_key", self.sobol_shift_key, low=0, high=2**64 - 1)
+            object.__setattr__(self, "sobol_shift_key", int(self.sobol_shift_key))
+            if self.rsg != "sobol":
+                raise InvalidSetting("a Sobol digital shift requires simulation.rsg_=sobol")
         if self.devices is not None:
             object.__setattr__(self, "devices", tuple(self.devices))
             if not self.devices:

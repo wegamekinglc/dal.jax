@@ -49,6 +49,13 @@ def test_uniforms_are_states_scaled_by_two_to_minus_32():
     assert MUL == 2.0**-32
 
 
+def test_cached_tables_are_read_only():
+    for table in (directions(5), digital_shifts(5, 42)):
+        with pytest.raises(ValueError):
+            table[0] = 1
+    np.testing.assert_array_equal(np.asarray(jax.vmap(Sobol(dim=3).uniform)(jnp.arange(2)))[:, 0], [0.5, 0.75])
+
+
 def test_dimension_limits():
     assert directions(N_KNOWN - 1).shape == (32, N_KNOWN - 1)
     for bad in (0, N_KNOWN):
