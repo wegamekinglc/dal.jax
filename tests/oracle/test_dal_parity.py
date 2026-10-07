@@ -105,8 +105,8 @@ def test_monthly_barrier_exact_and_fuzzy(dal, dal_barrier, cpu_devices, use_bb, 
     assert_parity(ours, dict(dal.MonteCarlo_Value(product, model, n, "sobol", use_bb, enable_aad)))
 
 
-def test_barrier_greeks_fix_the_notebook_todo(dal, dal_barrier, cpu_devices):
-    """``jnp.where`` gave d_BARRIER = 0; the fuzzy port recovers DAL's barrier sensitivity."""
+def test_barrier_greeks_match_dal_reference(dal, dal_barrier, cpu_devices):
+    """DAL's AAD Greeks at 2**20 paths; a hard-condition ``jax.grad`` would give d_BARRIER = 0."""
     _, _, ours_product = dal_barrier
     ours = MonteCarloEngine(ours_product, bs_model(), MonteCarloSettings(enable_aad=True, devices=cpu_devices)).value(2**20)
     assert ours["d_BARRIER"] == pytest.approx(0.08925165480978217, rel=1e-6)

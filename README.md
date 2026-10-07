@@ -2,7 +2,7 @@
 
 A re-implementation of [**DAL**](https://github.com/wegamekinglc/Derivatives-Algorithms-Lib)'s Monte Carlo pricing in pure Python (≥ 3.13) and [**JAX**](https://github.com/jax-ml/jax). Greeks come from `jax.grad` instead of an AAD tape. The same code runs on CPU and GPU, and paths are spread over devices with `shard_map`.
 
-The full plan is in [issue #1](https://github.com/wegamekinglc/dal.jax/issues/1). This package implements **milestone P0**: the Monte Carlo engine, Sobol and pseudo-random numbers, the Brownian bridge, and the Black-Scholes model. Products are hand-written single-path payoffs for now. The script engine (DAL's event tables) is the next milestone. The notebooks in `jax/` and `xad/` are the earlier experiments.
+The full plan is in [issue #1](https://github.com/wegamekinglc/dal.jax/issues/1). This package implements **milestone P0**: the Monte Carlo engine, Sobol and pseudo-random numbers, the Brownian bridge, and the Black-Scholes model. Products are hand-written single-path payoffs for now. The script engine (DAL's event tables) is the next milestone.
 
 ## Install
 
