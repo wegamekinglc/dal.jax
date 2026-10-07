@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dal-jax"
-version = "0.0.1"
+version = "0.1.0a1"
 description = "Monte Carlo derivatives pricing with JAX, re-implementing DAL's simulation engine"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -14,6 +14,7 @@ dependencies = [
     "numpy>=2.0",
 ]
 classifiers = [
+    "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -39,7 +40,7 @@ examples = [
 packages = ["src/dal_jax"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/dal_jax", "tests", "scripts", "README.md"]
+include = ["src/dal_jax", "tests", "scripts", "examples", "benchmarks", "docs", "README.md", "LICENSE", "CHANGELOG.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

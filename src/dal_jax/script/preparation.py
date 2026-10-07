@@ -30,7 +30,9 @@ from dal_jax.script.passes.intervals import Domain
 from dal_jax.script.passes.varindex import VarTable
 from dal_jax.script.product import ScriptProductData
 from dal_jax.script.fixings import ValuationSettings
-from dal_jax.script.observation import Observation, bind_observations, local_observations
+from dal_jax.script.observation import Observation, bind_observations, local_observations, compact_lsmc_outputs
+from dal_jax.script.lsmcprep import (RegressionFeature, exercise_node, validate_exercise_dates,
+                                    configure_regression, validate_payoff, prune_lsmc)
 
 SpotObservation = Observation
 
@@ -56,6 +58,11 @@ class PreparedProduct:
     event_to_sample: tuple[int, ...] = ()
     event_observations: tuple[tuple[int, ...], ...] = ()
     historical_observations: tuple[float, ...] = ()
+    regression_features: tuple[RegressionFeature, ...] = ()
+
+    @property
+    def has_exercise(self):
+        return any(exercise_node(event) is not None for event in self.events)
 
     @property
     def script_params(self) -> tuple[tuple[str, float], ...]:
@@ -71,6 +78,8 @@ class PreparedProduct:
 
     def path_product(self) -> PathProduct:
         """Lower the prepared events to a pure single-path payoff for P0's engine."""
+        if self.has_exercise:
+            raise UnsupportedExecutionMode("EXERCISE requires LsmcEngine; use prepared.engine(model, settings)")
         history = tuple(lower_event(event, self.variables.const_names, historical=True) for event in self.past_events)
         live_history = any(isinstance(node, A.ConstVar) for event in self.past_events for statement in event for node in A.walk(statement))
 
@@ -100,6 +109,24 @@ class PreparedProduct:
                            path_state_size=len(self.initial_values)+sum(self.variables.vector_capacities)+3*len(self.initial_vectors),
                            error_messages=tuple(f"{code}: {name}" for name in self.variables.vector_names
                                                 for code in ("VectorIndexOutOfRange", "EmptyVectorReduction")))
+
+    def engine(self, model, settings=None):
+        """Choose the ordinary or exercise driver for this prepared product."""
+        from dal_jax.mc.engine import MonteCarloEngine
+        if self.has_exercise:
+            from dal_jax.mc.lsmc import LsmcEngine
+            return LsmcEngine(self, model, settings)
+        return MonteCarloEngine(self.path_product(), model, settings)
+
+    def initial_state(self, params):
+        """Historical state, evaluated once per parameter set before path mapping."""
+        state = empty_state(len(self.initial_values), self.variables.vector_capacities, jnp)
+        if not self.past_events:
+            return state
+        for event, spot in zip(self.past_events, self.historical_spots):
+            sample = Sample(jnp.asarray(spot), jnp.asarray(1.), jnp.asarray(self.historical_observations), jnp.empty(0))
+            state = lower_event(event, self.variables.const_names, historical=True)(state, sample, params["script"])
+        return state
 
     def _event_scenario(self, scenario):
         from dal_jax.models.base import Scenario
@@ -133,11 +160,6 @@ def _observation_arrays(observations, event_ids, width):
         known.append([_or_zero(r.value) for r in row])
         live.append([not r.historical for r in row])
     return samples, outputs, known, live
-
-
-def _validate_node(node: A.Node) -> None:
-    if isinstance(node, A.Exercise):
-        raise UnsupportedExecutionMode("EXERCISE statements require the LSMC simulation driver")
 
 
 class _ScalarDomains(DomainProcessor):
@@ -203,9 +225,6 @@ def _parse_product(data: ScriptProductData, evaluation_date: Date):
         raise InvalidScriptStructure("script has no dated events")
     if not product.has_payoff:
         raise InvalidScriptStructure("dates/events has no PAYS payoff")
-    for statement in product.statements():
-        for node in A.walk(statement):
-            _validate_node(node)
     product.partition_events(evaluation_date)
     product.index_variables()
     return product
@@ -248,7 +267,7 @@ def _valuation(evaluation_date, valuation, fixings, today_fixing_policy):
 
 def prepare(data: ScriptProductData, evaluation_date: Date | None = None, *, model=None, valuation=None,
             historical_spots: Mapping[Date, float] | None = None, fixings=None, today_fixing_policy=None) -> PreparedProduct:
-    """Prepare vectors, observations, history and discounts; EXERCISE requires P6.
+    """Prepare vectors, observations, history, discounts and exercise features.
 
     FIX and delayed payments need ``model=...``. An immutable valuation setting
     or explicit fixing snapshot selects history; future quotes are always model
@@ -256,15 +275,26 @@ def prepare(data: ScriptProductData, evaluation_date: Date | None = None, *, mod
     """
     valuation = _valuation(evaluation_date, valuation, fixings, today_fixing_policy)
     date = valuation.evaluation_date
+    _validate_model_date(model, date)
+    validate_exercise_dates(data.product(), date, model)
     product = _parse_product(data, date)
     plan = bind_observations(product, data, date, valuation, historical_spots or {}, model)
+    plan, features = configure_regression(product, data.settings, model, plan)
     past, _ = process_ifs(plan.past)
     past = tuple(past)
     table = product.vars
     history_values = tuple(o.value if o.value is not None else 0. for o in plan.observations)
     initial = _replay_initial(past, plan, table, history_values)
+    if product.has_exercise:
+        validate_payoff(product, scalars(initial))
     fuzzy_future, fuzzy_depth = _analyse(past, plan.future, len(table.var_names), plan.observations, fuzzy=True)
-    future, depth = _analyse(past, plan.future, len(table.var_names), plan.observations)
+    if product.has_exercise:
+        fuzzy_future = prune_lsmc(fuzzy_future, product.payoff_index, features)
+        plan, features = compact_lsmc_outputs(plan,fuzzy_future,features)
+        fuzzy_future, fuzzy_depth = process_ifs(fuzzy_future)
+        future, depth = fuzzy_future, fuzzy_depth
+    else:
+        future, depth = _analyse(past, plan.future, len(table.var_names), plan.observations)
     return PreparedProduct(evaluation_date=date, event_dates=tuple(product.event_dates),
                            events=local_observations(future, plan.event_observations),
                            fuzzy_events=local_observations(fuzzy_future, plan.event_observations),
@@ -273,7 +303,12 @@ def prepare(data: ScriptProductData, evaluation_date: Date | None = None, *, mod
                            payoff_index=product.payoff_index, observations=plan.observations, **_seed_metadata(initial),
                            historical_spots=plan.historical_spots, historical_observations=history_values,
                            event_to_sample=plan.event_to_sample, event_observations=plan.event_observations,
-                           max_nested_ifs=max(depth, fuzzy_depth))
+                           max_nested_ifs=max(depth, fuzzy_depth), regression_features=features)
+
+
+def _validate_model_date(model, date):
+    if model is not None and getattr(model, "evaluation_date", None) not in (None, date):
+        raise InvalidSetting("model evaluation date must match the valuation date")
 
 
 def _replay_initial(past, plan, table, history_values):

@@ -1,0 +1,131 @@
+{
+  "environment": {
+    "python": "3.13.9",
+    "jax": "0.11.2",
+    "os": "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.43"
+  },
+  "configuration": {
+    "paths": 1048576,
+    "training_paths": 65536,
+    "devices": 1,
+    "platform": "cpu",
+    "repeat": 3,
+    "output": "benchmarks/p6_cpu_1.json"
+  },
+  "measurements": [
+    {
+      "mode": "price",
+      "jax": {
+        "training": {
+          "first_seconds": 0.8558499950004261,
+          "warm_median_seconds": 0.0315675580000061,
+          "warm_runs_seconds": [
+            0.035382533999836596,
+            0.0315675580000061,
+            0.028637637999963772
+          ]
+        },
+        "compile_seconds": 0.2950235389998852,
+        "frozen_pricing": {
+          "first_seconds": 0.097805297999912,
+          "warm_median_seconds": 0.09684446799974467,
+          "warm_runs_seconds": [
+            0.09958118600025045,
+            0.0937685609997061,
+            0.09684446799974467
+          ]
+        },
+        "end_to_end": {
+          "first_seconds": 0.42576149899969096,
+          "warm_median_seconds": 0.13077314099973592,
+          "warm_runs_seconds": [
+            0.12449653700014096,
+            0.13228691900030753,
+            0.13077314099973592
+          ]
+        },
+        "result": {
+          "PV": 6.496690584083347
+        },
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "devices": 1,
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.019716923000032693,
+        "warm_median_seconds": 0.019123390999993717,
+        "warm_runs_seconds": [
+          0.018981011000050785,
+          0.02040974900000947,
+          0.019123390999993717
+        ],
+        "result": {
+          "PV": 6.49669058408335
+        }
+      }
+    },
+    {
+      "mode": "greeks",
+      "jax": {
+        "training": {
+          "first_seconds": 0.23847884899987548,
+          "warm_median_seconds": 0.0320005260000471,
+          "warm_runs_seconds": [
+            0.032245333999981085,
+            0.031794199000160006,
+            0.0320005260000471
+          ]
+        },
+        "compile_seconds": 1.0658273159997407,
+        "frozen_pricing": {
+          "first_seconds": 0.34671659499963425,
+          "warm_median_seconds": 0.33755654300011884,
+          "warm_runs_seconds": [
+            0.35819402900006025,
+            0.33210687700011476,
+            0.33755654300011884
+          ]
+        },
+        "end_to_end": {
+          "first_seconds": 1.3970430449999185,
+          "warm_median_seconds": 0.38043422900000223,
+          "warm_runs_seconds": [
+            0.38043422900000223,
+            0.38584856399984346,
+            0.35810089799997513
+          ]
+        },
+        "result": {
+          "PV": 6.496643258643051,
+          "d_div": 57.90745361368547,
+          "d_rate": -66.18240066808485,
+          "d_spot": -0.39469473218663004,
+          "d_vol": 50.701873903789945,
+          "d_K": 0.4289948834558371
+        },
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "devices": 1,
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.12752220199990916,
+        "warm_median_seconds": 0.12220298200008983,
+        "warm_runs_seconds": [
+          0.12220298200008983,
+          0.12065123000002131,
+          0.12375178100000994
+        ],
+        "result": {
+          "PV": 6.496643258643058,
+          "d_K": 0.4289948834558327,
+          "d_div": 57.907453613685554,
+          "d_rate": -66.18240066808498,
+          "d_spot": -0.3946947321866295,
+          "d_vol": 50.70187390379002
+        }
+      }
+    }
+  ]
+}

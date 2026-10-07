@@ -1,0 +1,22 @@
+name: Publish alpha package
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.13"
+      - name: Build wheel and source distribution
+        run: uv build
+      - name: Validate distribution metadata
+        run: uvx twine check dist/*
+      - name: Publish with PyPI Trusted Publishing
+        run: uv publish --trusted-publishing always

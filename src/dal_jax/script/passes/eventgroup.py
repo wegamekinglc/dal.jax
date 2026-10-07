@@ -44,6 +44,12 @@ def _identity_fields(node):
         return {"source": _SOURCE, "fixing_date": None, "is_const": False, "const_val": 0.0}
     if isinstance(node, A.Pays):
         return {"source": _SOURCE, "payment_date": None}
+    return _expression_identity(node)
+
+
+def _expression_identity(node):
+    if isinstance(node, A.Exercise):
+        return {"source": _SOURCE}
     if isinstance(node, A.Expr):
         return {"is_const": False, "const_val": 0.0}
     return {}

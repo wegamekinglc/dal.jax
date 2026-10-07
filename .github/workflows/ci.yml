@@ -43,7 +43,7 @@ jobs:
           done
 
   native-oracle:
-    name: Pinned native DAL oracle and P5 examples
+    name: Pinned native DAL oracle and P5-P7 examples
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -58,8 +58,27 @@ jobs:
         run: bash scripts/build_dal_oracle.sh "$RUNNER_TEMP/dal-oracle" "$GITHUB_WORKSPACE/.venv/bin/python"
       - name: Full CPU suite with native oracle
         run: .venv/bin/python -m pytest
-      - name: P5 examples with DAL prices, risks and synchronized timings
+      - name: P5-P7 examples with DAL prices, risks and synchronized timings
         run: |
-          for example in examples/09_*.py examples/1[0-2]_*.py; do
+          for example in examples/09_*.py examples/1[0-6]_*.py; do
             .venv/bin/python "$example" --paths 4096 --devices 4 --repeat 1 --output "$RUNNER_TEMP/$(basename "$example" .py).json"
           done
+
+  distribution:
+    name: Alpha distribution and clean wheel install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.13"
+          cache-suffix: distribution
+      - name: Build and validate wheel and source distribution
+        run: |
+          uv build
+          uvx twine check dist/*
+      - name: Install only the built wheel and its runtime dependencies
+        run: |
+          uv venv "$RUNNER_TEMP/alpha-smoke"
+          uv pip install --python "$RUNNER_TEMP/alpha-smoke/bin/python" dist/*.whl
+          "$RUNNER_TEMP/alpha-smoke/bin/python" scripts/smoke_install.py
