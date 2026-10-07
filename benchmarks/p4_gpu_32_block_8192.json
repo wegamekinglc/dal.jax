@@ -1,0 +1,80 @@
+{
+  "environment": {
+    "python": "3.13.9",
+    "jax": "0.11.2",
+    "os": "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "cpu": "13th Gen Intel(R) Core(TM) i9-13900HX"
+  },
+  "configuration": {
+    "platform": "gpu",
+    "devices": 1,
+    "parallel": "shard_map",
+    "dtype": "float32",
+    "paths": 1048576,
+    "block_size": 8192,
+    "rsg": "sobol",
+    "prng_impl": null,
+    "use_bb": false,
+    "checkpoint": true,
+    "scan_group_threshold": 4,
+    "deterministic_reduction": false,
+    "repeat": 3
+  },
+  "measurements": [
+    {
+      "case": "barrier_1w",
+      "mode": "greeks",
+      "jax": {
+        "backend": "gpu",
+        "device_kind": "NVIDIA GeForce RTX 4060 Laptop GPU",
+        "n_devices": 1,
+        "dtype": "float32",
+        "block_size": 8192,
+        "sim_dim": 157,
+        "scan_spans": [
+          [
+            1,
+            157
+          ]
+        ],
+        "lower_seconds": 0.6691693319880869,
+        "compile_seconds": 1.15580634798971,
+        "first_run_seconds": 1.6691457119886763,
+        "warm_min_seconds": 1.6391405540052801,
+        "warm_median_seconds": 1.6405608060013037,
+        "warm_runs_seconds": [
+          1.6405608060013037,
+          1.6426702130120248,
+          1.6391405540052801
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 48,
+          "output_size_in_bytes": 112,
+          "temp_size_in_bytes": 196116632,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": {
+          "num_allocs": 94,
+          "bytes_in_use": 3328,
+          "peak_bytes_in_use": 196122112,
+          "largest_alloc_size": 196116736,
+          "bytes_limit": 3005218816,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 3005213440,
+          "pool_bytes": 3005218816,
+          "peak_pool_bytes": 3005218816
+        },
+        "result": {
+          "PV": 1.3497747052460909,
+          "d_div": -19.456996591123815,
+          "d_rate": 15.407671973653848,
+          "d_spot": 0.05022778034210205,
+          "d_vol": -6.470626467751115,
+          "d_BARRIER": 0.08100826235886416,
+          "d_STRIKE": -0.13186566991498694
+        }
+      }
+    }
+  ]
+}

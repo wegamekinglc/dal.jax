@@ -48,7 +48,10 @@ class _FuzzyLowerer(_Lowerer):
 
         def evaluate(state, sample, params, active):
             degree = condition(state, sample, params, active)
-            full, zero = degree > 1.0 - EPSILON, degree < EPSILON
+            # 1-EPSILON rounds to 1 in float32; equality must still mask
+            # the unused branch before its unsafe arithmetic is evaluated.
+            full = degree >= 1.0 if jnp.result_type(degree) == jnp.float32 else degree > 1.0 - EPSILON
+            zero = degree < EPSILON
             left = then(state, sample, params, jnp.logical_and(active, jnp.logical_not(zero)))
             right = otherwise(state, sample, params, jnp.logical_and(active, jnp.logical_not(full)))
             # Both branch inputs are safe at the endpoints; selecting explicitly

@@ -51,6 +51,7 @@ addopts = "-ra"
 markers = [
     "oracle: compares against dal-python (skipped when dal-python is not installed)",
     "slow: long-running statistical or benchmark-style tests",
+    "gpu: optional validation on an actual GPU backend (requires --run-gpu)",
 ]
 filterwarnings = [
     "ignore:An NVIDIA GPU may be present:UserWarning",

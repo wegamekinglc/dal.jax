@@ -21,10 +21,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
+from jax.sharding import NamedSharding, PartitionSpec as P
 from jax.typing import ArrayLike
 
 from dal_jax.errors import InvalidPathCount, InvalidPayoff, InvalidSetting, ReservedIdentifier, UnsupportedBrownianBridge
-from dal_jax.mc import parallel
+from dal_jax.mc import parallel, tuning
 from dal_jax.mc.settings import DEFAULT_SMOOTH, MonteCarloSettings
 from dal_jax.models.base import Model, SampleDef, Scenario
 from dal_jax.random import bridge
@@ -121,7 +122,9 @@ class MonteCarloEngine:
             raise UnsupportedBrownianBridge("model does not support a factor-aware bridge")
         devices = settings.resolved_devices()
         self.devices = devices[:1] if settings.parallel == "none" else devices
-        self.dtype = jnp.dtype(settings.dtype)
+        self.dtype = jnp.dtype(tuning.resolve_dtype(settings.dtype, self.devices))
+        self.block_size = tuning.resolve_block_size(settings, product, self.sim_dim, self.devices, self.dtype)
+        self._replicated = NamedSharding(parallel.make_mesh(self.devices), P())
         self._normals = self._make_normals()
         self._compiled: dict[tuple, Callable] = {}
 
@@ -136,16 +139,16 @@ class MonteCarloEngine:
         return tuple(name for name, _ in self.product.script_params)
 
     def default_params(self) -> dict[str, dict[str, Array]]:
-        return {
+        return jax.device_put({
             "model": self.model.default_params(),
             "script": {name: jnp.asarray(value, dtype=jnp.float64) for name, value in self.product.script_params},
-        }
+        }, self._replicated)
 
     def layout(self, n_paths: int) -> BlockLayout:
         if not isinstance(n_paths, (int, np.integer)) or n_paths <= 0:
             raise InvalidPathCount("number of paths must be positive")
         n_paths = int(n_paths)
-        block_size = self.settings.block_size if self.settings.block_bucketing else min(self.settings.block_size, n_paths)
+        block_size = self.block_size if self.settings.block_bucketing else min(self.block_size, n_paths)
         n_blocks = math.ceil(n_paths / block_size)
         if self.settings.block_bucketing:
             n_blocks = _next_pow2(n_blocks)
@@ -303,7 +306,7 @@ class MonteCarloEngine:
         if self.expired:
             raise InvalidSetting("an expired product has no paths")
         layout = self.layout(n_paths)
-        block_id = jnp.asarray(block_id, dtype=jnp.int64)
+        block_id = jax.device_put(jnp.asarray(block_id, dtype=jnp.int64), self._replicated)
         return self._block_paths(params, self._simulation_state(params), block_id, layout.block_size, self._context(fuzzy))
 
     def value(self, n_paths: int, params: Params | None = None, *, payoff: str | None = None) -> dict[str, float | np.ndarray]:
@@ -315,10 +318,10 @@ class MonteCarloEngine:
         params = self.default_params() if params is None else params
         self.model.validate_params(params["model"])
         index = 0 if payoff is None else self.payoff_names.index(payoff)
-        if self.settings.parallel == "none":
-            params = jax.device_put(params, self.devices[0])
+        params = jax.device_put(params, self._replicated)
         compiled = self._value_function(self.layout(n_paths), index)
-        result = self._dal_result(compiled(params, jnp.asarray(n_paths, dtype=jnp.int64)))
+        count = jax.device_put(jnp.asarray(n_paths, dtype=jnp.int64), self._replicated)
+        result = self._dal_result(compiled(params, count))
         if not all(np.all(np.isfinite(v)) for v in result.values()):
             raise InvalidPayoff("non-finite path value")
         return result

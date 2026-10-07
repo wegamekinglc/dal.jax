@@ -11,12 +11,12 @@
 | P1 Script 前端 | 完成 | PR #2（commit `8750dfd`、`e7caf50`） |
 | P2 exact 降级与事件引擎 | 完成 | PR #2 |
 | P3 fuzzy 降级、求导、scan 分组 | 完成 | PR #2 |
-| P4 并行与 GPU | 部分完成：`shard_map` / `auto` / `pmap` 已经在 P0 实现，GPU 未验证 | — |
+| P4 并行与 GPU | 完成：CPU 调优、实际 CUDA 验证、GPU dtype/块策略、RBG 一致性和性能报告 | PR #2 |
 | P5–P7 | 未开始 | — |
 
 - **分支**：所有工作都在 `feature/jax-mc-engine` 上，PR #2 的 base 是 `master`，还没有合并。`master` 上只有项目早期的探索性 notebook（PR #2 中已删除）。
-- **测试**：`uv run pytest` 共 572 个，全部通过（177.07 s）。P2 新增 120 个测试，其中 32 个与 dal-python 对照；P3 新增 67 个测试，覆盖 fuzzy、风险、scan、历史和 C1 平滑。
-- **静态检查**：对应 Codacy 默认规范的 `lizard -C 8`、`pylint -E`、`bandit`、`semgrep --config p/python` 都已清零。Codacy 本身还没有接入这个仓库（它的 API 返回 "Could not find repository"），所以 PR 上的 Codacy check 会一直处于 queued，需要仓库所有者在 Codacy 后台添加仓库。
+- **测试**：`uv run pytest` 为 594 passed、26 skipped（169.57 s），跳过的是默认关闭的 GPU 测试。26 个 GPU 测试已在实际 CUDA 13 环境通过，含百万路径 autocall 对照。P2 新增 120 个测试，其中 32 个与 dal-python 对照；P3 新增 67 个；P4 新增 22 个 CPU 测试和 26 个 GPU 测试。
+- **静态检查**：对应 Codacy 默认规范的 `lizard -C 8`、`pylint -E`、`bandit`、`semgrep --config p/python` 都已清零。本次采用本地等价检查；PR #2 当前显示的 Python 3.13、3.14 和 notebook CI 均成功。
 
 ## 2. 代码地图
 
@@ -28,9 +28,9 @@ src/dal_jax/
   index.py             EQ / FX / IR 指数名解析与规范名（Index::Parse）
   api.py               与 dal-python 同名的 Product_* / EvaluationDate_* / BSModelData_New / MonteCarlo_Value
   dates/               Date（Excel 序号，1970-01-01..2149-06-05）、增量、节假日（calendar_data.py 为导出数据）、日程、计息基准
-  random/              sobol（directions.npy）、inverse_normal、bridge、prng
+  random/              sobol（directions.npy）、inverse_normal、bridge、prng（RBG 保持逐块 key 语义）
   models/              base（Model 协议、SampleDef、Scenario）、bs
-  mc/                  settings、engine（分块、checkpoint、value/pricer）、parallel
+  mc/                  settings、engine（分块、checkpoint、value/pricer）、parallel、tuning（GPU 精度/内存块策略）
   script/
     lexer.py           词法；index 字面量整体成词（EQ[x]@date、EQ[x]>3M）
     preprocessor.py    宏、常量、数值向量、日程（ParseSchedule）、PeriodBegin/PeriodEnd
@@ -45,11 +45,12 @@ src/dal_jax/
     lower/fuzzy.py     连续/离散比较、布尔 degree、嵌套 IF 混合；复用 exact 的安全算术
     lower/events.py    事件常量槽、相邻同模板事件 lax.scan、短组展开
     lower/smoothing.py CSpr / BFly 及其带 lb/rb 的两参数形式；可选 C1 smoothstep
-tests/                 random/ models/ mc/ script/ dates/ test_index.py oracle/
+tests/                 random/ models/ mc/ script/ dates/ test_index.py oracle/ gpu/（--run-gpu 可选）
 examples/              4 个已执行的 notebook + nbtools.py
 scripts/               export_sobol_directions.py、export_calendars.py（从 DAL 源码重新生成数据）
 benchmarks/bench_mc.py 与 dal-python 同机计时
 benchmarks/bench_script_compile.py 单路径脚本价格/参数梯度的编译和图规模；script_compile_cpu.json 为 CPU 实测
+benchmarks/bench_suite.py 标量脚本端到端 CPU/GPU/DAL 基准；p4_*.json 为实测，docs/performance.md 为报告
 ```
 
 模块和 issue 第 10 节的规划有几处不同，都是有意为之：
@@ -113,7 +114,7 @@ uvx semgrep scan --config p/python --metrics off --error src scripts benchmarks 
 - **查看 dal-python 2026.9.25 的源码**：`git -C ../Derivatives-Algorithms-Lib archive dal-python-v2026.9.25 | tar -x -C <空目录>`。
 - **依赖锁定**：CI 没有 `uv.lock`，`dal-python>=2026.9.25` 会装到 PyPI 上的最新版。如果新版改变了错误文本或输出，oracle 测试会失败。届时有两个选择：更新对照用例，或者把版本固定为 `==2026.9.25`。
 
-## 5. P2/P3 实现与下一步 P4
+## 5. P2–P4 实现与下一步 P5
 
 P2 验收已完成：European、亚式（标量写法）、autocall 在相同 Sobol 点下，与 dal-python 的 PV 相对误差 ≤ 1e-10，含 Brownian bridge 开关和跨批次的尾块掩码。
 
@@ -154,12 +155,26 @@ P2 验收已完成：European、亚式（标量写法）、autocall 在相同 So
 
 对应的 DAL 源码：`script/visitor/fuzzy.hpp`、`smoothing.hpp`、`visitor/domainproc.hpp`、`script/preparation.cpp`。
 
-### 5.3 P4 接续建议
+### 5.3 P4 的入口和实测
 
-1. 把脚本产品加入现有 `bench_mc.py` 的端到端 CPU 基准，比较设备数、块大小、checkpoint、scan 和自动分片。
-2. 在实际 CUDA 环境验证 float64/float32、Sobol/PRNG、bridge、多设备和长日程梯度；本机当前 jaxlib 为 CPU 版。
-3. 根据实测选择 CPU 设备数、GPU dtype/块大小策略，记录编译与热运行时间、内存以及 DAL 对照。
-4. 保持已有确定性归约的逐位一致性和普通归约的数值容差；不把单路径编译基准解释为端到端定价吞吐。
+- **提交位置**：P3 已以 `6e5242e` 推送到 PR #2，Python 3.13/3.14 与 notebook CI 已通过。P4 已提交到 PR #2。
+- **精度**：`dtype="float64"` 默认不变；显式 `"auto"` 为 CPU float64 / GPU float32。路径数组为 float32 时，随机数仍先以 float64 生成；块内 JAX reduction 使用路径 dtype，块间累加为 float64。不能把小型测试的容差理解为所有产品的保证。
+- **float32 边界修复**：`1-EPSILON` 在 float32 中会舍入为 1，原 `degree > 1-EPSILON` 因而不能识别满 degree。float32 用 `degree >= 1`，float64 保持 DAL 阈值，保证未选中 LOG(-1) 等分支不会污染值或梯度。
+- **块大小**：设置默认由 `8192` 改为 `"auto"`，CPU 仍解析成 8192。GPU 以最小设备 allocator limit 的 20% 为预算，计入 float64 RNG、Scenario 槽位及 16 倍 AAD / 4 倍 price 余量，向下取 2 的幂，范围 256–32768；缺少内存统计回退 8192。显式正整数总是优先。`engine.block_size` 是解析后的上限；小路径数仍按 layout 缩小实际块。
+- **设备放置**：`default_params()` 使用所选 mesh 的 replicated NamedSharding，`value` 同时放置外部参数和路径数。修复了 CUDA 为默认后端时，显式 CPU 引擎收到 GPU 默认数组造成的设备冲突。原生 JAX 组合从该引擎的默认参数开始。
+- **RBG**：JAX 原生 vmap 对 `rbg/unsafe_rbg` 使用第一个 key 生成整个 batch，导致自动切分的结果改变。`prng.block_normals` 用 public `sequential_vmap` 包住整个 fold_in + normal，嵌套 key/block vmap 也保持逐块语义。固定块大小时设备数/策略不改变流；改变块大小仍会改变 PRNG 路径。RBG 没有稳定的实测优势，保留 Threefry 默认。
+- **CPU 实测**：WSL2、i9-13900HX、32 个逻辑处理器。对长产品，8 个虚拟设备优于 16/32；8192 优于较小块，shard_map 优于 auto/pmap。CPU 8 月度 barrier 全风险约 0.416 s，单设备约 1.30 s。只算 European 价格时 16 设备略快，故没有自动固定设备数。
+- **GPU 实测**：RTX 4060 Laptop 8188 MiB、driver 595.79；隔离环境 `/tmp/dal-jax-p4-gpu` 安装 cuda13，原 `.venv` 保持 CPU。35% allocator pool 下，自动 price 块均为 32768，Greek 块为 8192–32768。月度 barrier 全风险 float64 约 0.283 s、float32 约 0.213 s；周度 reverse scan 仍较慢。只验证了单个物理 GPU，CPU 并行验证用 4 个虚拟设备。
+- **精度限制**：百万路径 autocall（smooth=.01）的 float32 PV 相对误差 <3e-7，但 `d_spot` 从 float64 的 -3.54332 变成约 -32.07422，`d_vol` 从 -87.20916 变成 +96.57239。脚本运算单独提升到 float64、同宽度 C1 核都没有消除偏差；路径舍入经连续状态条件放大。smooth=.1 仍有明显偏差；smooth=1 通过测试容差，但 PV 改为约 120.00612。因此原窄平滑 autocall 必须用 float64，不能只看 PV 选择精度。
+- **报告**：[docs/performance.md](performance.md) 记录编译、同步热运行、XLA 内存估计、CPU 设备/块/策略、checkpoint、GPU 两种 dtype、PRNG 和上述精度压力测试。计时进程依次运行；JSON 同时保留最小值、median 与原始次数。allocator peak 为进程累计值，不能当作单产品峰值。
+- **测试和 CI**：`tests/gpu` 默认跳过，实际 GPU 环境用 `pytest tests/gpu --run-gpu`。新增 `.github/workflows/gpu.yml`，手动触发、self-hosted Linux `gpu` runner，cuda12/cuda13 可选；未触发远程 GPU workflow。本机已通过所有 26 个 GPU 用例，含 bridge、全部策略、块大小、scan、跨 CPU/GPU 放置、统计 PRNG和百万路径 autocall float64/DAL 对照；另在 GPU 上通过 4 个 float32 安全端点测试。
+
+### 5.4 P5 接续建议
+
+1. 先实现定容可变向量、APPEND、下标和归约的设备端状态及错误标志，覆盖 fuzzy 长度取最大、较短分支补零混合；当前前端已完成。
+2. 实现 PAYS ON 的跨日期 discount 槽位，以及 FIX 的模型感知准备、历史快照和 TodayFixingPolicy。当前只支持同日 PAYS ON 和历史 SPOT。
+3. 实现 CorrelatedBlackScholes、多因子 bridge，再补局部波动率模型和分桶 vega。
+4. 延续 DAL master 语义、可用 dal-python oracle 和已移植 C++ 单测；LSMC 留给 P6。
 
 ## 6. 工作约定
 
@@ -182,5 +197,5 @@ P2 验收已完成：European、亚式（标量写法）、autocall 在相同 So
 1. 包名：已定为 `dal_jax`（PyPI 包名为 `dal-jax`）。
 2. 旧 notebook：已删除，由 `examples/` 取代。
 3. `n_paths` 变化时：默认重新编译，并依靠编译缓存；`MonteCarloSettings.block_bucketing=True` 时把块数向上取到 2 的幂。
-4. GPU 默认用 float32 还是 float64：未定。已有 `dtype="float32"` 选项，但 GPU 未验证（P4）。
+4. GPU 默认精度：P4 已定为 float64；显式 `dtype="auto"` 选择 GPU float32。原窄平滑 autocall 的 Greeks 仍必须用 float64。
 5. 是否在 JAX 中实现 GSR 校准：未定（P7 之后）。

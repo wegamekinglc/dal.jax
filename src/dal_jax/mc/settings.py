@@ -13,7 +13,8 @@ from dal_jax.errors import InvalidSetting, InvalidSmoothing
 type Rsg = Literal["sobol", "mrg32", "irn"]
 type Parallel = Literal["shard_map", "auto", "pmap", "none"]
 type InverseNormal = Literal["acklam", "acklam_polish", "acklam_polish_precise", "ndtri"]
-type DType = Literal["float64", "float32"]
+type DType = Literal["float64", "float32", "auto"]
+type BlockSize = int | Literal["auto"]
 type SmoothingKernel = Literal["dal", "smoothstep"]
 
 DEFAULT_SMOOTH = 0.01
@@ -25,7 +26,7 @@ _CHOICES = {
     "rsg": ("sobol", "mrg32", "irn"),
     "inverse_normal": ("acklam", "acklam_polish", "acklam_polish_precise", "ndtri"),
     "parallel": ("shard_map", "auto", "pmap", "none"),
-    "dtype": ("float64", "float32"),
+    "dtype": ("float64", "float32", "auto"),
     "smoothing_kernel": ("dal", "smoothstep"),
 }
 _DAL_FIELD_NAMES = {"rsg": "simulation.rsg_"}
@@ -60,10 +61,13 @@ class MonteCarloSettings:
     path-compatible with DAL); ``sobol_shift_key`` applies DAL's digital shift;
     ``seed`` / ``prng_impl`` drive the ``mrg32`` / ``irn`` streams.
 
-    Execution: paths run in blocks of ``block_size``; ``parallel`` spreads
+    Execution: ``block_size="auto"`` keeps 8192 on CPU and estimates a GPU
+    block from its allocator memory limit; explicit positive sizes override it.
+    Paths run in these blocks; ``parallel`` spreads
     blocks over ``devices`` (default: every device of ``platform``);
     ``dtype="float32"`` casts path arrays while block sums accumulate in
-    float64; ``deterministic_reduction`` sums per-block values and gradients in
+    float64. ``dtype="auto"`` chooses float64 CPU / float32 GPU paths;
+    the default remains float64. ``deterministic_reduction`` sums per-block values and gradients in
     block order so results are bitwise independent of the device count;
     ``block_bucketing`` rounds the block count up to a power of two so nearby
     path counts reuse one compilation; ``checkpoint`` rematerialises each block
@@ -80,7 +84,7 @@ class MonteCarloSettings:
     sobol_shift_key: int | None = None
     seed: int = DEFAULT_PRNG_SEED
     prng_impl: str | None = None
-    block_size: int = DEFAULT_BLOCK_SIZE
+    block_size: BlockSize = "auto"
     parallel: Parallel = "shard_map"
     platform: config.Platform = "auto"
     devices: tuple[jax.Device, ...] | None = None
@@ -93,11 +97,12 @@ class MonteCarloSettings:
         _check_choices(self)
         if not (math.isfinite(self.smooth) and self.smooth > 0.0):
             raise InvalidSmoothing(f"simulation.smooth_={self.smooth}; expected a finite positive width")
-        _check_integer("block_size", self.block_size, low=1)
+        if self.block_size != "auto":
+            _check_integer("block_size", self.block_size, low=1)
+            object.__setattr__(self, "block_size", int(self.block_size))
         _check_integer("seed", self.seed)
         _check_integer("scan_group_threshold", self.scan_group_threshold, low=0)
         object.__setattr__(self, "scan_group_threshold", int(self.scan_group_threshold))
-        object.__setattr__(self, "block_size", int(self.block_size))
         object.__setattr__(self, "seed", int(self.seed))
         if self.sobol_shift_key is not None:
             _check_integer("sobol_shift_key", self.sobol_shift_key, low=0, high=2**64 - 1)

@@ -8,6 +8,7 @@ The full plan is in [issue #1](https://github.com/wegamekinglc/dal.jax/issues/1)
 - **milestone P1**: the front end of DAL's script engine. It reads event tables (macros, constants, schedules, holidays, day counts, index names), parses the script language and runs DAL's analysis passes. Its `Product_Describe`, `Product_DebugJson`, `Product_DebugTree` and `Product_Debug` output is byte-identical to dal-python.
 - **milestone P2**: exact scalar script valuation: arithmetic, functions, IF and PAYS lower to JAX event functions, with historical replay and the `BSModelData_New` / `MonteCarlo_Value` compatibility API. European, scalar Asian and autocall prices match DAL on identical Sobol paths.
 - **milestone P3**: fuzzy scalar scripts and all model/script Greeks, safe nested IF blending, adjacent event scan grouping, and optional C1 smoothing. Barrier and autocall sensitivities match DAL on identical Sobol paths.
+- **milestone P4**: CPU device and block tuning, actual CUDA validation, GPU precision and memory-based block sizing, repeatable RBG streams under parallel transforms, and an end-to-end benchmark suite.
 
 ## Install
 
@@ -134,10 +135,10 @@ Valuation currently supports the scalar subset, including expanded `FOR` loops a
 | `scan_group_threshold` | `4` | minimum adjacent equal event count for a script scan; `0` disables scanning |
 | `inverse_normal` | `"acklam"` | DAL's `InverseNCDF`; `acklam_polish[_precise]` or `ndtri` for more accuracy |
 | `sobol_shift_key` | `None` | DAL's digital shift (SplitMix64) |
-| `block_size` | `8192` | paths per block; the last block is masked, so it never forces a recompile |
+| `block_size` | `"auto"` | CPU uses 8192; GPU estimates a power-of-two block from allocator memory and the product's horizon; a positive integer overrides it |
 | `parallel` | `"shard_map"` | also `auto` (GSPMD), `pmap` (for comparison only), `none` |
 | `platform`, `devices` | `"auto"`, all | `cpu` / `gpu`, or an explicit device tuple |
-| `dtype` | `"float64"` | `float32` casts the path arrays; block sums are still added in float64 |
+| `dtype` | `"float64"` | `float32` casts the path arrays; `auto` chooses float64 on CPU and float32 on GPU; block sums are added in float64 |
 | `deterministic_reduction` | `False` | sums per-block values and gradients in block order, so results are bitwise identical for any device count (reverse mode only) |
 | `block_bucketing` | `False` | rounds the block count up to a power of two, so nearby `n_paths` reuse one compilation |
 | `checkpoint` | `True` | recomputes each block in the backward pass, so gradient memory is one block's worth |
@@ -148,6 +149,18 @@ On CPU, split the host into virtual devices before running any JAX operation:
 import dal_jax as dj
 dj.config.configure(num_cpu_devices=8, compilation_cache_dir="~/.cache/dal_jax")
 ```
+
+For NVIDIA GPUs, install the matching JAX extra (`.[cuda12]` or `.[cuda13]`), then select the backend explicitly:
+
+```python
+settings = dj.MonteCarloSettings(platform="gpu", dtype="float64", enable_aad=True)
+engine = dj.MonteCarloEngine(prepared.path_product(), model, settings)
+result = engine.value(2**20)
+```
+
+The compatibility default stays float64 on both platforms. Choose float32 explicitly, or with `dtype="auto"`, after checking your product's error. The path reduction uses JAX's float32 reduction; blocks accumulate in float64. The million-path autocall benchmark has large float32 Greek errors at the default narrow smoothing width, despite an accurate PV; use float64 for those risks. See the measured errors, memory policy and recommendations in [the performance report](docs/performance.md).
+
+`prng_impl="rbg"` is an optional GPU choice for `mrg32`/`irn`. RBG block generation maps keys sequentially when batched, preserving each block's stream under GSPMD and nested `vmap`. With a fixed block size, device count and parallel strategy do not change the stream. Changing block size changes PRNG paths; Sobol paths depend only on global path id. `value` places caller parameters on the selected device mesh; native transforms should start from `engine.default_params()`.
 
 ## How the engine works
 
@@ -164,7 +177,9 @@ global path id ──► Sobol point id+1 (or fold_in(key, block)) ──► Inv
 ## Parity and tests
 
 ```bash
-uv run pytest          # 572 tests; 4 virtual CPU devices
+uv run pytest          # CPU suite; 4 virtual CPU devices, optional GPU tests skipped
+# In an environment with a CUDA/ROCm-enabled JAX:
+uv run pytest tests/gpu --run-gpu
 ```
 
 `tests/oracle` compares against dal-python on identical Sobol points. Uniforms are bitwise equal and normals agree to 1e-14. European and monthly-barrier PV and Greeks agree with DAL to ~1e-12 or better, exact and fuzzy, with and without the bridge (the tolerances in issue #1 are 1e-10 for PV and 1e-8 for Greeks). `tests/mc/test_parallel.py` checks that 1 and 4 devices, all strategies, and different block sizes agree to 1e-13, and that `deterministic_reduction` gives bitwise-identical results on 1, 2, 3 and 4 devices.
@@ -177,18 +192,9 @@ For the script front end, `tests/oracle/test_dal_script_frontend.py` checks that
 
 ## Benchmarks
 
-`python benchmarks/bench_mc.py --devices 8 --dal` runs 2²⁰ Sobol paths. The table below is warm wall time on a 32-thread laptop under WSL2. DAL runs 32 threads on the same machine.
+`uv run python benchmarks/bench_suite.py --devices 8 --dal --output cpu.json` runs the five scalar script products with 2²⁰ paths, exact prices and fuzzy prices plus all Greeks. It records lowering, compilation, synchronized warm times, results and memory estimates. GPU runs select `--platform gpu --dtype float64` or `float32`.
 
-| case | JAX, 1 CPU device | JAX, 8 CPU devices | DAL |
-|---|---:|---:|---:|
-| European, price | 23 ms | 4.8 ms | 4.4 ms |
-| European, price + 5 Greeks | 35 ms | 11 ms | 16 ms |
-| barrier 1M (36 dates), price | 189 ms | 143 ms | 151 ms |
-| barrier 1M, price + 6 Greeks | 955 ms | 560 ms | 393 ms |
-| barrier 1W (156 dates), price | 890 ms | 576 ms | 655 ms |
-| barrier 1W, price + 6 Greeks | 6.1 s | 7.4 s | 1.6 s |
-
-Prices are on par with DAL. Gradients of long hand-unrolled schedules are slower: on XLA:CPU the reverse pass of a long chain of small elementwise ops costs far more than the forward pass. Script products now group repeated events into scans; P4 covers broader CPU/GPU tuning.
+The [P4 performance report](docs/performance.md) contains CPU 1/4/8/16/32 device runs, block and strategy comparisons, checkpoint storage, actual RTX 4060 Laptop GPU results, DAL comparisons and the limits of float32 Greeks. On this machine CPU 8 balances the long workloads; GPU auto sizing uses 32768 price paths per block and 8192–32768 for Greeks. Narrow autocall conditions require float64 for reliable Greeks. Raw reports are in `benchmarks/p4_*.json`; `bench_mc.py` remains the earlier hand-written payoff benchmark.
 
 `uv run python benchmarks/bench_script_compile.py --output benchmarks/script_compile_cpu.json` isolates compilation of script price and parameter gradients from path generation. It reports graph equation counts, StableHLO size, lowering time and compilation time for grouped and unrolled daily schedules. The checked-in JSON records a CPU run; timings vary by machine.
 
@@ -204,12 +210,12 @@ src/dal_jax/
   dates/              Date, increments, holidays (+ calendar_data.py), schedules, day bases
   random/             sobol (+ directions.npy), inverse_normal, bridge, prng
   models/             base (protocol, SampleDef, Scenario), bs
-  mc/                 settings, engine, parallel
+  mc/                 settings, engine, parallel, tuning (precision and memory-based GPU blocks)
   script/             lexer, preprocessor, parser, ast, product, preparation, debug, diagnostics
   script/passes/      varindex, ifmeta, constfold, domain (+ intervals), constcond, eventgroup
   script/lower/       exact/fuzzy scalar events, grouped execution, DAL and C1 smoothing kernels
 examples/             runnable notebooks (see examples/README.md)
 scripts/              export_sobol_directions.py, export_calendars.py (regenerate data from DAL)
-benchmarks/           bench_mc.py, bench_script_compile.py (+ CPU compilation report)
-tests/                random/, models/, mc/, script/, dates/, oracle/ (dal-python)
+benchmarks/           bench_mc.py, bench_script_compile.py, bench_suite.py (+ measured JSON reports)
+tests/                random/, models/, mc/, script/, dates/, oracle/ (dal-python), gpu/ (opt-in)
 ```

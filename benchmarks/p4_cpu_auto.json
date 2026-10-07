@@ -1,0 +1,107 @@
+{
+  "environment": {
+    "python": "3.13.9",
+    "jax": "0.11.2",
+    "os": "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "cpu": "13th Gen Intel(R) Core(TM) i9-13900HX"
+  },
+  "configuration": {
+    "platform": "cpu",
+    "devices": 8,
+    "parallel": "auto",
+    "dtype": "float64",
+    "paths": 1048576,
+    "block_size": "auto",
+    "rsg": "sobol",
+    "prng_impl": null,
+    "use_bb": false,
+    "checkpoint": true,
+    "scan_group_threshold": 4,
+    "deterministic_reduction": false,
+    "repeat": 3
+  },
+  "measurements": [
+    {
+      "case": "european",
+      "mode": "greeks",
+      "jax": {
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "n_devices": 8,
+        "dtype": "float64",
+        "block_size": 8192,
+        "sim_dim": 1,
+        "scan_spans": [],
+        "lower_seconds": 0.3032245759968646,
+        "compile_seconds": 0.3713414210069459,
+        "first_run_seconds": 0.038099844998214394,
+        "warm_min_seconds": 0.02701815898763016,
+        "warm_median_seconds": 0.027404966007452458,
+        "warm_runs_seconds": [
+          0.030708411999512464,
+          0.027404966007452458,
+          0.02701815898763016
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 40,
+          "output_size_in_bytes": 96,
+          "temp_size_in_bytes": 1443168,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": null,
+        "result": {
+          "PV": 5.201768833210827,
+          "d_div": -100.50943481053761,
+          "d_rate": 84.90412831090512,
+          "d_spot": 0.3350314493684587,
+          "d_vol": 59.5850327569119,
+          "d_STRIKE": -0.23584480086362544
+        }
+      }
+    },
+    {
+      "case": "barrier_1m",
+      "mode": "greeks",
+      "jax": {
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "n_devices": 8,
+        "dtype": "float64",
+        "block_size": 8192,
+        "sim_dim": 36,
+        "scan_spans": [
+          [
+            1,
+            36
+          ]
+        ],
+        "lower_seconds": 0.5619979850016534,
+        "compile_seconds": 0.6592798269994091,
+        "first_run_seconds": 0.8061778059927747,
+        "warm_min_seconds": 0.7165545809839386,
+        "warm_median_seconds": 0.7508512529893778,
+        "warm_runs_seconds": [
+          0.8321163170039654,
+          0.7508512529893778,
+          0.7165545809839386
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 48,
+          "output_size_in_bytes": 112,
+          "temp_size_in_bytes": 68268176,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": null,
+        "result": {
+          "PV": 1.5052428978515398,
+          "d_div": -19.381229696787724,
+          "d_rate": 14.865501003233103,
+          "d_spot": 0.049749023189038975,
+          "d_vol": -7.227015324623105,
+          "d_BARRIER": 0.08925165412793824,
+          "d_STRIKE": -0.1404746448633128
+        }
+      }
+    }
+  ]
+}
