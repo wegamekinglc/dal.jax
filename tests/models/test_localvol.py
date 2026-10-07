@@ -80,6 +80,21 @@ def test_nonflat_bucket_vegas_match_common_path_differences():
         np.testing.assert_allclose(gradients["model"][name], finite_difference, rtol=2e-6, atol=1e-7, err_msg=name)
 
 
+@pytest.mark.parametrize("aad", [False, True])
+def test_float32_euler_carry_and_bucket_risks(aad, cpu_devices):
+    from p5_cases import TODAY, case
+    rows, model = case("localvol_skew")
+    product = prepare(Product_New(*rows), TODAY, model=model).path_product()
+    settings = dict(enable_aad=aad, devices=cpu_devices, block_size=512)
+    engine = MonteCarloEngine(product, model, MonteCarloSettings(**settings, dtype="float32"))
+    reference = MonteCarloEngine(product, model, MonteCarloSettings(**settings, dtype="float64"))
+    ours, theirs = engine.value(4097), reference.value(4097)
+    assert engine.path_payoffs(engine.default_params(), 0, 4097)[1].dtype == jnp.float32
+    for name in ours:
+        np.testing.assert_allclose(ours[name], theirs[name], rtol=2e-5 if name == "PV" else 5e-3,
+                                   atol=2e-4, err_msg=name)
+
+
 @pytest.mark.parametrize("kwargs", [
     {"spots": ()}, {"spots": (120., 80.)}, {"spots": (0., 120.)}, {"times": (-1., 1.)},
     {"times": (0., 0.)}, {"vols": ((.2,), (.2,))}, {"vols": ((.1, np.nan), (.3, .4))},

@@ -54,7 +54,7 @@ class LocalVolSurface:
 def _interpolate_time(times, grid, time):
     if len(times) == 1:
         return grid[:, 0]
-    axis = jnp.asarray(times)
+    axis = jnp.asarray(times, dtype=grid.dtype)
     upper = jnp.clip(jnp.searchsorted(axis, time, side="right", method="compare_all"), 1, len(times)-1)
     weight = (time-axis[upper-1])/(axis[upper]-axis[upper-1])
     value = (1.-weight)*grid[:, upper-1]+weight*grid[:, upper]

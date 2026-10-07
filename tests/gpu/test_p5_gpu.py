@@ -34,3 +34,15 @@ def test_gpu_vector_error_flags_reach_host(gpu_devices):
     engine = MonteCarloEngine(prepared.path_product(), model, MonteCarloSettings(platform="gpu", devices=gpu_devices, enable_aad=True))
     with pytest.raises(VectorIndexOutOfRange):
         engine.value(16)
+
+
+@pytest.mark.parametrize("name", ["vector_asian", "vector_fuzzy", "dated_fix_payment", "correlated_basket", "localvol_skew"])
+def test_gpu_float32_p5_values_and_risks(gpu_devices, name):
+    import numpy as np
+    rows, model = case(name)
+    product = prepare(Product_New(*rows), TODAY, model=model).path_product()
+    settings = dict(enable_aad=True, devices=gpu_devices, platform="gpu", block_size=512)
+    a = MonteCarloEngine(product, model, MonteCarloSettings(**settings, dtype="float64")).value(8193)
+    b = MonteCarloEngine(product, model, MonteCarloSettings(**settings, dtype="float32")).value(8193)
+    for label in a:
+        np.testing.assert_allclose(b[label], a[label], rtol=2e-5 if label == "PV" else 5e-3, atol=2e-4, err_msg=label)
