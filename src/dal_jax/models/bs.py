@@ -117,10 +117,13 @@ class BlackScholes:
         )
 
     def generate(self, state: BSState, plan: BSPlan, normals: Array) -> Scenario:
-        increments = state.drifts + state.stds * normals
-        log_spots = jnp.cumsum(jnp.concatenate([state.log_spot[None], increments]))[1:]
-        spots = jnp.exp(log_spots)
-        if plan.today_on_timeline:
-            spots = jnp.concatenate([state.spot[None], spots])
+        if not plan.dts:
+            spots = state.spot[None]
+        else:
+            increments = state.drifts + state.stds * normals
+            log_spots = jnp.cumsum(jnp.concatenate([state.log_spot[None], increments]))[1:]
+            spots = jnp.exp(log_spots)
+            if plan.today_on_timeline:
+                spots = jnp.concatenate([state.spot[None], spots])
         observations = jnp.broadcast_to(spots[:, None], (len(plan.times), plan.max_observations))
         return Scenario(spot=spots, numeraire=state.numeraires, observations=observations, discounts=state.discounts)

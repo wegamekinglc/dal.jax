@@ -9,13 +9,13 @@
 | P0 基础设施、BS 模型、随机数、MC 引擎 | 完成 | PR #2 |
 | 示例 notebook（`examples/`，4 个） | 完成 | PR #2 |
 | P1 Script 前端 | 完成 | PR #2（commit `8750dfd`、`e7caf50`） |
-| P2 exact 降级与事件引擎 | **下一步** | — |
+| P2 exact 降级与事件引擎 | 完成 | PR #2 |
 | P3 fuzzy 降级、求导、scan 分组 | 未开始 | — |
 | P4 并行与 GPU | 部分完成：`shard_map` / `auto` / `pmap` 已经在 P0 实现，GPU 未验证 | — |
 | P5–P7 | 未开始 | — |
 
 - **分支**：所有工作都在 `feature/jax-mc-engine` 上，PR #2 的 base 是 `master`，还没有合并。`master` 上只有项目早期的探索性 notebook（PR #2 中已删除）。
-- **测试**：`uv run pytest` 共 385 个，约 1.5 分钟，全部通过。
+- **测试**：`uv run pytest` 共 505 个，全部通过。P2 新增 120 个测试，其中 32 个与 dal-python 对照。
 - **静态检查**：对应 Codacy 默认规范的 `lizard -C 8`、`pylint -E`、`bandit`、`semgrep --config p/python` 都已清零。Codacy 本身还没有接入这个仓库（它的 API 返回 "Could not find repository"），所以 PR 上的 Codacy check 会一直处于 queued，需要仓库所有者在 Codacy 后台添加仓库。
 
 ## 2. 代码地图
@@ -26,7 +26,7 @@ src/dal_jax/
   errors.py            DAL 同名异常；script_error(msg) 根据消息里的 "Code: " 前缀选择 ScriptError 子类
   strings.py           DAL 的大小写不敏感字符串（ci_key/ci_eq/CIMap）、std::stod 语义、DebugNumber 格式
   index.py             EQ / FX / IR 指数名解析与规范名（Index::Parse）
-  api.py               与 dal-python 同名的 Product_* / EvaluationDate_*（P2 在这里加 MonteCarlo_Value）
+  api.py               与 dal-python 同名的 Product_* / EvaluationDate_* / BSModelData_New / MonteCarlo_Value
   dates/               Date（Excel 序号，1970-01-01..2149-06-05）、增量、节假日（calendar_data.py 为导出数据）、日程、计息基准
   random/              sobol（directions.npy）、inverse_normal、bridge、prng
   models/              base（Model 协议、SampleDef、Scenario）、bs
@@ -35,11 +35,13 @@ src/dal_jax/
     lexer.py           词法；index 字面量整体成词（EQ[x]@date、EQ[x]>3M）
     preprocessor.py    宏、常量、数值向量、日程（ParseSchedule）、PeriodBegin/PeriodEnd
     parser.py          递归下降解析，含 FOR 展开、DCF 折叠、EXERCISE、PAYS ON、FIX
-    ast.py             frozen dataclass 节点；Spot/Fix 带 observation_id（目前没有 pass 去设置它）
+    ast.py             frozen dataclass 节点；Spot/Fix 带 observation_id（P2 给 Spot 分配，Fix 留到 P5）
     product.py         ScriptProductData（不可变输入）/ ScriptProduct（解析结果、分区、变量编号、payoff_index）
+    preparation.py     prepare → PreparedProduct（不可变、可哈希）；观察绑定、历史回放、串联 passes、path_product
     passes/            varindex → ifmeta → constfold → domain(+intervals) → constcond
     debug.py           DebugNode：DebugJson、树形、旧版 s-expression 三种渲染
     diagnostics.py     debug_json（schema /1）、describe（schema /2）、debug_tree、debug_text
+    lower/exact.py     标量事件降级；IF affected_vars 合并、active 掩码；NumPy 后端做历史硬回放
     lower/smoothing.py CSpr / BFly 及其带 lb/rb 的两参数形式
 tests/                 random/ models/ mc/ script/ dates/ test_index.py oracle/
 examples/              4 个已执行的 notebook + nbtools.py
@@ -64,6 +66,7 @@ benchmarks/bench_mc.py 与 dal-python 同机计时
   - 出现第二个 `ELSE` 时报 `DuplicateElse`；
   - `MAX(1)` 按向量归约解析；
   - `FIX(EQ[a] 2)` 被词法层的后缀检查拒绝。
+- **P2 补充：多参数 `MAX/MIN` 的求值差异**：本机的 dal-python 2026.9.25 在 `compiled=None/False/True` 下都只计算前两个参数（已实际检查 `MAX(1,2,3)` 和 `MAX(SPOT(),101,102)`）。本实现遵循 DAL `master` 的树求值器，计算全部参数；价格 oracle 用两个参数，全部参数的语义由 `tests/script/test_exact.py` 验证。
 
 ### 3.2 前端语义细节（移植时踩过、容易改错的地方）
 
@@ -107,32 +110,31 @@ uvx semgrep scan --config p/python --metrics off --error src scripts benchmarks 
 - **查看 dal-python 2026.9.25 的源码**：`git -C ../Derivatives-Algorithms-Lib archive dal-python-v2026.9.25 | tar -x -C <空目录>`。
 - **依赖锁定**：CI 没有 `uv.lock`，`dal-python>=2026.9.25` 会装到 PyPI 上的最新版。如果新版改变了错误文本或输出，oracle 测试会失败。届时有两个选择：更新对照用例，或者把版本固定为 `==2026.9.25`。
 
-## 5. 下一步：P2（exact 降级与事件引擎）
+## 5. P2 实现与下一步 P3
 
-issue 中 P2 的验收标准：European、亚式（标量写法）、autocall 的价格与 DAL 一致（只算价格）。建议按以下顺序推进：
+P2 验收已完成：European、亚式（标量写法）、autocall 在相同 Sobol 点下，与 dal-python 的 PV 相对误差 ≤ 1e-10，含 Brownian bridge 开关和跨批次的尾块掩码。
 
-1. **准备流程**：
-   - 在 `product.py` 之上加一个"准备"步骤，用 `partition_events(evaluation_date)` 区分过去和未来的事件；
-   - 未来事件的日期按 DAL 的规则换算成时间轴：`(date - evaluationDate) / 365`，见 DAL `script/preparation.cpp` 中的 `timeLine_`；
-   - 生成 `SampleDef`（是否需要 numeraire 等）；
-   - 给 `Spot` 节点分配 `observation_id`。P2 只需要支持 `SPOT()`。
-   - 动手前先读 DAL 的 `script/preparation.cpp`、`observationplan.hpp`、`simulation.cpp`，确认 legacy（不含 FIX）脚本走哪条分支。
-2. **pass 顺序**：对不含 FIX 的旧式脚本，按 DAL 的顺序运行 varindex → ifmeta → constfold → domain → constcond（issue 3.5 节）。各个 pass 都已实现，缺一个把它们串起来的入口函数。
-3. **`script/lower/exact.py`**：把事件 AST 降级成单路径函数 `event_k(state, sample_k, params) -> state`。
-   - 状态是 `float[n_vars]`。
-   - IF 只对 `affected_vars` 做 `where`。
-   - `PAYS e` 写成 `var += e / numeraire`。
-   - 具名常量从 `params["script"][name]` 读取。
-   - 最后组装成 P0 的 `PathProduct(timeline, payoff, payoff_names, sample_defs, script_params)`，交给现有的 `MonteCarloEngine`，引擎不需要改。
-   - 未选中分支里的非法运算要按 issue 3.2 节的 double-where 规则处理，P3 的 fuzzy 模式也依赖这一点。
-4. **过去事件回放**（只支持 SPOT）：在主机端对单条路径做硬判断回放，过去事件里的 `PAYS` 只计算、不累加。完全到期的产品直接返回 0。
-5. **兼容层**：在 `api.py` 中加 `BSModelData_New`、`MonteCarlo_Value(product, model, n_paths, rsg="sobol", use_bb=False, enable_aad=False, ...)`。P2 只算价格；`enable_aad=True` 留到 P3。
-6. **测试**：
-   - 移植 DAL `tests/script/test_simulation.cpp` 中可用的用例；
-   - 在 `tests/oracle/` 中与 dal-python 的 `MonteCarlo_Value` 逐个对照（相同 Sobol 点，PV 相对误差 ≤ 1e-10）；
-   - 可以参考 dal-python 的 `tests/test_script.py`、`tests/test_value.py`。
+### 5.1 P2 的入口和约定
 
-对应的 DAL 源码：`script/visitor/evaluator.hpp`（exact 求值）、`script/visitor/pastevaluator.hpp`（历史回放）、`script/evaluation.cpp`、`script/simulation.cpp`。
+- **准备**：`dal_jax.prepare(data, evaluation_date, historical_spots=...)` 返回 `PreparedProduct`；`prepared.path_product()` 交给现有 `MonteCarloEngine`。时间轴用 ACT/365F，每个未来事件请求 numeraire，与 legacy 路线一致。每个含 SPOT 的日期共用一个 `SpotObservation`；P2 从当日 `Sample.spot` 读取，完整指数输出绑定留到 P5。
+- **历史回放**：`historical_spots` 为 `{Date: float}`。兼容 API 还接受 Python `datetime.date`；缺少过去 SPOT 的值时报 `UnboundHistoricalSpot`，非有限值时报 `MissingFixing`。先用 NumPy 在主机端硬回放；过去 PAYS 的 RHS 会执行，但不写入支付变量。过去依赖具名参数的赋值也保留为纯 JAX 回放函数，更新 `params["script"]` 时初始状态会更新。过去和未来 IF 都必须带 `affected_vars`。
+- **分析**：constfold 以 `historical=True` 开始，进入未来事件前调用 `start_future()`。准备层的 `_ScalarDomains` 丢弃过去支付对变量定义域的影响，并对字面量 NaN/Infinity、零分母保留未知定义域，保证未选中分支可以继续到 exact 求值；P1 的原有 passes 语义未改。
+- **降级**：`lower_event(event, const_names)` 的第三个参数直接是脚本参数映射（完整 PathProduct payoff 再从 `params["script"]` 取）。IF 两侧从入口状态执行，递归传递 active 掩码；LOG/SQRT/除法/幂/EXP 先替换未选中输入，再计算。常量和变量叶子也按 active 置零，避免无穷值乘到未选中路径的梯度里。
+- **兼容 API**：`BSModelData_New` 返回 `BlackScholes`。`MonteCarlo_Value` 返回 `{"PV": ...}`，支持 `rsg` 和 dal-python 的 `method` 别名、显式估值日以及 `MonteCarloSettings` 的执行选项。`compiled=True/False` 接受并 warning，XLA 始终编译；`enable_aad=True` 明确报 `UnsupportedExecutionMode`，留到 P3。
+- **边界**：完全到期的产品不分配模型计划、不模拟路径；未提供的历史 SPOT 仍在准备时校验。向量求值、FIX、跨日期 PAYS ON、EXERCISE 分别留到 P5/P6，报明确异常；PAYS ON 与事件同日时规范化为普通支付。已展开的标量 FOR 和解析成常量的固定向量下标可以运行。
+- **BS 修复**：仅有估值日时 `sim_dim=0`。原 `generate` 对空时间步做 cumsum 会触发 XLA 编译段错误，现直接返回当日 spot。已覆盖 `none/shard_map/auto/pmap`、bridge 开关以及非整块路径数。
+
+新增测试：`tests/script/test_preparation.py`、`tests/script/test_exact.py`、`tests/test_api_value.py`、`tests/oracle/test_dal_script_prices.py`；共享事件表在 `tests/script_cases.py`。
+
+### 5.2 P3 接续建议
+
+1. 使用现有 `lower/smoothing.py`，加入 fuzzy 比较和 IF 混合；复用 exact 的输入 active 掩码，嵌套 IF 要传递外层分支是否参与混合。
+2. 准备流程增加 fuzzy 模式，保留 DAL 的连续平滑和离散 lb/rb 元数据，避免拿 exact 的 constcond 结果直接用于 fuzzy。
+3. 接通 `enable_aad=True` 和 `d_<label>`，覆盖历史参数回放；历史状态在路径块之外只计算一次的优化可在这一步加入。P0 的纯 pricer 和参数命名空间已经可用。
+4. 实现事件规范化和 scan 分组；当前 exact 使用 Python 逐事件展开，长日程的编译开销尚未优化。
+5. 以 barrier 的价格和 Greeks、分组/展开一致性、未选中分支非法运算的有限价格和梯度为验收。
+
+对应的 DAL 源码：`script/visitor/fuzzy.hpp`、`smoothing.hpp`、`visitor/domainproc.hpp`。P2 已对照 `script/preparation.cpp`、`observationplan.hpp`、`simulation.cpp`、`event.cpp`、`visitor/evaluator.hpp`、`visitor/pastevaluator.hpp`。
 
 ## 6. 工作约定
 
