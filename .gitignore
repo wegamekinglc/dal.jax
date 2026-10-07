@@ -3,3 +3,10 @@
 .idea
 *.pyc
 .virtual_documents
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+uv.lock
