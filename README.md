@@ -2,7 +2,12 @@
 
 A re-implementation of [**DAL**](https://github.com/wegamekinglc/Derivatives-Algorithms-Lib)'s Monte Carlo pricing in pure Python (≥ 3.13) and [**JAX**](https://github.com/jax-ml/jax). Greeks come from `jax.grad` instead of an AAD tape. The same code runs on CPU and GPU, and paths are spread over devices with `shard_map`.
 
-The full plan is in [issue #1](https://github.com/wegamekinglc/dal.jax/issues/1). This package implements **milestone P0**: the Monte Carlo engine, Sobol and pseudo-random numbers, the Brownian bridge, and the Black-Scholes model. Products are hand-written single-path payoffs for now. The script engine (DAL's event tables) is the next milestone.
+The full plan is in [issue #1](https://github.com/wegamekinglc/dal.jax/issues/1). This package implements:
+
+- **milestone P0**: the Monte Carlo engine, Sobol and pseudo-random numbers, the Brownian bridge, and the Black-Scholes model. Products are hand-written single-path payoffs.
+- **milestone P1**: the front end of DAL's script engine. It reads event tables (macros, constants, schedules, holidays, day counts, index names), parses the script language and runs DAL's analysis passes. Its `Product_Describe`, `Product_DebugJson`, `Product_DebugTree` and `Product_Debug` output is byte-identical to dal-python.
+
+Pricing scripted products (lowering scripts to JAX payoffs, `MonteCarlo_Value`) is the next milestone, P2.
 
 ## Install
 
@@ -46,6 +51,42 @@ ladder = jax.vmap(lambda s: f({**params, "model": params["model"] | {"spot": s}}
 ```
 
 In fuzzy mode (`enable_aad=True`, or `pricer(..., fuzzy=True)`) a payoff should smooth its discontinuities with DAL's kernels in `dal_jax.script.lower` (`cspr`, `bfly`). If it doesn't, `jax.grad` misses the barrier term. `tests/support.py` and `examples/02_barrier_option.ipynb` have an up-and-out call that matches DAL's fuzzy `d_BARRIER` and `d_vol`.
+
+### Script products
+
+`dal_jax.api` has dal-python's names and signatures, so event tables move over unchanged. A string cell is a definition or a schedule, and a date cell is an event date:
+
+```python
+from dal_jax.api import EvaluationDate_Set, Product_New, Product_DebugTree, Product_Describe
+from dal_jax.dates import Date
+
+EvaluationDate_Set(Date.ymd(2026, 10, 7))
+product = Product_New(
+    ["STRIKE", "BARRIER", Date.ymd(2026, 10, 7), "START: 2026-10-07 END: 2027-01-07 FREQ: 1M", Date.ymd(2027, 1, 7)],
+    ["120", "150", "alive = 1", "IF spot() >= BARRIER:0.1 THEN alive = 0 END", "call PAYS alive * MAX(spot() - STRIKE, 0)"],
+)
+print(Product_DebugTree(product))
+```
+
+```
+Variables: alive, call*
+Constants: BARRIER=150, STRIKE=120
+
+📅 1 · 2026-10-07 · future
+└── (1) alive ← 1
+
+📅 2 · 2026-11-07 · future
+└── (1) if spot() ≥ BARRIER ⟨ε=0.1⟩ then alive ← 0
+
+📅 3 · 2026-12-07 · future
+└── (1) if spot() ≥ BARRIER ⟨ε=0.1⟩ then alive ← 0
+
+📅 4 · 2027-01-07 · future
+├── (1) if spot() ≥ BARRIER ⟨ε=0.1⟩ then alive ← 0
+└── (2) call ⇐ alive × max(spot() − STRIKE, 0)
+```
+
+The front end follows DAL's current `master`, so it also supports what dal-python 2026.9.25 lacks: vectors (`APPEND`, `v[i]`, `SUM`/`AVERAGE`/`MIN`/`MAX`, predefined `[1, 2, 3]` definitions), `FOR` loops over constant bounds, `PAYS ... ON date`, `FIX(index, date)` observations, `EXERCISE` statements, IR index names and the `30U/360` basis. Errors raise the `DalError` subclass that DAL names in its message (`InvalidIndex`, `DuplicateExercise`, ...), with the same text.
 
 ## Examples
 
@@ -91,10 +132,12 @@ global path id ──► Sobol point id+1 (or fold_in(key, block)) ──► Inv
 ## Parity and tests
 
 ```bash
-uv run pytest          # 109 tests, ~2 min; 4 virtual CPU devices
+uv run pytest          # 385 tests, ~1.5 min; 4 virtual CPU devices
 ```
 
 `tests/oracle` compares against dal-python on identical Sobol points. Uniforms are bitwise equal and normals agree to 1e-14. European and monthly-barrier PV and Greeks agree with DAL to ~1e-12 or better, exact and fuzzy, with and without the bridge (the tolerances in issue #1 are 1e-10 for PV and 1e-8 for Greeks). `tests/mc/test_parallel.py` checks that 1 and 4 devices, all strategies, and different block sizes agree to 1e-13, and that `deterministic_reduction` gives bitwise-identical results on 1, 2, 3 and 4 devices.
+
+For the script front end, `tests/oracle/test_dal_script_frontend.py` checks that the four dumps are byte-identical to dal-python on a corpus of event tables, and that malformed scripts and definitions fail with the same error. `tests/script`, `tests/dates` and `tests/test_index.py` port DAL's C++ unit tests for the lexer, parser, passes, events, dates and index names. These cover the features newer than dal-python as well.
 
 ## Benchmarks
 
@@ -116,13 +159,19 @@ Prices are on par with DAL. Gradients of long hand-unrolled schedules are slower
 ```
 src/dal_jax/
   config.py           x64, virtual CPU devices, PRNG implementation, compilation cache
-  errors.py           DAL-named exceptions (InvalidSetting, InvalidPathCount, ...)
+  errors.py           DAL-named exceptions (InvalidSetting, InvalidPathCount, ScriptError subclasses, ...)
+  api.py              dal-python compatible Product_* and EvaluationDate_* functions
+  strings.py          DAL's case-insensitive strings and number parsing
+  index.py            index names (EQ, FX, IR) and their canonical forms
+  dates/              Date, increments, holidays (+ calendar_data.py), schedules, day bases
   random/             sobol (+ directions.npy), inverse_normal, bridge, prng
   models/             base (protocol, SampleDef, Scenario), bs
   mc/                 settings, engine, parallel
-  script/lower/       smoothing kernels (CSpr / BFly) shared with the future script layer
+  script/             lexer, preprocessor, parser, ast, product, debug, diagnostics
+  script/passes/      varindex, ifmeta, constfold, domain (+ intervals), constcond
+  script/lower/       smoothing kernels (CSpr / BFly) for the lowering in P2
 examples/             runnable notebooks (see examples/README.md)
-scripts/              export_sobol_directions.py (regenerates the table from DAL's sobol.cpp)
+scripts/              export_sobol_directions.py, export_calendars.py (regenerate data from DAL)
 benchmarks/           bench_mc.py
-tests/                random/, models/, mc/, oracle/ (dal-python)
+tests/                random/, models/, mc/, script/, dates/, oracle/ (dal-python)
 ```
