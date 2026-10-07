@@ -100,6 +100,13 @@ class Const(Expr):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class EventConst(Expr):
+    """A literal slot of a normalized event template, supplied by the scan input."""
+
+    index: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Var(Expr):
     """A script variable; DAL's constructor marks it constant 0 until the constant processor runs."""
 

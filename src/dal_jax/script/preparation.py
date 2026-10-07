@@ -1,9 +1,9 @@
-"""Prepare legacy scalar scripts for exact Monte Carlo valuation (P2).
+"""Prepare scalar scripts for exact and fuzzy Monte Carlo valuation.
 
 The input event table stays immutable.  Preparation partitions dates, binds
-SPOT observations, replays history on the host, and runs the existing passes
-in varindex -> ifmeta -> constfold -> domain -> constcond order.  The result
-is hashable and lowers to the existing MC engine's ``PathProduct``.
+SPOT observations and replays history on the host. Exact events additionally
+use domain/condition folding; fuzzy events retain continuous comparisons,
+following DAL's model-aware preparation. Both lower to grouped JAX events.
 """
 
 import math
@@ -18,10 +18,12 @@ from dal_jax.mc.engine import PathProduct
 from dal_jax.models.base import Sample, SampleDef
 from dal_jax.script import ast as A
 from dal_jax.script.lower.exact import lower_event, replay_events
+from dal_jax.script.lower.events import lower_events
 from dal_jax.script.passes.constcond import process_const_conditions
 from dal_jax.script.passes.constfold import ConstProcessor
 from dal_jax.script.passes.domain import DomainProcessor
 from dal_jax.script.passes.ifmeta import process_ifs
+from dal_jax.script.passes.eventgroup import group_events
 from dal_jax.script.passes.intervals import Domain
 from dal_jax.script.passes.varindex import VarTable
 from dal_jax.script.product import ScriptProductData
@@ -43,6 +45,7 @@ class PreparedProduct:
     evaluation_date: Date
     event_dates: tuple[Date, ...]
     events: tuple[A.Event, ...]
+    fuzzy_events: tuple[A.Event, ...]
     past_event_dates: tuple[Date, ...]
     past_events: tuple[A.Event, ...]
     timeline: tuple[float, ...]
@@ -62,27 +65,33 @@ class PreparedProduct:
     def expired(self) -> bool:
         return not self.events
 
+    def event_groups(self, *, fuzzy: bool = False, threshold: int = 4):
+        """Static event templates, per-event constants and scan spans for diagnostics."""
+        return group_events(self.fuzzy_events if fuzzy else self.events, threshold)
+
     def path_product(self) -> PathProduct:
         """Lower the prepared events to a pure single-path payoff for P0's engine."""
-        events = tuple(lower_event(event, self.variables.const_names) for event in self.events)
         history = tuple(lower_event(event, self.variables.const_names, historical=True) for event in self.past_events)
         live_history = any(isinstance(node, A.ConstVar) for event in self.past_events for statement in event for node in A.walk(statement))
 
-        def payoff(params, scenario, ctx):
-            if ctx.fuzzy:
-                raise UnsupportedExecutionMode("script fuzzy evaluation and sensitivities require P3")
-            state = jnp.asarray(self.initial_values, dtype=scenario.spot.dtype)
+        def initial_state(params):
+            state = jnp.asarray(self.initial_values, dtype=jnp.float64)
             if live_history:
                 state = jnp.zeros_like(state)
                 for event, spot in zip(history, self.historical_spots):
                     sample = Sample(jnp.asarray(spot, state.dtype), jnp.asarray(1.0, state.dtype), jnp.empty(0), jnp.empty(0))
                     state = event(state, sample, params["script"])
-            for event, sample in zip(events, scenario.samples()):
-                state = event(state, sample, params["script"])
+            return state
+
+        def payoff(params, scenario, ctx, initial=None):
+            state = initial_state(params) if initial is None else initial
+            state = state.astype(scenario.spot.dtype)
+            events = self.fuzzy_events if ctx.fuzzy else self.events
+            state = lower_events(events, self.variables.const_names, ctx)(state, scenario, params["script"])
             return state[self.payoff_index]
 
         return PathProduct(timeline=self.timeline, payoff=payoff, payoff_names=(self.variables.var_names[self.payoff_index],),
-                           sample_defs=self.sample_defs, script_params=self.script_params)
+                           sample_defs=self.sample_defs, script_params=self.script_params, initial_state=initial_state)
 
 
 def _validate_node(node: A.Node) -> None:
@@ -151,20 +160,25 @@ class _ScalarDomains(DomainProcessor):
 def _division_domain(left: Domain, right: Domain) -> Domain:
     # A zero denominator may belong to an unused branch.  Keep its domain
     # unknown and let exact evaluation decide whether the path is valid.
-    return Domain.real() if right.constant_value() == 0.0 else left / right
+    return Domain.real() if right.is_constant and right.can_be_zero() else left / right
 
 
 def _process(events, processor):
     return tuple(tuple(processor.visit(statement) for statement in event) for event in events)
 
 
-def _analyse(past, future, n_vars: int, observations: tuple[SpotObservation, ...]):
+def _analyse(past, future, n_vars: int, observations: tuple[SpotObservation, ...], *, fuzzy: bool = False):
     future, _ = process_ifs(future)
     known = {i: observation.value for i, observation in enumerate(observations) if observation.value is not None}
     constants = ConstProcessor(n_vars, known_observations=known, historical=True)
     past = _process(past, constants)
     constants.start_future()
     future = _process(future, constants)
+    # Model-aware DAL preparation retains parsed branches and continuous
+    # fuzzy kernels. Discrete domains belong to the legacy pass pipeline.
+    if fuzzy:
+        future, depth = process_ifs(future)
+        return tuple(future), depth
     domains = _ScalarDomains(n_vars, known_observations=known)
     _process(past, domains)
     domains.historical = False
@@ -211,10 +225,11 @@ def prepare(data: ScriptProductData, evaluation_date: Date, *, historical_spots:
     past = tuple(annotated)
     table = product.vars
     initial = replay_events(past, replay_spots, len(table.var_names), table.const_names, dict(zip(table.const_names, table.const_values)))
+    fuzzy_future, fuzzy_depth = _analyse(past, future, len(table.var_names), observations, fuzzy=True)
     future, depth = _analyse(past, future, len(table.var_names), observations)
     return PreparedProduct(evaluation_date=evaluation_date, event_dates=tuple(product.event_dates), events=future,
-                           past_event_dates=tuple(product.past_event_dates), past_events=past,
+                           fuzzy_events=fuzzy_future, past_event_dates=tuple(product.past_event_dates), past_events=past,
                            timeline=tuple((date - evaluation_date) / 365.0 for date in product.event_dates),
                            sample_defs=tuple(SampleDef(numeraire=True) for _ in product.event_dates), variables=table,
                            payoff_index=product.payoff_index, observations=observations, initial_values=initial,
-                           historical_spots=replay_spots, max_nested_ifs=depth)
+                           historical_spots=replay_spots, max_nested_ifs=max(depth, fuzzy_depth))

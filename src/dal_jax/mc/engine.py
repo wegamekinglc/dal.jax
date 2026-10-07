@@ -14,7 +14,7 @@ leaf is differentiable and gradients are reported as ``d_<label>`` like DAL.
 
 import math
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 
 import jax
@@ -41,9 +41,12 @@ class EvalContext:
 
     fuzzy: bool = False
     smooth: float = DEFAULT_SMOOTH
+    smoothing_kernel: str = "dal"
+    scan_group_threshold: int = 4
+    axis_name: str | None = None
 
 
-type PathPayoff = Callable[[Params, Scenario, EvalContext], ArrayLike]
+type PathPayoff = Callable[..., ArrayLike]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -54,6 +57,10 @@ class PathProduct:
     name in ``payoff_names``.  ``script_params`` are the differentiable product
     constants (DAL's ``STRIKE``-style event-table constants), exposed as
     ``params["script"]``.  ``sample_defs`` defaults to a numeraire on every date.
+    With ``initial_state(params)``, the engine computes shared product state
+    outside the path loop and passes it as a fourth argument to ``payoff``.
+    Standard reduction also hoists it outside the block loop; deterministic
+    reduction replays it per block to preserve independent block Jacobians.
     """
 
     timeline: tuple[float, ...]
@@ -61,6 +68,7 @@ class PathProduct:
     payoff_names: tuple[str, ...] = ("PV",)
     sample_defs: tuple[SampleDef, ...] | None = None
     script_params: tuple[tuple[str, float], ...] | Mapping[str, float] = field(default=())
+    initial_state: Callable[[Params], ArrayLike] | None = None
 
     def __post_init__(self) -> None:
         timeline = tuple(float(t) for t in self.timeline)
@@ -190,15 +198,22 @@ class MonteCarloEngine:
     def _model_state(self, params: Params):
         return self._cast(self.model.init(params["model"], self.plan))
 
+    def _simulation_state(self, params: Params):
+        """Model precomputations and optional product history, outside path/block loops."""
+        initial = None if self.product.initial_state is None else self._cast(self.product.initial_state(params))
+        return self._model_state(params), initial
+
     def _block_paths(self, params: Params, state, block_id: Array, block_size: int, ctx: EvalContext) -> tuple[Array, Array]:
         path_ids = block_id * block_size + jnp.arange(block_size, dtype=jnp.int64)
         normals = self._normals(block_id, path_ids).astype(self.dtype)
         cast_params = self._cast(params)
         n_payoffs = len(self.payoff_names)
+        model_state, initial = state
 
         def one_path(z):
-            scenario = self.model.generate(state, self.plan, z)
-            return jnp.reshape(jnp.asarray(self.product.payoff(cast_params, scenario, ctx)), (n_payoffs,))
+            scenario = self.model.generate(model_state, self.plan, z)
+            args = () if self.product.initial_state is None else (initial,)
+            return jnp.reshape(jnp.asarray(self.product.payoff(cast_params, scenario, ctx, *args)), (n_payoffs,))
 
         return path_ids, jax.vmap(one_path)(normals)
 
@@ -208,7 +223,8 @@ class MonteCarloEngine:
         return jnp.sum(jnp.where(live, values, 0.0), axis=0).astype(jnp.float64)
 
     def _context(self, fuzzy: bool | None) -> EvalContext:
-        return EvalContext(fuzzy=self.settings.enable_aad if fuzzy is None else fuzzy, smooth=self.settings.smooth)
+        return EvalContext(fuzzy=self.settings.enable_aad if fuzzy is None else fuzzy, smooth=self.settings.smooth,
+                           smoothing_kernel=self.settings.smoothing_kernel, scan_group_threshold=self.settings.scan_group_threshold)
 
     def _core(self, layout: BlockLayout, ctx: EvalContext) -> Callable[[Params, Array], Array]:
         """``(params, n_paths) -> pv[n_payoffs]``; ``n_paths`` is traced so bucketed layouts share a compilation."""
@@ -216,14 +232,14 @@ class MonteCarloEngine:
         if self.expired:
             return lambda params, n_paths: jnp.zeros(n_payoffs, dtype=jnp.float64)
 
-        block_sum = partial(self._block_sum, block_size=layout.block_size, ctx=ctx)
+        block_sum = partial(self._block_sum, block_size=layout.block_size)
         strategy = dict(strategy=self.settings.parallel, devices=self.devices, n_blocks=layout.n_blocks)
 
         if not self.settings.deterministic_reduction:
-            body_fn = jax.checkpoint(block_sum, prevent_cse=False) if self.settings.checkpoint else block_sum
-
             def local(params, block_ids, n_paths, axis_name):
-                state = self._model_state(params)
+                body = partial(block_sum, ctx=replace(ctx, axis_name=axis_name))
+                body_fn = jax.checkpoint(body, prevent_cse=False) if self.settings.checkpoint else body
+                state = self._simulation_state(params)
                 acc = jnp.zeros(n_payoffs, dtype=jnp.float64)
                 if axis_name is not None:
                     acc = jax.lax.pcast(acc, (axis_name,), to="varying")
@@ -235,11 +251,11 @@ class MonteCarloEngine:
         #  Deterministic reduction: per-block values (and Jacobians when differentiating)
         #  are gathered in block order and summed sequentially, so neither the device
         #  count nor the psum tree changes a single bit.  Reverse mode only.
-        def block_value(params, block_id, n_paths):
-            return block_sum(params, self._model_state(params), block_id, n_paths)
+        def block_value(params, block_id, n_paths, axis_name):
+            return block_sum(params, self._simulation_state(params), block_id, n_paths, ctx=replace(ctx, axis_name=axis_name))
 
         def values_local(params, block_ids, n_paths, axis_name):
-            return jax.lax.map(lambda b: block_value(params, b, n_paths), block_ids)
+            return jax.lax.map(lambda b: block_value(params, b, n_paths, axis_name), block_ids)
 
         def jacobians_local(params, block_ids, n_paths, axis_name):
             basis = jnp.eye(n_payoffs, dtype=jnp.float64)
@@ -247,7 +263,7 @@ class MonteCarloEngine:
                 basis = jax.lax.pcast(basis, (axis_name,), to="varying")
 
             def value_and_jacobian(block_id):
-                value, vjp = jax.vjp(lambda p: block_value(p, block_id, n_paths), params)
+                value, vjp = jax.vjp(lambda p: block_value(p, block_id, n_paths, axis_name), params)
                 (jacobian,) = jax.vmap(vjp)(basis)
                 return value, jacobian
 
@@ -288,7 +304,7 @@ class MonteCarloEngine:
             raise InvalidSetting("an expired product has no paths")
         layout = self.layout(n_paths)
         block_id = jnp.asarray(block_id, dtype=jnp.int64)
-        return self._block_paths(params, self._model_state(params), block_id, layout.block_size, self._context(fuzzy))
+        return self._block_paths(params, self._simulation_state(params), block_id, layout.block_size, self._context(fuzzy))
 
     def value(self, n_paths: int, params: Params | None = None, *, payoff: str | None = None) -> dict[str, float | np.ndarray]:
         """DAL-style result ``{"PV": ..., "d_<label>": ...}`` for one payoff.

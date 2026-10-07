@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from collections.abc import Sequence
 
 from dal_jax.dates.date import Date
-from dal_jax.errors import InvalidPathCount, InvalidSetting, UnsupportedExecutionMode, script_error
+from dal_jax.errors import InvalidPathCount, InvalidSetting, script_error
 from dal_jax.mc import MonteCarloEngine, MonteCarloSettings
 from dal_jax.mc.settings import DEFAULT_SMOOTH
 from dal_jax.models import BlackScholes
@@ -92,19 +92,17 @@ def MonteCarlo_Value(product: ScriptProductData, model: Model, n_paths: int, rsg
                     enable_aad: bool = False, smooth: float = DEFAULT_SMOOTH, compiled: bool | None = None, *,
                     evaluation_date: Date | _dt.date | None = None, historical_spots: Mapping[Date | _dt.date, float] | None = None,
                     method: str | None = None, **execution_settings) -> dict[str, float]:
-    """Value a scalar event-table script, returning ``{"PV": price}``.
+    """Value scalar scripts, returning PV and, with AAD, all ``d_<label>`` risks.
 
     ``method`` aliases ``rsg`` for dal-python callers.  Execution options such
     as ``block_size``, ``parallel`` and ``devices`` go to MonteCarloSettings.
-    Historical SPOT values may be supplied by event date.  AAD/fuzzy script
-    evaluation belongs to P3; requesting it raises UnsupportedExecutionMode.
+    Historical SPOT values may be supplied by event date.  AAD evaluates
+    future events in fuzzy mode; historical assignments always use hard IF.
     """
     _path_count(n_paths)
-    if enable_aad:
-        raise UnsupportedExecutionMode("script fuzzy evaluation and sensitivities require P3")
     rsg = _random_sequence(rsg, method)
     _compiled_option(compiled)
-    settings = MonteCarloSettings(rsg=rsg, use_bb=use_bb, enable_aad=False, smooth=smooth, **execution_settings)
+    settings = MonteCarloSettings(rsg=rsg, use_bb=use_bb, enable_aad=enable_aad, smooth=smooth, **execution_settings)
     date = EvaluationDate_Get() if evaluation_date is None else _to_date(evaluation_date)
     spots = None if historical_spots is None else {_to_date(day): value for day, value in historical_spots.items()}
     prepared = prepare(product, date, historical_spots=spots)

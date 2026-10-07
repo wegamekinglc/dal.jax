@@ -9,7 +9,7 @@ from support import bs_call_price
 
 from dal_jax import BlackScholes
 from dal_jax.api import BSModelData_New, EvaluationDate_Get, EvaluationDate_Set, MonteCarlo_Value, Product_New
-from dal_jax.errors import InvalidPathCount, InvalidPayoff, InvalidSetting, InvalidSmoothing, UnsupportedExecutionMode
+from dal_jax.errors import InvalidPathCount, InvalidPayoff, InvalidSetting, InvalidSmoothing
 
 
 def call():
@@ -81,9 +81,9 @@ def test_invalid_rng_and_smoothing():
         MonteCarlo_Value(call(), BSModelData_New(100, .2), 8, smooth=0, evaluation_date=EVALUATION)
 
 
-def test_fuzzy_script_request_is_explicitly_deferred():
-    with pytest.raises(UnsupportedExecutionMode, match="P3"):
-        MonteCarlo_Value(call(), BSModelData_New(100, .2), 8, enable_aad=True, evaluation_date=EVALUATION)
+def test_fuzzy_script_request_returns_model_and_script_risks():
+    result = MonteCarlo_Value(call(), BSModelData_New(100, .2), 8, enable_aad=True, evaluation_date=EVALUATION)
+    assert set(result) == {"PV", "d_spot", "d_vol", "d_rate", "d_div", "d_STRIKE"}
 
 
 @pytest.mark.parametrize("compiled", [True, False])

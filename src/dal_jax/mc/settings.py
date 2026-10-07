@@ -14,6 +14,7 @@ type Rsg = Literal["sobol", "mrg32", "irn"]
 type Parallel = Literal["shard_map", "auto", "pmap", "none"]
 type InverseNormal = Literal["acklam", "acklam_polish", "acklam_polish_precise", "ndtri"]
 type DType = Literal["float64", "float32"]
+type SmoothingKernel = Literal["dal", "smoothstep"]
 
 DEFAULT_SMOOTH = 0.01
 DEFAULT_BLOCK_SIZE = 8192
@@ -25,6 +26,7 @@ _CHOICES = {
     "inverse_normal": ("acklam", "acklam_polish", "acklam_polish_precise", "ndtri"),
     "parallel": ("shard_map", "auto", "pmap", "none"),
     "dtype": ("float64", "float32"),
+    "smoothing_kernel": ("dal", "smoothstep"),
 }
 _DAL_FIELD_NAMES = {"rsg": "simulation.rsg_"}
 
@@ -49,6 +51,9 @@ class MonteCarloSettings:
 
     DAL fields: ``rsg``, ``use_bb``, ``enable_aad`` (fuzzy evaluation plus
     gradients), ``smooth`` (default smoothing width).
+    Scripts use DAL's piecewise-linear kernels by default; ``smoothing_kernel``
+    can select ``smoothstep`` for C1 transitions. ``scan_group_threshold``
+    groups adjacent equal event templates (default 4; 0 disables scanning).
 
     Random numbers: ``inverse_normal`` selects DAL's ``InverseNCDF`` variant
     (``acklam`` is what DAL's Sobol uses; ``ndtri`` is more accurate but not
@@ -69,6 +74,8 @@ class MonteCarloSettings:
     use_bb: bool = False
     enable_aad: bool = False
     smooth: float = DEFAULT_SMOOTH
+    smoothing_kernel: SmoothingKernel = "dal"
+    scan_group_threshold: int = 4
     inverse_normal: InverseNormal = "acklam"
     sobol_shift_key: int | None = None
     seed: int = DEFAULT_PRNG_SEED
@@ -88,6 +95,8 @@ class MonteCarloSettings:
             raise InvalidSmoothing(f"simulation.smooth_={self.smooth}; expected a finite positive width")
         _check_integer("block_size", self.block_size, low=1)
         _check_integer("seed", self.seed)
+        _check_integer("scan_group_threshold", self.scan_group_threshold, low=0)
+        object.__setattr__(self, "scan_group_threshold", int(self.scan_group_threshold))
         object.__setattr__(self, "block_size", int(self.block_size))
         object.__setattr__(self, "seed", int(self.seed))
         if self.sobol_shift_key is not None:

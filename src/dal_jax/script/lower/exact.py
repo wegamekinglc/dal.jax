@@ -30,6 +30,7 @@ class _Lowerer:
         self.xp = backend
         self._expressions = {
             A.Const: self._constant,
+            A.EventConst: lambda n: lambda state, sample, params, active: self.xp.where(active, sample.constants[n.index], 0.0),
             A.Var: lambda n: lambda state, sample, params, active: self.xp.where(active, state[n.index], 0.0),
             A.ConstVar: lambda n: lambda state, sample, params, active: self.xp.where(active, params[self.const_names[n.index]], 0.0),
             A.Spot: lambda n: lambda state, sample, params, active: self.xp.where(active, sample.spot, 0.0),

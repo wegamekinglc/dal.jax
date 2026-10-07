@@ -229,7 +229,8 @@ def test_invalid_inputs(one_cpu):
 
 @pytest.mark.parametrize(
     "settings",
-    [{"block_size": 8192.0}, {"block_size": True}, {"seed": 1.5}, {"sobol_shift_key": -1}, {"sobol_shift_key": 2**64}],
+    [{"block_size": 8192.0}, {"block_size": True}, {"seed": 1.5}, {"sobol_shift_key": -1}, {"sobol_shift_key": 2**64},
+     {"scan_group_threshold": -1}, {"scan_group_threshold": True}, {"scan_group_threshold": 4.0}],
 )
 def test_integer_settings_reject_other_types(settings):
     with pytest.raises(InvalidSetting):
@@ -237,8 +238,13 @@ def test_integer_settings_reject_other_types(settings):
 
 
 def test_integer_settings_accept_numpy_integers():
-    settings = MonteCarloSettings(block_size=np.int64(1024), seed=np.int32(7))
-    assert type(settings.block_size) is int and type(settings.seed) is int
+    settings = MonteCarloSettings(block_size=np.int64(1024), seed=np.int32(7), scan_group_threshold=np.int64(0))
+    assert type(settings.block_size) is int and type(settings.seed) is int and type(settings.scan_group_threshold) is int
+
+
+def test_unknown_smoothing_kernel_is_rejected():
+    with pytest.raises(InvalidSetting, match="smoothing_kernel"):
+        MonteCarloSettings(smoothing_kernel="cubic")
 
 
 def test_script_parameters_cannot_shadow_model_labels(one_cpu):

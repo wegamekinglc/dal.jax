@@ -34,3 +34,25 @@ def bfly_bounds(x: ArrayLike, lb: float, rb: float) -> Array:
     x = jnp.asarray(x)
     inside = jnp.where(x < 0.0, 1.0 - x / lb, 1.0 - x / rb)
     return jnp.where((x < lb) | (x > rb), 0.0, inside)
+
+
+def smoothstep_cspr_bounds(x: ArrayLike, lb: float, rb: float) -> Array:
+    """Bounded C1 call spread; zero slope at each end of the transition."""
+    t = jnp.clip((jnp.asarray(x) - lb) / (rb - lb), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def smoothstep_cspr(x: ArrayLike, eps: float) -> Array:
+    return smoothstep_cspr_bounds(x, -0.5 * eps, 0.5 * eps)
+
+
+def smoothstep_bfly_bounds(x: ArrayLike, lb: float, rb: float) -> Array:
+    """C1 butterfly, including at its peak; asymmetric bounds are supported."""
+    x = jnp.asarray(x)
+    left = smoothstep_cspr_bounds(x, lb, 0.0)
+    right = 1.0 - smoothstep_cspr_bounds(x, 0.0, rb)
+    return jnp.where(x < 0.0, left, right)
+
+
+def smoothstep_bfly(x: ArrayLike, eps: float) -> Array:
+    return smoothstep_bfly_bounds(x, -0.5 * eps, 0.5 * eps)
