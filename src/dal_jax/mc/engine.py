@@ -24,7 +24,7 @@ from jax import Array
 from jax.sharding import NamedSharding, PartitionSpec as P
 from jax.typing import ArrayLike
 
-from dal_jax.errors import InvalidPathCount, InvalidPayoff, InvalidSetting, ReservedIdentifier, UnsupportedBrownianBridge
+from dal_jax.errors import script_error, InvalidPathCount, InvalidPayoff, InvalidSetting, ReservedIdentifier, UnsupportedBrownianBridge
 from dal_jax.mc import parallel, tuning
 from dal_jax.mc.settings import DEFAULT_SMOOTH, MonteCarloSettings
 from dal_jax.models.base import Model, SampleDef, Scenario
@@ -45,6 +45,7 @@ class EvalContext:
     smoothing_kernel: str = "dal"
     scan_group_threshold: int = 4
     axis_name: str | None = None
+    checkpoint: bool = True
 
 
 type PathPayoff = Callable[..., ArrayLike]
@@ -70,6 +71,8 @@ class PathProduct:
     sample_defs: tuple[SampleDef, ...] | None = None
     script_params: tuple[tuple[str, float], ...] | Mapping[str, float] = field(default=())
     initial_state: Callable[[Params], ArrayLike] | None = None
+    error_messages: tuple[str, ...] = ()
+    path_state_size: int = 0
 
     def __post_init__(self) -> None:
         timeline = tuple(float(t) for t in self.timeline)
@@ -81,6 +84,8 @@ class PathProduct:
         if not names or len(set(names)) != len(names):
             raise InvalidSetting("payoff_names must be non-empty and unique")
         object.__setattr__(self, "payoff_names", names)
+        if not isinstance(self.path_state_size, int) or self.path_state_size < 0:
+            raise InvalidSetting("path_state_size must be a nonnegative integer")
 
 
 def _script_params(params: tuple[tuple[str, float], ...] | Mapping[str, float]) -> tuple[tuple[str, float], ...]:
@@ -133,6 +138,10 @@ class MonteCarloEngine:
     @property
     def payoff_names(self) -> tuple[str, ...]:
         return self.product.payoff_names
+
+    @property
+    def _output_count(self) -> int:
+        return len(self.payoff_names) + len(self.product.error_messages)
 
     @property
     def script_param_names(self) -> tuple[str, ...]:
@@ -210,7 +219,7 @@ class MonteCarloEngine:
         path_ids = block_id * block_size + jnp.arange(block_size, dtype=jnp.int64)
         normals = self._normals(block_id, path_ids).astype(self.dtype)
         cast_params = self._cast(params)
-        n_payoffs = len(self.payoff_names)
+        n_payoffs = self._output_count
         model_state, initial = state
 
         def one_path(z):
@@ -227,11 +236,12 @@ class MonteCarloEngine:
 
     def _context(self, fuzzy: bool | None) -> EvalContext:
         return EvalContext(fuzzy=self.settings.enable_aad if fuzzy is None else fuzzy, smooth=self.settings.smooth,
-                           smoothing_kernel=self.settings.smoothing_kernel, scan_group_threshold=self.settings.scan_group_threshold)
+                           smoothing_kernel=self.settings.smoothing_kernel, scan_group_threshold=self.settings.scan_group_threshold,
+                           checkpoint=self.settings.checkpoint)
 
     def _core(self, layout: BlockLayout, ctx: EvalContext) -> Callable[[Params, Array], Array]:
         """``(params, n_paths) -> pv[n_payoffs]``; ``n_paths`` is traced so bucketed layouts share a compilation."""
-        n_payoffs = len(self.payoff_names)
+        n_payoffs = self._output_count
         if self.expired:
             return lambda params, n_paths: jnp.zeros(n_payoffs, dtype=jnp.float64)
 
@@ -296,7 +306,20 @@ class MonteCarloEngine:
         differentiates in fuzzy mode when AAD is enabled).
         """
         core = self._core(self.layout(n_paths), self._context(fuzzy))
-        return lambda params: core(params, jnp.asarray(n_paths, dtype=jnp.int64))
+        if not self.product.error_messages:
+            return lambda params: core(params, jnp.asarray(n_paths, dtype=jnp.int64))
+        def price(params):
+            result = core(params, jnp.asarray(n_paths, dtype=jnp.int64))
+            return jnp.where(jnp.any(result[len(self.payoff_names):] > 0), jnp.nan, result[:len(self.payoff_names)])
+        return price
+
+    def checked_pricer(self, n_paths: int, *, fuzzy: bool | None = None):
+        """Pure ``params -> (prices, error_rates)`` for host-side named error checks."""
+        core = self._core(self.layout(n_paths), self._context(fuzzy))
+        def price(params):
+            values = core(params, jnp.asarray(n_paths, dtype=jnp.int64))
+            return values[:len(self.payoff_names)], values[len(self.payoff_names):]
+        return price
 
     def path_payoffs(self, params: Params, block_id: ArrayLike, n_paths: int, *, fuzzy: bool | None = None) -> tuple[Array, Array]:
         """``(path_ids[B], values[B, n_payoffs])`` for one block of the ``n_paths`` layout.
@@ -307,7 +330,11 @@ class MonteCarloEngine:
             raise InvalidSetting("an expired product has no paths")
         layout = self.layout(n_paths)
         block_id = jax.device_put(jnp.asarray(block_id, dtype=jnp.int64), self._replicated)
-        return self._block_paths(params, self._simulation_state(params), block_id, layout.block_size, self._context(fuzzy))
+        ids, values = self._block_paths(params, self._simulation_state(params), block_id, layout.block_size, self._context(fuzzy))
+        prices = values[:, :len(self.payoff_names)]
+        if self.product.error_messages:
+            prices = jnp.where(jnp.any(values[:, len(self.payoff_names):] > 0, axis=1)[:, None], jnp.nan, prices)
+        return ids, prices
 
     def value(self, n_paths: int, params: Params | None = None, *, payoff: str | None = None) -> dict[str, float | np.ndarray]:
         """DAL-style result ``{"PV": ..., "d_<label>": ...}`` for one payoff.
@@ -321,7 +348,13 @@ class MonteCarloEngine:
         params = jax.device_put(params, self._replicated)
         compiled = self._value_function(self.layout(n_paths), index)
         count = jax.device_put(jnp.asarray(n_paths, dtype=jnp.int64), self._replicated)
-        result = self._dal_result(compiled(params, count))
+        output = compiled(params, count)
+        if self.product.error_messages:
+            output, rates = output
+            for rate, message in zip(np.asarray(rates), self.product.error_messages):
+                if rate > 0:
+                    raise script_error(message)
+        result = self._dal_result(output)
         if not all(np.all(np.isfinite(v)) for v in result.values()):
             raise InvalidPayoff("non-finite path value")
         return result
@@ -331,9 +364,23 @@ class MonteCarloEngine:
         key = (layout, self.settings.enable_aad, index)
         if key not in self._compiled:
             core = self._core(layout, self._context(None))
-            scalar = lambda p, n: core(p, n)[index]
-            self._compiled[key] = jax.jit(jax.value_and_grad(scalar) if self.settings.enable_aad else scalar)
+            self._compiled[key] = jax.jit(self._host_function(core, index))
         return self._compiled[key]
+
+    def _host_function(self, core, index):
+        if not self.product.error_messages:
+            scalar = lambda p, n: core(p, n)[index]
+            return jax.value_and_grad(scalar) if self.settings.enable_aad else scalar
+        def checked_scalar(p, n):
+            result = core(p, n)
+            return result[index], result[len(self.payoff_names):]
+        if not self.settings.enable_aad:
+            return checked_scalar
+        derivative = jax.value_and_grad(checked_scalar, has_aux=True)
+        def value(p, n):
+            (pv, errors), grads = derivative(p, n)
+            return (pv, grads), errors
+        return value
 
     def _dal_result(self, out) -> dict[str, float | np.ndarray]:
         if not self.settings.enable_aad:

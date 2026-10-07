@@ -7,16 +7,17 @@
 | 里程碑 | 状态 | 位置 |
 |---|---|---|
 | P0 基础设施、BS 模型、随机数、MC 引擎 | 完成 | PR #2 |
-| 普通 Python 示例（`examples/`，8 个，均含 DAL 数值和性能对照） | 完成 | PR #2 |
+| 普通 Python 示例（`examples/`，12 个，均含 DAL 数值和性能对照） | 完成 | PR #2 |
 | P1 Script 前端 | 完成 | PR #2（commit `8750dfd`、`e7caf50`） |
 | P2 exact 降级与事件引擎 | 完成 | PR #2 |
 | P3 fuzzy 降级、求导、scan 分组 | 完成 | PR #2 |
 | P4 并行与 GPU | 完成：CPU 调优、实际 CUDA 验证、GPU dtype/块策略、RBG 一致性和性能报告 | PR #2 |
-| P5–P7 | 未开始 | — |
+| P5 完整脚本能力与多资产 | 完成：向量、FIX/快照、PAYS ON、相关性 BS、local vol | `feature/script-p5`，独立 PR |
+| P6 EXERCISE/LSMC、P7 利率/混合模型 | 未开始 | — |
 
-- **分支**：所有工作都在 `feature/jax-mc-engine` 上，PR #2 的 base 是 `master`，还没有合并。`master` 上只有项目早期的探索性 notebook（PR #2 中已删除）。
-- **测试**：`uv run pytest` 为 594 passed、26 skipped（169.57 s），跳过的是默认关闭的 GPU 测试。26 个 GPU 测试已在实际 CUDA 13 环境通过，含百万路径 autocall 对照。P2 新增 120 个测试，其中 32 个与 dal-python 对照；P3 新增 67 个；P4 新增 22 个 CPU 测试和 26 个 GPU 测试。
-- **静态检查**：对应 Codacy 默认规范的 `lizard -C 8`、`pylint -E`、`bandit`、`semgrep --config p/python` 都已清零。本次采用本地等价检查；P4 commit `02018d2` 的 Python 3.13、3.14 和原 notebook CI 均成功；示例迁移后改为执行全部 Python 脚本。本地 8 个脚本均按默认 65,536 路径/8 设备/3 次热运行通过，CI 参数 4,096 路径/4 设备/1 次也通过，另在实际 GPU 上运行 08。每个脚本均有 DAL 数值和性能对照。
+- **分支**：P0–P4 和示例 01–08 在 `feature/jax-mc-engine` / PR #2（base `master`），尚未合并。P5 在 `feature/script-p5`，独立 PR 的 base 为 `feature/jax-mc-engine`；PR #2 合并后可调整 base。
+- **测试**：P4 基线为 594 passed、26 skipped。P5 新增向量/观察/模型/接口/并行和 34 个原生 oracle 测试；完整源码 oracle CPU 套件 728 passed、37 skipped，实际 GPU 37 passed；详细结果见 [P5 报告](p5.md)。GPU 总计 37 个用例已通过，含 P4 百万路径和 P5 的全部价格/敏感度对照。
+- **静态检查**：对应 Codacy 默认规范的 `lizard -C 8`、`pylint -E`、`bandit`、`semgrep --config p/python` 都已清零。本次采用本地等价检查；P4 commit `02018d2` 的 Python 3.13、3.14 和原 notebook CI 均成功；示例迁移后改为执行全部 Python 脚本。本地 12 个脚本均按默认 65,536 路径/8 设备/3 次热运行通过，CI 参数 4,096 路径/4 设备/1 次也通过，另在实际 GPU 上运行 08。每个脚本均有 DAL 数值和性能对照。
 
 ## 2. 代码地图
 
@@ -29,25 +30,29 @@ src/dal_jax/
   api.py               与 dal-python 同名的 Product_* / EvaluationDate_* / BSModelData_New / MonteCarlo_Value
   dates/               Date（Excel 序号，1970-01-01..2149-06-05）、增量、节假日（calendar_data.py 为导出数据）、日程、计息基准
   random/              sobol（directions.npy）、inverse_normal、bridge、prng（RBG 保持逐块 key 语义）
-  models/              base（Model 协议、SampleDef、Scenario）、bs
+  models/              base（Model 协议、SampleDef、Scenario）、bs、correlated_bs、localvol
   mc/                  settings、engine（分块、checkpoint、value/pricer）、parallel、tuning（GPU 精度/内存块策略）
   script/
     lexer.py           词法；index 字面量整体成词（EQ[x]@date、EQ[x]>3M）
     preprocessor.py    宏、常量、数值向量、日程（ParseSchedule）、PeriodBegin/PeriodEnd
     parser.py          递归下降解析，含 FOR 展开、DCF 折叠、EXERCISE、PAYS ON、FIX
-    ast.py             frozen dataclass 节点；Spot/Fix 带 observation_id（P2 给 Spot 分配，Fix 留到 P5）
+    ast.py             frozen dataclass 节点；Spot/Fix 带 observation_id，P5 按事件重映射到观察槽位
     product.py         ScriptProductData（不可变输入）/ ScriptProduct（解析结果、分区、变量编号、payoff_index）
-    preparation.py     prepare → PreparedProduct（不可变、可哈希）；观察绑定、历史回放、串联 passes、path_product
+    preparation.py     prepare → PreparedProduct（不可变、可哈希）；历史回放、串联 passes、path_product
+    observation.py     FIX/SPOT 模型绑定、历史定盘、观察/事件时间轴、延迟付款槽位
+    fixings.py         不可变 FixingSnapshot、TodayFixingPolicy、ValuationSettings、全局快照
     passes/            varindex → ifmeta → constfold → domain(+intervals) → constcond；eventgroup 规范化与分组
     debug.py           DebugNode：DebugJson、树形、旧版 s-expression 三种渲染
     diagnostics.py     debug_json（schema /1）、describe（schema /2）、debug_tree、debug_text
-    lower/exact.py     标量事件降级；IF affected_vars 合并、active 掩码；NumPy 后端做历史硬回放
+    lower/exact.py     标量/向量/FIX/贴现事件降级；IF affected_vars 合并、active 掩码；NumPy 后端做历史硬回放
     lower/fuzzy.py     连续/离散比较、布尔 degree、嵌套 IF 混合；复用 exact 的安全算术
-    lower/events.py    事件常量槽、相邻同模板事件 lax.scan、短组展开
+    lower/events.py    事件常量槽、相邻同模板事件 lax.scan/checkpoint、短组展开
+    lower/state.py     ScriptState、向量长度/补零合并
+    lower/vectors.py   向量读写/归约和随路径错误标志
     lower/smoothing.py CSpr / BFly 及其带 lb/rb 的两参数形式；可选 C1 smoothstep
 tests/                 random/ models/ mc/ script/ dates/ test_index.py oracle/ gpu/（--run-gpu 可选）
-examples/              8 个普通 Python 脚本 + _common.py；results/ 保存逐个执行的数值和计时 JSON
-scripts/               export_sobol_directions.py、export_calendars.py（从 DAL 源码重新生成数据）
+examples/              12 个普通 Python 脚本 + _common.py；results/ 保存逐个执行的数值和计时 JSON
+scripts/               数据导出工具、build_dal_oracle.sh（编译固定源码 oracle）
 benchmarks/bench_mc.py 与 dal-python 同机计时
 benchmarks/bench_script_compile.py 单路径脚本价格/参数梯度的编译和图规模；script_compile_cpu.json 为 CPU 实测
 benchmarks/bench_suite.py 标量脚本端到端 CPU/GPU/DAL 基准；p4_*.json 为实测，docs/performance.md 为报告
@@ -57,13 +62,13 @@ benchmarks/bench_suite.py 标量脚本端到端 CPU/GPU/DAL 基准；p4_*.json �
 
 - 没有单独的 `events.py` / `schedule.py`：事件解析放在 `product.py`，日程解析在 `preprocessor.py`，日程生成在 `dates/schedule.py`。
 - 没有 `index/` 包，只有一个 `index.py` 模块，因为脚本层只用到指数名解析。
-- `fixprep`（FIX 准备）还没有实现，属于 P5；`eventgroup` 已在 P3 实现。
+- `fixprep` 的职责在 P5 的 `observation.py` 和 `fixings.py` 中实现；`eventgroup` 已在 P3 实现并在 P5 支持向量/FIX。
 
 ## 3. 已定的决策
 
 ### 3.1 对照基准
 
-- **语义以 DAL `master` 为准**，不是以 dal-python 2026.9.25 为准。dal-python 2026.9.25 还不支持向量、`FOR`、`PAYS ... ON`、IR 指数和 `30U/360`。这些新功能用移植的 DAL C++ 单测来验证；与 dal-python 的对照只用它支持的子集。
+- **语义以 DAL `master` 为准**，不是以 dal-python 2026.9.25 为准。dal-python 2026.9.25 还不支持向量、`FOR`、`PAYS ... ON`、IR 指数和 `30U/360`。这些功能既有移植单测，也有固定 DAL 源码版 Python oracle；仍用 PyPI 包验证旧功能兼容。源码 pin、构建方法和已确认的原生 bug 见 [P5 报告](p5.md)。
 - **`Product_Describe` 比较时去掉 `regression_features` 键**：这是 DAL `master` 新增的键，dal-python 2026.9.25 没有。
 - **错误对照只比较错误码和核心消息**：DAL 的异常文本里带 C++ 源文件路径和 NOTICE 上下文行，见 `tests/oracle/test_dal_script_frontend.py` 中的 `_core()`。
 - 以下 3 处差异来自 DAL `master` 与 2026.9.25 版本之间的行为变化，是预期内的，对照测试已排除：
@@ -114,18 +119,18 @@ uvx semgrep scan --config p/python --metrics off --error src scripts benchmarks 
 - **查看 dal-python 2026.9.25 的源码**：`git -C ../Derivatives-Algorithms-Lib archive dal-python-v2026.9.25 | tar -x -C <空目录>`。
 - **依赖锁定**：CI 没有 `uv.lock`，`dal-python>=2026.9.25` 会装到 PyPI 上的最新版。如果新版改变了错误文本或输出，oracle 测试会失败。届时有两个选择：更新对照用例，或者把版本固定为 `==2026.9.25`。
 
-## 5. P2–P4 实现与下一步 P5
+## 5. P2–P5 实现与下一步 P6
 
 P2 验收已完成：European、亚式（标量写法）、autocall 在相同 Sobol 点下，与 dal-python 的 PV 相对误差 ≤ 1e-10，含 Brownian bridge 开关和跨批次的尾块掩码。
 
 ### 5.1 P2 的入口和约定
 
-- **准备**：`dal_jax.prepare(data, evaluation_date, historical_spots=...)` 返回 `PreparedProduct`；`prepared.path_product()` 交给现有 `MonteCarloEngine`。时间轴用 ACT/365F，每个未来事件请求 numeraire，与 legacy 路线一致。每个含 SPOT 的日期共用一个 `SpotObservation`；P2 从当日 `Sample.spot` 读取，完整指数输出绑定留到 P5。
+- **准备**：`dal_jax.prepare(data, evaluation_date, historical_spots=...)` 返回 `PreparedProduct`；`prepared.path_product()` 交给现有 `MonteCarloEngine`。时间轴用 ACT/365F，每个未来事件请求 numeraire，与 legacy 路线一致。每个含 SPOT 的日期共用一个 `SpotObservation`；P2 从当日 `Sample.spot` 读取；P5 增加 FIX 输出绑定以及观察日期/事件日期映射。
 - **历史回放**：`historical_spots` 为 `{Date: float}`。兼容 API 还接受 Python `datetime.date`；缺少过去 SPOT 的值时报 `UnboundHistoricalSpot`，非有限值时报 `MissingFixing`。先用 NumPy 在主机端硬回放；过去 PAYS 的 RHS 会执行，但不写入支付变量。过去依赖具名参数的赋值也保留为纯 JAX 回放函数，更新 `params["script"]` 时初始状态会更新。过去和未来 IF 都必须带 `affected_vars`。
 - **分析**：constfold 以 `historical=True` 开始，进入未来事件前调用 `start_future()`。准备层的 `_ScalarDomains` 丢弃过去支付对变量定义域的影响，并对字面量 NaN/Infinity、零分母保留未知定义域，保证未选中分支可以继续到 exact 求值；P1 的原有 passes 语义未改。
 - **降级**：`lower_event(event, const_names)` 的第三个参数直接是脚本参数映射（完整 PathProduct payoff 再从 `params["script"]` 取）。IF 两侧从入口状态执行，递归传递 active 掩码；LOG/SQRT/除法/幂/EXP 先替换未选中输入，再计算。常量和变量叶子也按 active 置零，避免无穷值乘到未选中路径的梯度里。
 - **兼容 API**：`BSModelData_New` 返回 `BlackScholes`。`MonteCarlo_Value` 支持 `rsg` 和 dal-python 的 `method` 别名、显式估值日以及 `MonteCarloSettings` 的执行选项。`compiled=True/False` 接受并 warning，XLA 始终编译。P3 已接通 `enable_aad=True`，返回 PV 和全部 `d_<label>`。
-- **边界**：完全到期的产品不分配模型计划、不模拟路径；未提供的历史 SPOT 仍在准备时校验。向量求值、FIX、跨日期 PAYS ON、EXERCISE 分别留到 P5/P6，报明确异常；PAYS ON 与事件同日时规范化为普通支付。已展开的标量 FOR 和解析成常量的固定向量下标可以运行。
+- **边界**：完全到期的产品不分配模型计划、不模拟路径；未提供的历史 SPOT 仍在准备时校验。P5 已支持向量求值、FIX 和跨日期 PAYS ON，EXERCISE 仍报 P6 未实现异常；PAYS ON 与事件同日时规范化为普通支付。已展开的标量 FOR 和解析成常量的固定向量下标可以运行。
 - **BS 修复**：仅有估值日时 `sim_dim=0`。原 `generate` 对空时间步做 cumsum 会触发 XLA 编译段错误，现直接返回当日 spot。已覆盖 `none/shard_map/auto/pmap`、bridge 开关以及非整块路径数。
 
 新增测试：`tests/script/test_preparation.py`、`tests/script/test_exact.py`、`tests/test_api_value.py`、`tests/oracle/test_dal_script_prices.py`；共享事件表在 `tests/script_cases.py`。
@@ -169,12 +174,13 @@ P2 验收已完成：European、亚式（标量写法）、autocall 在相同 So
 - **报告**：[docs/performance.md](performance.md) 记录编译、同步热运行、XLA 内存估计、CPU 设备/块/策略、checkpoint、GPU 两种 dtype、PRNG 和上述精度压力测试。计时进程依次运行；JSON 同时保留最小值、median 与原始次数。allocator peak 为进程累计值，不能当作单产品峰值。
 - **测试和 CI**：`tests/gpu` 默认跳过，实际 GPU 环境用 `pytest tests/gpu --run-gpu`。新增 `.github/workflows/gpu.yml`，手动触发、self-hosted Linux `gpu` runner，cuda12/cuda13 可选；未触发远程 GPU workflow。本机已通过所有 26 个 GPU 用例，含 bridge、全部策略、块大小、scan、跨 CPU/GPU 放置、统计 PRNG和百万路径 autocall float64/DAL 对照；另在 GPU 上通过 4 个 float32 安全端点测试。
 
-### 5.4 P5 接续建议
+### 5.4 P5 的入口和接续 P6
 
-1. 先实现定容可变向量、APPEND、下标和归约的设备端状态及错误标志，覆盖 fuzzy 长度取最大、较短分支补零混合；当前前端已完成。
-2. 实现 PAYS ON 的跨日期 discount 槽位，以及 FIX 的模型感知准备、历史快照和 TodayFixingPolicy。当前只支持同日 PAYS ON 和历史 SPOT。
-3. 实现 CorrelatedBlackScholes、多因子 bridge，再补局部波动率模型和分桶 vega。
-4. 延续 DAL master 语义、可用 dal-python oracle 和已移植 C++ 单测；LSMC 留给 P6。
+- 实现和使用见 [P5 报告](p5.md)。状态采用定容向量加长度，错误随路径归约；主机边界抛具名异常，pure JAX 的 `checked_pricer` 返回错误率。
+- `prepare(..., model=..., valuation=...)` 在折叠前完成 FIX/SPOT/付款绑定。历史已解析报价保存在 prepared 对象中，依赖脚本参数的历史仍可重新求导。
+- Correlated BS 的相关性为静态参数；LocalVol 的所有节点都是标量参数，surface 取代 BS scalar vol。CPU/GPU 对照保持 PV 1e-10、Greeks 1e-8 原容差。
+- 源码 oracle 固定 `4feabe89b105e0a3883fd4e2d74a2d70d618d8c7`，版本号与 PyPI 相同，需检查能力。CI 增加 native-oracle 任务，完整 CPU 测试和 09–12 都实际执行。
+- 下一步按 issue #1 的 P6：EXERCISE Phase A/B/C、矩与回归求解、回退、验证块选阶、RQMC 副本和 Frozen/RetrainedBump 风险。P7 保留 GSR/GSRSLV/混合模型及完整估值诊断。
 
 ## 6. 工作约定
 

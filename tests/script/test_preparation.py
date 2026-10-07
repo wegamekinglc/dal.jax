@@ -10,7 +10,7 @@ from script_cases import EVALUATION as TODAY, MATURITY
 
 from dal_jax import EvalContext, MonteCarloEngine, MonteCarloSettings
 from dal_jax.api import BSModelData_New, Product_New
-from dal_jax.errors import InvalidScriptStructure, MissingFixing, PreparationRequired, UnboundHistoricalSpot, UnsupportedExecutionMode
+from dal_jax.errors import InvalidScriptStructure, MissingFixing, PreparationRequired, UnboundHistoricalSpot, UnsupportedExecutionMode, UnsupportedDelayedPayment
 from dal_jax.models.base import Scenario
 from dal_jax.script import ast as A
 from dal_jax.script.preparation import prepare
@@ -94,8 +94,7 @@ def test_nonfinite_history_is_rejected(value):
         prepare(data, TODAY, historical_spots={past: value})
 
 
-@pytest.mark.parametrize("script,error", [("pay PAYS FIX(EQ[A])", PreparationRequired), ("APPEND(v, SPOT()) pay PAYS SUM(v)", UnsupportedExecutionMode),
-                                        ("EXERCISE SPOT()", UnsupportedExecutionMode), ("pay PAYS 1 ON 2024-01-01", PreparationRequired)])
+@pytest.mark.parametrize("script,error", [("pay PAYS FIX(EQ[A])", PreparationRequired), ("EXERCISE SPOT()", UnsupportedExecutionMode), ("pay PAYS 1 ON 2024-01-01", UnsupportedDelayedPayment)])
 def test_later_milestones_raise_explicit_errors(script, error):
     with pytest.raises(error):
         prepare(Product_New([MATURITY], [script]), TODAY)

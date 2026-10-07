@@ -9,6 +9,7 @@ The full plan is in [issue #1](https://github.com/wegamekinglc/dal.jax/issues/1)
 - **milestone P2**: exact scalar script valuation: arithmetic, functions, IF and PAYS lower to JAX event functions, with historical replay and the `BSModelData_New` / `MonteCarlo_Value` compatibility API. European, scalar Asian and autocall prices match DAL on identical Sobol paths.
 - **milestone P3**: fuzzy scalar scripts and all model/script Greeks, safe nested IF blending, adjacent event scan grouping, and optional C1 smoothing. Barrier and autocall sensitivities match DAL on identical Sobol paths.
 - **milestone P4**: CPU device and block tuning, actual CUDA validation, GPU precision and memory-based block sizing, repeatable RBG streams under parallel transforms, and an end-to-end benchmark suite.
+- **milestone P5**: mutable vector valuation, dated `FIX` and immutable fixing snapshots, delayed payments, correlated Black-Scholes with factor-aware bridges, and local volatility with every surface-node risk.
 
 ## Install
 
@@ -117,11 +118,15 @@ DAL's piecewise-linear kernels remain the default. `smoothing_kernel="smoothstep
 
 The front end follows DAL's current `master`, so it also supports what dal-python 2026.9.25 lacks: vectors (`APPEND`, `v[i]`, `SUM`/`AVERAGE`/`MIN`/`MAX`, predefined `[1, 2, 3]` definitions), `FOR` loops over constant bounds, `PAYS ... ON date`, `FIX(index, date)` observations, `EXERCISE` statements, IR index names and the `30U/360` basis. Errors raise the `DalError` subclass that DAL names in its message (`InvalidIndex`, `DuplicateExercise`, ...), with the same text.
 
-Valuation currently supports the scalar subset, including expanded `FOR` loops and predefined vector entries that the parser turns into constants. Mutable vectors, `FIX`, delayed `PAYS ... ON` and `EXERCISE` raise explicit preparation or execution errors; their valuation belongs to P5/P6. A payment explicitly made `ON` its own event date is treated as an ordinary `PAYS`.
+Valuation supports mutable vectors, expanded `FOR`, reductions, dated `FIX` and delayed payments. Vectors use fixed capacities and dynamic lengths; fuzzy branches blend padded values and use the longer length only inside the transition. Invalid reads and empty non-SUM reductions raise DAL-named exceptions through `engine.value`. For pure JAX code, `engine.checked_pricer(n_paths)` returns `(prices, error_rates)`; `pricer` returns NaN when a live path has a vector error.
+
+`prepare(..., model=model, valuation=ValuationSettings(...))` binds index observations and discount maturities before folding branches. `FixingSnapshot` copies historical quotes and supports exact timestamp lookup and inverse FX quotes. Today's default policy uses the model; `RequireHistorical` requires today's snapshot quote. Missing historical quotes do not fall back to the model. A `default_index` in `ScriptProductSettings` binds legacy `SPOT()` when using FIX or multiple assets. Future plain equity observations are supported by BS, correlated BS and local vol; historical equity/FX/Libor fixings can come from snapshots. Future FX/rate observations require P7 models. Past events with an unsettled delayed payment raise `UnsettledDelayedPayment`.
+
+`CorrelatedBlackScholes` takes equity index names, spots, volatilities, dividends and a positive-definite correlation matrix. Its per-asset parameters are differentiable; correlation is passive. `LocalVol` uses log-spot/time bilinear interpolation with flat extrapolation, subdivides each product time gap by `max_step`, and runs checkpointed log-Euler steps. Its surface replaces the scalar BS volatility; `vol_grid(gradient_model_params)` reconstructs the bucket-vega matrix. `EXERCISE` valuation remains P6; GSR and mixed equity/rate models remain P7. See [P5 usage and verification](docs/p5.md).
 
 ## Examples
 
-[`examples/`](examples/README.md) has eight ordinary Python scripts covering European and barrier pricing, JAX transforms, parallel execution, historical scripts and discounts, event scans and C1 smoothing, PRNG streams, and CPU/GPU precision. Every example prints numerical and synchronized performance comparisons with dal-python. Run `uv sync --group examples`, then `uv run --group examples python examples/01_european_option.py`. Saved numerical and timing reports are in `examples/results/`.
+[`examples/`](examples/README.md) has twelve ordinary Python scripts covering European and barrier pricing, JAX transforms, parallel execution, historical scripts and discounts, event scans and C1 smoothing, PRNG streams, CPU/GPU precision, vectors, fixing policies, correlated assets and local volatility. Every example prints numerical and synchronized performance comparisons with dal-python. Run `uv sync --group examples`, then `uv run --group examples python examples/01_european_option.py`. Saved numerical and timing reports are in `examples/results/`. Examples 09–12 need the pinned source-built dal-python oracle; installation commands are in the examples README.
 
 ## Settings
 
@@ -141,7 +146,7 @@ Valuation currently supports the scalar subset, including expanded `FOR` loops a
 | `dtype` | `"float64"` | `float32` casts the path arrays; `auto` chooses float64 on CPU and float32 on GPU; block sums are added in float64 |
 | `deterministic_reduction` | `False` | sums per-block values and gradients in block order, so results are bitwise identical for any device count (reverse mode only) |
 | `block_bucketing` | `False` | rounds the block count up to a power of two, so nearby `n_paths` reuse one compilation |
-| `checkpoint` | `True` | recomputes each block in the backward pass, so gradient memory is one block's worth |
+| `checkpoint` | `True` | rematerializes blocks and grouped script event steps in the backward pass |
 
 On CPU, split the host into virtual devices before running any JAX operation:
 
@@ -209,13 +214,13 @@ src/dal_jax/
   index.py            index names (EQ, FX, IR) and their canonical forms
   dates/              Date, increments, holidays (+ calendar_data.py), schedules, day bases
   random/             sobol (+ directions.npy), inverse_normal, bridge, prng
-  models/             base (protocol, SampleDef, Scenario), bs
+  models/             base (protocol, SampleDef, Scenario), bs, correlated_bs, localvol
   mc/                 settings, engine, parallel, tuning (precision and memory-based GPU blocks)
-  script/             lexer, preprocessor, parser, ast, product, preparation, debug, diagnostics
+  script/             lexer, preprocessor, parser, ast, product, preparation, observation, fixings, debug, diagnostics
   script/passes/      varindex, ifmeta, constfold, domain (+ intervals), constcond, eventgroup
-  script/lower/       exact/fuzzy scalar events, grouped execution, DAL and C1 smoothing kernels
+  script/lower/       exact/fuzzy scalar and vector events, state, grouped execution, smoothing kernels
 examples/             Python scripts with DAL numerical/performance comparisons
-scripts/              export_sobol_directions.py, export_calendars.py (regenerate data from DAL)
+scripts/              data exporters, build_dal_oracle.sh (pinned native reference)
 benchmarks/           bench_mc.py, bench_script_compile.py, bench_suite.py (+ measured JSON reports)
 tests/                random/, models/, mc/, script/, dates/, oracle/ (dal-python), gpu/ (opt-in)
 ```

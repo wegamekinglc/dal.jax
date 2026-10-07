@@ -36,8 +36,30 @@ jobs:
           cache-suffix: examples
       - name: Install
         run: uv sync --group examples
-      - name: Run every Python example with DAL comparisons
+      - name: Run published-oracle Python examples with DAL comparisons
         run: |
-          for example in examples/[0-9][0-9]_*.py; do
+          for example in examples/0[1-8]_*.py; do
             uv run --group examples python "$example" --paths 4096 --devices 4 --repeat 1 --output "$RUNNER_TEMP/$(basename "$example" .py).json"
+          done
+
+  native-oracle:
+    name: Pinned native DAL oracle and P5 examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.13"
+          cache-suffix: native-oracle
+      - name: Install
+        run: uv sync --group examples
+      - name: Build pinned DAL source oracle
+        run: bash scripts/build_dal_oracle.sh "$RUNNER_TEMP/dal-oracle" "$GITHUB_WORKSPACE/.venv/bin/python"
+      - name: Full CPU suite with native oracle
+        run: .venv/bin/python -m pytest
+      - name: P5 examples with DAL prices, risks and synchronized timings
+        run: |
+          for example in examples/09_*.py examples/1[0-2]_*.py; do
+            .venv/bin/python "$example" --paths 4096 --devices 4 --repeat 1 --output "$RUNNER_TEMP/$(basename "$example" .py).json"
           done

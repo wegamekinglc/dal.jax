@@ -10,15 +10,23 @@ config.enable_x64()
 
 from dal_jax.errors import DalError  # noqa: E402
 from dal_jax.mc import EvalContext, MonteCarloEngine, MonteCarloSettings, PathProduct  # noqa: E402
-from dal_jax.models import BlackScholes, SampleDef, Scenario  # noqa: E402
+from dal_jax.models import BlackScholes, CorrelatedBlackScholes, LocalVol, LocalVolSurface, SampleDef, Scenario  # noqa: E402
+from dal_jax.script.fixings import FixingSnapshot, TodayFixingPolicy, ValuationSettings, set_global_fixings  # noqa: E402
 from dal_jax.script.preparation import PreparedProduct, prepare  # noqa: E402
 
 __version__ = "0.0.1"
 
 __all__ = [
     "BlackScholes",
+    "CorrelatedBlackScholes",
+    "LocalVol",
+    "LocalVolSurface",
     "DalError",
     "EvalContext",
+    "FixingSnapshot",
+    "TodayFixingPolicy",
+    "ValuationSettings",
+    "set_global_fixings",
     "MonteCarloEngine",
     "MonteCarloSettings",
     "PathProduct",

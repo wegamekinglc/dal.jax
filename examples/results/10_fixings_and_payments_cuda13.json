@@ -1,0 +1,158 @@
+{
+  "environment": {
+    "jax": "0.11.2",
+    "dal_python": "2026.9.25"
+  },
+  "configuration": {
+    "paths": 65536,
+    "repeat": 3,
+    "platform": "gpu",
+    "devices": 1
+  },
+  "comparisons": [
+    {
+      "label": "Today's FIX: Model",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.006416624004486948,
+        "warm_min_seconds": 0.001450190000468865,
+        "warm_median_seconds": 0.0015155849978327751,
+        "warm_runs_seconds": [
+          0.0015362609992735088,
+          0.001450190000468865,
+          0.0015155849978327751
+        ],
+        "compile_seconds": 0.2554672429978382,
+        "result": {
+          "PV": 100.0,
+          "d_div": 0.0,
+          "d_rate": -0.0,
+          "d_spot": 1.0,
+          "d_vol": 0.0
+        },
+        "backend": "gpu",
+        "devices": 1,
+        "dtype": "float64",
+        "block_size": 32768
+      },
+      "dal": {
+        "first_seconds": 0.025443756981985644,
+        "warm_min_seconds": 0.0012314729974605143,
+        "warm_median_seconds": 0.0014314550207927823,
+        "warm_runs_seconds": [
+          0.0012314729974605143,
+          0.0014314550207927823,
+          0.0014683679910376668
+        ],
+        "result": {
+          "PV": 100.0,
+          "d_div": 0.0,
+          "d_rate": 0.0,
+          "d_spot": 1.0,
+          "d_vol": 0.0
+        }
+      }
+    },
+    {
+      "label": "Today's FIX: RequireHistorical",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.003191405994584784,
+        "warm_min_seconds": 0.0014736999874003232,
+        "warm_median_seconds": 0.0015657879994250834,
+        "warm_runs_seconds": [
+          0.0015685990219935775,
+          0.0015657879994250834,
+          0.0014736999874003232
+        ],
+        "compile_seconds": 0.1360583060013596,
+        "result": {
+          "PV": 97.0,
+          "d_div": 0.0,
+          "d_rate": -0.0,
+          "d_spot": 0.0,
+          "d_vol": 0.0
+        },
+        "backend": "gpu",
+        "devices": 1,
+        "dtype": "float64",
+        "block_size": 32768
+      },
+      "dal": {
+        "first_seconds": 0.0014029959856998175,
+        "warm_min_seconds": 0.001162207016022876,
+        "warm_median_seconds": 0.0011840949882753193,
+        "warm_runs_seconds": [
+          0.0011840949882753193,
+          0.0011941129923798144,
+          0.001162207016022876
+        ],
+        "result": {
+          "PV": 97.0,
+          "d_div": 0.0,
+          "d_rate": 0.0,
+          "d_spot": 0.0,
+          "d_vol": 0.0
+        }
+      }
+    },
+    {
+      "label": "Dated equity FIX and two-year payment",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.009204475994920358,
+        "warm_min_seconds": 0.0014325979864224792,
+        "warm_median_seconds": 0.0016164239787030965,
+        "warm_runs_seconds": [
+          0.0016569849976804107,
+          0.0016164239787030965,
+          0.0014325979864224792
+        ],
+        "compile_seconds": 1.1334214600210544,
+        "result": {
+          "PV": 4.284225216283389,
+          "d_div": -25.152369293062268,
+          "d_rate": 16.58391886049549,
+          "d_spot": 0.5100341551093183,
+          "d_vol": 25.324812657560006,
+          "d_K": -0.46719190294648427
+        },
+        "backend": "gpu",
+        "devices": 1,
+        "dtype": "float64",
+        "block_size": 32768
+      },
+      "dal": {
+        "first_seconds": 0.0017731479892972857,
+        "warm_min_seconds": 0.001678219996392727,
+        "warm_median_seconds": 0.0016826559731271118,
+        "warm_runs_seconds": [
+          0.0016826559731271118,
+          0.0018369769968558103,
+          0.001678219996392727
+        ],
+        "result": {
+          "PV": 4.284225216283389,
+          "d_K": -0.46719190294649215,
+          "d_div": -25.152369293062264,
+          "d_rate": 16.583918860495487,
+          "d_spot": 0.5100341551093182,
+          "d_vol": 25.324812657560017
+        }
+      }
+    }
+  ],
+  "diagnostics": {
+    "timeline": [
+      0.4931506849315068,
+      1.0
+    ],
+    "observation_requests": 1,
+    "discount_maturities": [
+      [],
+      [
+        2.0
+      ]
+    ]
+  }
+}

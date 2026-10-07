@@ -1,6 +1,6 @@
 """Memory-based GPU sizing and explicit overrides without requiring CUDA in CI."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import jax.numpy as jnp
 import pytest
@@ -64,6 +64,13 @@ def test_smallest_device_memory_limits_each_devices_block():
     assert block == resolve(product, memory=2**30)
     assert block & (block-1) == 0
     assert estimated_path_bytes(product, 36, "float64", True) > estimated_path_bytes(product, 36, "float32", False)
+
+
+def test_large_vector_state_reduces_gpu_auto_block():
+    small = european_call()
+    large = replace(small, path_state_size=4096, error_messages=("VectorIndexOutOfRange: v",))
+    assert resolve(large, memory=2**30) < resolve(small, memory=2**30)
+    assert resolve(large, memory=2**30, block_size=2048) == 2048
 
 
 @pytest.mark.parametrize("block", ["AUTO", None, 0, -1, "8192"])

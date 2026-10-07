@@ -94,7 +94,10 @@ def test_dumps_are_byte_identical(dal_evaluation, name):
     dates, events = CORPUS[name]
     theirs = dal.Product_New(_cells(dates, dal), events)
     ours = Product_New(_cells(dates), events)
-    assert _without_regression_features(Product_Describe(ours)) == dal.Product_Describe(theirs)
+    actual, expected = Product_Describe(ours), dal.Product_Describe(theirs)
+    assert _without_regression_features(actual) == _without_regression_features(expected)
+    if "regression_features" in expected:
+        assert actual["regression_features"] == expected["regression_features"]
     if not any("FIX(" in text for text in events):
         assert Product_DebugJson(ours) == dal.Product_DebugJson(theirs)
     assert Product_DebugTree(ours) == dal.Product_DebugTree(theirs)
