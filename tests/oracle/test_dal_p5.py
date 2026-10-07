@@ -19,7 +19,7 @@ def native(dal):
     return dal
 
 
-@pytest.mark.parametrize("name", ["vector_asian", "vector_fuzzy", "dated_fix_payment", "correlated_basket",
+@pytest.mark.parametrize("name", ["vector_asian", "vector_fuzzy", "dated_fix_payment", "payment_schedule", "correlated_basket",
                                   "correlated_worst", "localvol_flat", "localvol_skew"])
 @pytest.mark.parametrize("aad", [False, True])
 @pytest.mark.parametrize("bridge", [False, True])

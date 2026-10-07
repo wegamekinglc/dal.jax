@@ -10,7 +10,7 @@ from dal_jax.errors import VectorIndexOutOfRange
 pytestmark = pytest.mark.gpu
 
 
-@pytest.mark.parametrize("name", ["vector_asian", "vector_fuzzy", "dated_fix_payment", "correlated_basket", "localvol_skew"])
+@pytest.mark.parametrize("name", ["vector_asian", "vector_fuzzy", "dated_fix_payment", "payment_schedule", "correlated_basket", "localvol_skew"])
 @pytest.mark.parametrize("bridge", [False, True])
 def test_gpu_float64_values_and_all_greeks(gpu_devices, cpu_devices, dal, name, bridge):
     rows, model = case(name)

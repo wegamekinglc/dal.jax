@@ -43,7 +43,7 @@ def _identity_fields(node):
     if isinstance(node, A.Fix):
         return {"source": _SOURCE, "fixing_date": None, "is_const": False, "const_val": 0.0}
     if isinstance(node, A.Pays):
-        return {"source": _SOURCE}
+        return {"source": _SOURCE, "payment_date": None}
     if isinstance(node, A.Expr):
         return {"is_const": False, "const_val": 0.0}
     return {}

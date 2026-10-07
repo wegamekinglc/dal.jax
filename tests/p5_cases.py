@@ -17,11 +17,10 @@ def case(name):
                             "ELSE APPEND(v,2) END pay PAYS SUM(v)+AVERAGE(v)"])
     elif name == "dated_fix_payment":
         rows = (["K", END], ["100", f"pay PAYS MAX(FIX(EQ[A],{TODAY.add_days(180)})-K,0) ON {TODAY.add_days(730)}"])
+    elif name == "payment_schedule":
+        rows = _payment_rows()
     elif name.startswith("correlated"):
-        bs = CorrelatedBlackScholes(indices=("EQ[A]", "EQ[B]"), spots=(100., 95.), vols=(.15, .2), divs=(.03, .02),
-                                    rate=.05, correlations=((1., .4), (.4, 1.)))
-        observation = "(FIX(EQ[A])+FIX(EQ[B]))/2" if name == "correlated_basket" else "MIN(FIX(EQ[A]),FIX(EQ[B]))"
-        rows = (["K", TODAY.add_days(180), END], ["100", f"first={observation}", f"pay PAYS MAX((first+{observation})/2-K,0)"])
+        return _correlated_case(name)
     elif name.startswith("localvol"):
         vols = ((.15, .15),)*3 if name == "localvol_flat" else ((.18, .19), (.15, .16), (.17, .18))
         surf = LocalVolSurface(spots=(70., 100., 140.), times=(0., 1.), vols=vols)
@@ -30,6 +29,19 @@ def case(name):
     else:
         raise ValueError(name)
     return rows, bs
+
+
+def _payment_rows():
+    dates = [TODAY.add_days(30*i) for i in range(1, 9)]
+    return ["SCALE"]+dates, ["2"]+[f"pay PAYS SCALE*FIX(EQ[A]) ON {d.add_days(30)}" for d in dates]
+
+
+def _correlated_case(name):
+    model = CorrelatedBlackScholes(indices=("EQ[A]", "EQ[B]"), spots=(100., 95.), vols=(.15, .2), divs=(.03, .02),
+                                   rate=.05, correlations=((1., .4), (.4, 1.)))
+    observation = "(FIX(EQ[A])+FIX(EQ[B]))/2" if name == "correlated_basket" else "MIN(FIX(EQ[A]),FIX(EQ[B]))"
+    rows = (["K", TODAY.add_days(180), END], ["100", f"first={observation}", f"pay PAYS MAX((first+{observation})/2-K,0)"])
+    return rows, model
 
 
 def native_model(dal, bs):

@@ -16,7 +16,7 @@
 | P6 EXERCISE/LSMC、P7 利率/混合模型 | 未开始 | — |
 
 - **分支**：P0–P4 和示例 01–08 在 `feature/jax-mc-engine` / PR #2（base `master`），尚未合并。P5 在 `feature/script-p5`，独立 PR 的 base 为 `feature/jax-mc-engine`；PR #2 合并后可调整 base。
-- **测试**：P4 基线为 594 passed、26 skipped。P5 新增向量/观察/模型/接口/并行和 34 个原生 oracle 测试；完整源码 oracle CPU 基线 728 passed、37 skipped，随后新增 2 个 float32 CPU 用例通过；实际 GPU 总计 42 个用例通过，详细结果见 [P5 报告](p5.md)。GPU 总计 42 个用例已通过，含 P4 百万路径和 P5 的全部价格/敏感度对照。
+- **测试**：P4 基线为 594 passed、26 skipped。P5 新增向量/观察/模型/接口/并行和 34 个原生 oracle 测试；完整源码 oracle CPU 基线 728 passed、37 skipped，随后新增 float32 和延迟付款分组回归通过；实际 GPU 总计 44 个用例通过，详细结果见 [P5 报告](p5.md)。GPU 总计 44 个用例已通过，含 P4 百万路径和 P5 的全部价格/敏感度对照。
 - **静态检查**：对应 Codacy 默认规范的 `lizard -C 8`、`pylint -E`、`bandit`、`semgrep --config p/python` 都已清零。本次采用本地等价检查；P4 commit `02018d2` 的 Python 3.13、3.14 和原 notebook CI 均成功；示例迁移后改为执行全部 Python 脚本。本地 12 个脚本均按默认 65,536 路径/8 设备/3 次热运行通过，CI 参数 4,096 路径/4 设备/1 次也通过，另在实际 GPU 上运行 08。每个脚本均有 DAL 数值和性能对照。
 
 ## 2. 代码地图
