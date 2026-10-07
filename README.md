@@ -45,7 +45,11 @@ pv, grads = jax.value_and_grad(lambda p: f(p)[0])(params)
 ladder = jax.vmap(lambda s: f({**params, "model": params["model"] | {"spot": s}})[0])(jnp.linspace(80, 120, 9))
 ```
 
-In fuzzy mode (`enable_aad=True`, or `pricer(..., fuzzy=True)`) a payoff should smooth its discontinuities with DAL's kernels in `dal_jax.script.lower` (`cspr`, `bfly`). If it doesn't, `jax.grad` misses the barrier term. `tests/support.py` has an up-and-out call that matches DAL's fuzzy `d_BARRIER` and `d_vol` (it fixes the TODO in `jax/020_barrier_option.ipynb`).
+In fuzzy mode (`enable_aad=True`, or `pricer(..., fuzzy=True)`) a payoff should smooth its discontinuities with DAL's kernels in `dal_jax.script.lower` (`cspr`, `bfly`). If it doesn't, `jax.grad` misses the barrier term. `tests/support.py` and `examples/02_barrier_option.ipynb` have an up-and-out call that matches DAL's fuzzy `d_BARRIER` and `d_vol`.
+
+## Examples
+
+[`examples/`](examples/) has four runnable notebooks: getting started with a European option, barrier Greeks and fuzzy smoothing, composing the pricer with JAX transforms, and multi-device execution and precision options. Run `uv sync --group examples`, then `uv run --group examples --with jupyterlab jupyter lab examples/`.
 
 ## Settings
 
@@ -117,6 +121,7 @@ src/dal_jax/
   models/             base (protocol, SampleDef, Scenario), bs
   mc/                 settings, engine, parallel
   script/lower/       smoothing kernels (CSpr / BFly) shared with the future script layer
+examples/             runnable notebooks (see examples/README.md)
 scripts/              export_sobol_directions.py (regenerates the table from DAL's sobol.cpp)
 benchmarks/           bench_mc.py
 tests/                random/, models/, mc/, oracle/ (dal-python)

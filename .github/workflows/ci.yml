@@ -21,3 +21,18 @@ jobs:
         run: uv sync --python ${{ matrix.python }}
       - name: Test (4 virtual CPU devices, dal-python oracle included)
         run: uv run --python ${{ matrix.python }} pytest
+
+  examples:
+    name: Example notebooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install
+        run: uv sync --python 3.13 --group examples
+      - name: Execute every notebook
+        working-directory: examples
+        run: |
+          for notebook in *.ipynb; do
+            uv run --python 3.13 --group examples jupyter nbconvert --to notebook --execute --output-dir "$RUNNER_TEMP" --ExecutePreprocessor.timeout=1200 "$notebook"
+          done
