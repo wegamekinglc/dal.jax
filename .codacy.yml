@@ -1,0 +1,19 @@
+# Codacy configuration: https://docs.codacy.com/repositories-configure/codacy-configuration-file/
+# Tools are enabled on the Codacy "Code patterns" page; this file only keeps
+# generated and non-source content out of the analysis. When this file exists,
+# the "Ignored files" settings in the Codacy UI do not apply.
+engines:
+  bandit:
+    # Pytest assertions are test oracles, not production checks (B101).
+    exclude_paths:
+      - "tests/**"
+exclude_paths:
+  # Local environments and caches
+  - ".venv/**"
+  - "**/__pycache__/**"
+  - ".pytest_cache/**"
+  - "dist/**"
+  # Sobol direction numbers exported verbatim from DAL (binary data)
+  - "src/dal_jax/random/directions.npy"
+  # Executed notebooks: inputs are covered by the CI notebook job, outputs are data
+  - "examples/*.ipynb"

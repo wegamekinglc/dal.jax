@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: CPU tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: ${{ matrix.python }}  # sets UV_PYTHON and keys the cache per version
+          cache-suffix: tests
+      - name: Install
+        run: uv sync
+      - name: Test (4 virtual CPU devices, dal-python oracle included)
+        run: uv run pytest
+
+  examples:
+    name: Python examples and DAL comparisons
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.13"
+          cache-suffix: examples
+      - name: Install
+        run: uv sync --group examples
+      - name: Run every Python example with DAL comparisons
+        run: |
+          for example in examples/[0-9][0-9]_*.py; do
+            uv run --group examples python "$example" --paths 4096 --devices 4 --repeat 1 --output "$RUNNER_TEMP/$(basename "$example" .py).json"
+          done

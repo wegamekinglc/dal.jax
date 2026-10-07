@@ -1,0 +1,443 @@
+{
+  "environment": {
+    "python": "3.13.9",
+    "jax": "0.11.2",
+    "os": "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "cpu": "13th Gen Intel(R) Core(TM) i9-13900HX"
+  },
+  "configuration": {
+    "platform": "cpu",
+    "devices": 4,
+    "parallel": "shard_map",
+    "dtype": "float64",
+    "paths": 1048576,
+    "block_size": "auto",
+    "rsg": "sobol",
+    "prng_impl": null,
+    "use_bb": false,
+    "checkpoint": true,
+    "scan_group_threshold": 4,
+    "deterministic_reduction": false,
+    "repeat": 5
+  },
+  "measurements": [
+    {
+      "case": "european",
+      "mode": "price",
+      "jax": {
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "n_devices": 4,
+        "dtype": "float64",
+        "block_size": 8192,
+        "sim_dim": 1,
+        "scan_spans": [],
+        "lower_seconds": 0.09673742699669674,
+        "compile_seconds": 0.1526934920111671,
+        "first_run_seconds": 0.009223300992744043,
+        "warm_min_seconds": 0.006683197017991915,
+        "warm_median_seconds": 0.00705206801649183,
+        "warm_runs_seconds": [
+          0.0075562830024864525,
+          0.0073998400184791535,
+          0.00705206801649183,
+          0.006792511994717643,
+          0.006683197017991915
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 40,
+          "output_size_in_bytes": 8,
+          "temp_size_in_bytes": 197312,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": null,
+        "result": {
+          "PV": 5.201768833210827
+        }
+      }
+    },
+    {
+      "case": "european",
+      "mode": "greeks",
+      "jax": {
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "n_devices": 4,
+        "dtype": "float64",
+        "block_size": 8192,
+        "sim_dim": 1,
+        "scan_spans": [],
+        "lower_seconds": 0.3010629990021698,
+        "compile_seconds": 0.3251170039875433,
+        "first_run_seconds": 0.014781022007809952,
+        "warm_min_seconds": 0.011799033993156627,
+        "warm_median_seconds": 0.013092187989968807,
+        "warm_runs_seconds": [
+          0.014527874998748302,
+          0.012698656995780766,
+          0.011799033993156627,
+          0.013272640004288405,
+          0.013092187989968807
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 40,
+          "output_size_in_bytes": 96,
+          "temp_size_in_bytes": 1738208,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": null,
+        "result": {
+          "PV": 5.201768833210827,
+          "d_div": -100.50943481053764,
+          "d_rate": 84.90412831090515,
+          "d_spot": 0.33503144936845874,
+          "d_vol": 59.58503275691191,
+          "d_STRIKE": -0.23584480086362544
+        }
+      }
+    },
+    {
+      "case": "barrier_1m",
+      "mode": "price",
+      "jax": {
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "n_devices": 4,
+        "dtype": "float64",
+        "block_size": 8192,
+        "sim_dim": 36,
+        "scan_spans": [
+          [
+            1,
+            36
+          ]
+        ],
+        "lower_seconds": 0.14497633901191875,
+        "compile_seconds": 0.25487558101303875,
+        "first_run_seconds": 0.15182647001347505,
+        "warm_min_seconds": 0.13888298699748702,
+        "warm_median_seconds": 0.14118228500592522,
+        "warm_runs_seconds": [
+          0.14499302502372302,
+          0.15680435299873352,
+          0.13888298699748702,
+          0.14118228500592522,
+          0.13960442098323256
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 48,
+          "output_size_in_bytes": 8,
+          "temp_size_in_bytes": 7931792,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": null,
+        "result": {
+          "PV": 1.5057628229021944
+        }
+      }
+    },
+    {
+      "case": "barrier_1m",
+      "mode": "greeks",
+      "jax": {
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "n_devices": 4,
+        "dtype": "float64",
+        "block_size": 8192,
+        "sim_dim": 36,
+        "scan_spans": [
+          [
+            1,
+            36
+          ]
+        ],
+        "lower_seconds": 0.5812460939923767,
+        "compile_seconds": 0.6144650790083688,
+        "first_run_seconds": 0.5779389160161372,
+        "warm_min_seconds": 0.540995463001309,
+        "warm_median_seconds": 0.5499203399813268,
+        "warm_runs_seconds": [
+          0.5499203399813268,
+          0.6059399600198958,
+          0.5777732330025174,
+          0.5493130780232605,
+          0.540995463001309
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 48,
+          "output_size_in_bytes": 112,
+          "temp_size_in_bytes": 68268720,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": null,
+        "result": {
+          "PV": 1.50524289785154,
+          "d_div": -19.38122969678772,
+          "d_rate": 14.8655010032331,
+          "d_spot": 0.049749023189038954,
+          "d_vol": -7.227015324623104,
+          "d_BARRIER": 0.08925165412793824,
+          "d_STRIKE": -0.1404746448633128
+        }
+      }
+    },
+    {
+      "case": "barrier_1w",
+      "mode": "price",
+      "jax": {
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "n_devices": 4,
+        "dtype": "float64",
+        "block_size": 8192,
+        "sim_dim": 157,
+        "scan_spans": [
+          [
+            1,
+            157
+          ]
+        ],
+        "lower_seconds": 0.11681742200744338,
+        "compile_seconds": 0.18034064301173203,
+        "first_run_seconds": 0.6254229329933878,
+        "warm_min_seconds": 0.5809193029999733,
+        "warm_median_seconds": 0.5934299360087607,
+        "warm_runs_seconds": [
+          0.6331429670099169,
+          0.6184791240084451,
+          0.5934299360087607,
+          0.5865981599781662,
+          0.5809193029999733
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 48,
+          "output_size_in_bytes": 8,
+          "temp_size_in_bytes": 31134416,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": null,
+        "result": {
+          "PV": 1.3499618479013347
+        }
+      }
+    },
+    {
+      "case": "barrier_1w",
+      "mode": "greeks",
+      "jax": {
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "n_devices": 4,
+        "dtype": "float64",
+        "block_size": 8192,
+        "sim_dim": 157,
+        "scan_spans": [
+          [
+            1,
+            157
+          ]
+        ],
+        "lower_seconds": 0.5578265819931403,
+        "compile_seconds": 0.6207890009973198,
+        "first_run_seconds": 2.4914582800120115,
+        "warm_min_seconds": 2.124697521008784,
+        "warm_median_seconds": 2.2231855209975038,
+        "warm_runs_seconds": [
+          2.2301889049995225,
+          2.2250063399842475,
+          2.2083012519869953,
+          2.2231855209975038,
+          2.124697521008784
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 48,
+          "output_size_in_bytes": 112,
+          "temp_size_in_bytes": 289199216,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": null,
+        "result": {
+          "PV": 1.3497738763397455,
+          "d_div": -19.457975666753835,
+          "d_rate": 15.4086540377346,
+          "d_spot": 0.050231133492886645,
+          "d_vol": -6.469780359663742,
+          "d_BARRIER": 0.08100539446827343,
+          "d_STRIKE": -0.1318648762975159
+        }
+      }
+    },
+    {
+      "case": "asian",
+      "mode": "price",
+      "jax": {
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "n_devices": 4,
+        "dtype": "float64",
+        "block_size": 8192,
+        "sim_dim": 36,
+        "scan_spans": [
+          [
+            1,
+            36
+          ]
+        ],
+        "lower_seconds": 0.09010805701836944,
+        "compile_seconds": 0.2504899149935227,
+        "first_run_seconds": 0.13160658697597682,
+        "warm_min_seconds": 0.12619632598944008,
+        "warm_median_seconds": 0.12881341797765344,
+        "warm_runs_seconds": [
+          0.12619632598944008,
+          0.1289473330252804,
+          0.12761148301069625,
+          0.12881341797765344,
+          0.13345208100508898
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 40,
+          "output_size_in_bytes": 8,
+          "temp_size_in_bytes": 7997040,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": null,
+        "result": {
+          "PV": 1.3181992591752754
+        }
+      }
+    },
+    {
+      "case": "asian",
+      "mode": "greeks",
+      "jax": {
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "n_devices": 4,
+        "dtype": "float64",
+        "block_size": 8192,
+        "sim_dim": 36,
+        "scan_spans": [
+          [
+            1,
+            36
+          ]
+        ],
+        "lower_seconds": 0.42561214399756864,
+        "compile_seconds": 0.4659625210042577,
+        "first_run_seconds": 0.41623685500235297,
+        "warm_min_seconds": 0.3992914000118617,
+        "warm_median_seconds": 0.43128635501489043,
+        "warm_runs_seconds": [
+          0.44645883099292405,
+          0.45711322099668905,
+          0.43128635501489043,
+          0.41346348501974717,
+          0.3992914000118617
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 40,
+          "output_size_in_bytes": 96,
+          "temp_size_in_bytes": 59052320,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": null,
+        "result": {
+          "PV": 1.3181992591752756,
+          "d_div": -26.533165526337765,
+          "d_rate": 22.57856774881194,
+          "d_spot": 0.16211628151473584,
+          "d_vol": 24.743412314258926,
+          "d_STRIKE": -0.12411190743581924
+        }
+      }
+    },
+    {
+      "case": "autocall",
+      "mode": "price",
+      "jax": {
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "n_devices": 4,
+        "dtype": "float64",
+        "block_size": 8192,
+        "sim_dim": 36,
+        "scan_spans": [
+          [
+            2,
+            36
+          ]
+        ],
+        "lower_seconds": 0.12822636900818907,
+        "compile_seconds": 0.2990704370022286,
+        "first_run_seconds": 0.15855441297753714,
+        "warm_min_seconds": 0.15156578700407408,
+        "warm_median_seconds": 0.156187051004963,
+        "warm_runs_seconds": [
+          0.15292284401948564,
+          0.15860795899061486,
+          0.15156578700407408,
+          0.16855913697509095,
+          0.156187051004963
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 48,
+          "output_size_in_bytes": 8,
+          "temp_size_in_bytes": 7866320,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": null,
+        "result": {
+          "PV": 126.08993063301932
+        }
+      }
+    },
+    {
+      "case": "autocall",
+      "mode": "greeks",
+      "jax": {
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "n_devices": 4,
+        "dtype": "float64",
+        "block_size": 8192,
+        "sim_dim": 36,
+        "scan_spans": [
+          [
+            2,
+            36
+          ]
+        ],
+        "lower_seconds": 0.8035635520063806,
+        "compile_seconds": 0.9495227149745915,
+        "first_run_seconds": 1.6107361660106108,
+        "warm_min_seconds": 1.5583536369958892,
+        "warm_median_seconds": 1.5965421159926336,
+        "warm_runs_seconds": [
+          1.5583536369958892,
+          1.5965421159926336,
+          1.6451908580202144,
+          1.606832666991977,
+          1.5603281049989164
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 48,
+          "output_size_in_bytes": 112,
+          "temp_size_in_bytes": 108886552,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": null,
+        "result": {
+          "PV": 125.96024594755374,
+          "d_div": -376.78411077237035,
+          "d_rate": 303.96470445867055,
+          "d_spot": -3.543323576069354,
+          "d_vol": -87.20915867638499,
+          "d_COUPON": 6.064250866671027,
+          "d_LEVEL": 3.5986407721745333
+        }
+      }
+    }
+  ]
+}

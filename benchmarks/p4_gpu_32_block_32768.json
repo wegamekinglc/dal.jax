@@ -1,0 +1,244 @@
+{
+  "environment": {
+    "python": "3.13.9",
+    "jax": "0.11.2",
+    "os": "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+    "cpu": "13th Gen Intel(R) Core(TM) i9-13900HX"
+  },
+  "configuration": {
+    "platform": "gpu",
+    "devices": 1,
+    "parallel": "shard_map",
+    "dtype": "float32",
+    "paths": 1048576,
+    "block_size": 32768,
+    "rsg": "sobol",
+    "prng_impl": null,
+    "use_bb": false,
+    "checkpoint": true,
+    "scan_group_threshold": 4,
+    "deterministic_reduction": false,
+    "repeat": 3
+  },
+  "measurements": [
+    {
+      "case": "barrier_1m",
+      "mode": "greeks",
+      "jax": {
+        "backend": "gpu",
+        "device_kind": "NVIDIA GeForce RTX 4060 Laptop GPU",
+        "n_devices": 1,
+        "dtype": "float32",
+        "block_size": 32768,
+        "sim_dim": 36,
+        "scan_spans": [
+          [
+            1,
+            36
+          ]
+        ],
+        "lower_seconds": 0.7303169719816651,
+        "compile_seconds": 1.2948333579988685,
+        "first_run_seconds": 0.2629100200138055,
+        "warm_min_seconds": 0.23614413500763476,
+        "warm_median_seconds": 0.2374685730028432,
+        "warm_runs_seconds": [
+          0.2374685730028432,
+          0.23614413500763476,
+          0.2385307110089343
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 48,
+          "output_size_in_bytes": 112,
+          "temp_size_in_bytes": 180984216,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": {
+          "num_allocs": 109,
+          "bytes_in_use": 3328,
+          "peak_bytes_in_use": 180989696,
+          "largest_alloc_size": 180984320,
+          "bytes_limit": 3005218816,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 3005213440,
+          "pool_bytes": 3005218816,
+          "peak_pool_bytes": 3005218816
+        },
+        "result": {
+          "PV": 1.5052438713610172,
+          "d_div": -19.381855794828233,
+          "d_rate": 14.866124272135217,
+          "d_spot": 0.04975133895874023,
+          "d_vol": -7.226375817339258,
+          "d_BARRIER": 0.08924944407772273,
+          "d_STRIKE": -0.14047381049022079
+        }
+      }
+    },
+    {
+      "case": "barrier_1w",
+      "mode": "greeks",
+      "jax": {
+        "backend": "gpu",
+        "device_kind": "NVIDIA GeForce RTX 4060 Laptop GPU",
+        "n_devices": 1,
+        "dtype": "float32",
+        "block_size": 32768,
+        "sim_dim": 157,
+        "scan_spans": [
+          [
+            1,
+            157
+          ]
+        ],
+        "lower_seconds": 0.6614422439888585,
+        "compile_seconds": 1.2243514049914666,
+        "first_run_seconds": 1.1133605569775682,
+        "warm_min_seconds": 1.008284518000437,
+        "warm_median_seconds": 1.0505474660021719,
+        "warm_runs_seconds": [
+          1.0505474660021719,
+          1.008284518000437,
+          1.0760005949996412
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 48,
+          "output_size_in_bytes": 112,
+          "temp_size_in_bytes": 784572056,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": {
+          "num_allocs": 193,
+          "bytes_in_use": 3328,
+          "peak_bytes_in_use": 784577536,
+          "largest_alloc_size": 784572160,
+          "bytes_limit": 3005218816,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 3005213440,
+          "pool_bytes": 3005218816,
+          "peak_pool_bytes": 3005218816
+        },
+        "result": {
+          "PV": 1.349774707108736,
+          "d_div": -19.456996664282393,
+          "d_rate": 15.407672877821033,
+          "d_spot": 0.05022778034210205,
+          "d_vol": -6.470626410552174,
+          "d_BARRIER": 0.0810082622920163,
+          "d_STRIKE": -0.13186567137017846
+        }
+      }
+    },
+    {
+      "case": "asian",
+      "mode": "greeks",
+      "jax": {
+        "backend": "gpu",
+        "device_kind": "NVIDIA GeForce RTX 4060 Laptop GPU",
+        "n_devices": 1,
+        "dtype": "float32",
+        "block_size": 32768,
+        "sim_dim": 36,
+        "scan_spans": [
+          [
+            1,
+            36
+          ]
+        ],
+        "lower_seconds": 0.4659957800176926,
+        "compile_seconds": 0.9492359489959199,
+        "first_run_seconds": 0.2450512890063692,
+        "warm_min_seconds": 0.2090383599861525,
+        "warm_median_seconds": 0.2204334599955473,
+        "warm_runs_seconds": [
+          0.22958458098582923,
+          0.2204334599955473,
+          0.2090383599861525
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 40,
+          "output_size_in_bytes": 96,
+          "temp_size_in_bytes": 181147512,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": {
+          "num_allocs": 251,
+          "bytes_in_use": 2816,
+          "peak_bytes_in_use": 784577536,
+          "largest_alloc_size": 784572160,
+          "bytes_limit": 3005218816,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 3005214208,
+          "pool_bytes": 3005218816,
+          "peak_pool_bytes": 3005218816
+        },
+        "result": {
+          "PV": 1.318200595676899,
+          "d_div": -26.533168337116503,
+          "d_rate": 22.578566235818982,
+          "d_spot": 0.16211629867553712,
+          "d_vol": 24.743414117738652,
+          "d_STRIKE": -0.12411191151477396
+        }
+      }
+    },
+    {
+      "case": "autocall",
+      "mode": "greeks",
+      "jax": {
+        "backend": "gpu",
+        "device_kind": "NVIDIA GeForce RTX 4060 Laptop GPU",
+        "n_devices": 1,
+        "dtype": "float32",
+        "block_size": 32768,
+        "sim_dim": 36,
+        "scan_spans": [
+          [
+            2,
+            36
+          ]
+        ],
+        "lower_seconds": 0.9751235010044184,
+        "compile_seconds": 1.9854602359991986,
+        "first_run_seconds": 0.6278604560066015,
+        "warm_min_seconds": 0.3660117549879942,
+        "warm_median_seconds": 0.3666677739820443,
+        "warm_runs_seconds": [
+          0.3720156300114468,
+          0.3666677739820443,
+          0.3660117549879942
+        ],
+        "compiled_memory": {
+          "argument_size_in_bytes": 48,
+          "output_size_in_bytes": 112,
+          "temp_size_in_bytes": 191836120,
+          "alias_size_in_bytes": 0
+        },
+        "allocator_stats_after_run": {
+          "num_allocs": 337,
+          "bytes_in_use": 3328,
+          "peak_bytes_in_use": 784577536,
+          "largest_alloc_size": 784572160,
+          "bytes_limit": 3005218816,
+          "bytes_reserved": 0,
+          "peak_bytes_reserved": 0,
+          "largest_free_block_bytes": 3005213440,
+          "pool_bytes": 3005218816,
+          "peak_pool_bytes": 3005218816
+        },
+        "result": {
+          "PV": 125.96027827262878,
+          "d_div": 500.81431823625957,
+          "d_rate": -573.6337543171003,
+          "d_spot": -32.07422119140625,
+          "d_vol": 96.57239421232894,
+          "d_COUPON": 6.064251318573952,
+          "d_LEVEL": 32.13096123933792
+        }
+      }
+    }
+  ]
+}

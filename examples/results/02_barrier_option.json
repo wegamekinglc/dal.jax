@@ -1,0 +1,183 @@
+{
+  "environment": {
+    "jax": "0.11.2",
+    "dal_python": "2026.9.25"
+  },
+  "configuration": {
+    "paths": 65536,
+    "repeat": 3,
+    "platform": "cpu",
+    "devices": 8
+  },
+  "comparisons": [
+    {
+      "label": "Monthly barrier: bridge=False, aad=False",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.011089940002420917,
+        "warm_min_seconds": 0.009058733994606882,
+        "warm_median_seconds": 0.013578557991422713,
+        "warm_runs_seconds": [
+          0.01632223799242638,
+          0.013578557991422713,
+          0.009058733994606882
+        ],
+        "compile_seconds": 0.46814818802522495,
+        "result": {
+          "PV": 1.5032959483857011
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.009725832991534844,
+        "warm_min_seconds": 0.007666379009606317,
+        "warm_median_seconds": 0.00823106401367113,
+        "warm_runs_seconds": [
+          0.007666379009606317,
+          0.00823106401367113,
+          0.008413211995502934
+        ],
+        "result": {
+          "PV": 1.5032959483857022
+        }
+      }
+    },
+    {
+      "label": "Monthly barrier: bridge=False, aad=True",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.03834960499079898,
+        "warm_min_seconds": 0.029473150992998853,
+        "warm_median_seconds": 0.030928885011235252,
+        "warm_runs_seconds": [
+          0.04363624600227922,
+          0.030928885011235252,
+          0.029473150992998853
+        ],
+        "compile_seconds": 1.1745414060133044,
+        "result": {
+          "PV": 1.5033454140916354,
+          "d_div": -15.161089172552137,
+          "d_rate": 10.65105293027723,
+          "d_spot": 0.037499629072635876,
+          "d_vol": -9.565025172246962,
+          "d_BARRIER": 0.09693769349646614,
+          "d_STRIKE": -0.1398913969883445
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.04934883399982937,
+        "warm_min_seconds": 0.021045395988039672,
+        "warm_median_seconds": 0.021346427995013073,
+        "warm_runs_seconds": [
+          0.021346427995013073,
+          0.021045395988039672,
+          0.02221706000273116
+        ],
+        "result": {
+          "PV": 1.5033454140916556,
+          "d_BARRIER": 0.09693769349638934,
+          "d_STRIKE": -0.1398913969883451,
+          "d_div": -15.161089172587067,
+          "d_rate": 10.651052930312101,
+          "d_spot": 0.0374996290727523,
+          "d_vol": -9.565025172222555
+        }
+      }
+    },
+    {
+      "label": "Monthly barrier: bridge=True, aad=False",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.03472077799960971,
+        "warm_min_seconds": 0.03568427899153903,
+        "warm_median_seconds": 0.03622343498864211,
+        "warm_runs_seconds": [
+          0.03622343498864211,
+          0.03626101202098653,
+          0.03568427899153903
+        ],
+        "compile_seconds": 0.7848499990068376,
+        "result": {
+          "PV": 1.4975337391374381
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.009751777979545295,
+        "warm_min_seconds": 0.009638028015615419,
+        "warm_median_seconds": 0.009670338011346757,
+        "warm_runs_seconds": [
+          0.009638028015615419,
+          0.009670338011346757,
+          0.010000776004744694
+        ],
+        "result": {
+          "PV": 1.4975337391374386
+        }
+      }
+    },
+    {
+      "label": "Monthly barrier: bridge=True, aad=True",
+      "paths": 65536,
+      "jax": {
+        "first_seconds": 0.06863234299817123,
+        "warm_min_seconds": 0.05243711100774817,
+        "warm_median_seconds": 0.05244686300284229,
+        "warm_runs_seconds": [
+          0.054150729993125424,
+          0.05244686300284229,
+          0.05243711100774817
+        ],
+        "compile_seconds": 1.7185140320216306,
+        "result": {
+          "PV": 1.4961998476380634,
+          "d_div": -20.719058622231167,
+          "d_rate": 16.230459079316976,
+          "d_spot": 0.04864227867233512,
+          "d_vol": -7.730925785585648,
+          "d_BARRIER": 0.08937041436849573,
+          "d_STRIKE": -0.13977592319232773
+        },
+        "backend": "cpu",
+        "devices": 8,
+        "dtype": "float64",
+        "block_size": 8192
+      },
+      "dal": {
+        "first_seconds": 0.02292353200027719,
+        "warm_min_seconds": 0.021328953007468954,
+        "warm_median_seconds": 0.02182123198872432,
+        "warm_runs_seconds": [
+          0.021328953007468954,
+          0.021926410001469776,
+          0.02182123198872432
+        ],
+        "result": {
+          "PV": 1.4961998476380687,
+          "d_BARRIER": 0.0893704143686031,
+          "d_STRIKE": -0.139775923192328,
+          "d_div": -20.719058622182953,
+          "d_rate": 16.230459079268744,
+          "d_spot": 0.04864227867217447,
+          "d_vol": -7.730925785618959
+        }
+      }
+    }
+  ],
+  "diagnostics": {
+    "hard_d_barrier": 0.0,
+    "fuzzy_d_barrier": 0.09693769349646614,
+    "finite_difference": 0.09693769331686752
+  }
+}

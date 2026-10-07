@@ -1,0 +1,30 @@
+name: Optional GPU validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      cuda:
+        description: JAX CUDA extra supported by the runner driver
+        type: choice
+        options: [cuda13, cuda12]
+        default: cuda13
+
+jobs:
+  gpu:
+    name: GPU parity and precision
+    runs-on: [self-hosted, linux, gpu]
+    timeout-minutes: 30
+    env:
+      XLA_PYTHON_CLIENT_MEM_FRACTION: "0.35"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.13"
+          cache-suffix: gpu-${{ inputs.cuda }}
+      - name: Install GPU dependencies
+        run: uv sync --extra "${{ inputs.cuda }}"
+      - name: Verify hardware
+        run: nvidia-smi
+      - name: Run actual GPU tests
+        run: uv run pytest tests/gpu --run-gpu
