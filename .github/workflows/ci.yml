@@ -77,8 +77,15 @@ jobs:
         run: |
           uv build
           uvx twine check dist/*
+          sha256sum dist/*.whl dist/*.tar.gz > dist/SHA256SUMS
       - name: Install only the built wheel and its runtime dependencies
         run: |
           uv venv "$RUNNER_TEMP/alpha-smoke"
           uv pip install --python "$RUNNER_TEMP/alpha-smoke/bin/python" dist/*.whl
           "$RUNNER_TEMP/alpha-smoke/bin/python" scripts/smoke_install.py
+      - name: Upload validated alpha distributions
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: dal-jax-distributions
+          path: dist/
+          if-no-files-found: error

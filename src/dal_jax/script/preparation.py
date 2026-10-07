@@ -308,7 +308,8 @@ def prepare(data: ScriptProductData, evaluation_date: Date | None = None, *, mod
 
 def _validate_model_date(model, date):
     if model is not None and getattr(model, "evaluation_date", None) not in (None, date):
-        raise InvalidSetting("model evaluation date must match the valuation date")
+        from dal_jax.errors import script_error
+        raise script_error("InvalidModelEvaluationDate: model curve date must match script valuation date")
 
 
 def _replay_initial(past, plan, table, history_values):

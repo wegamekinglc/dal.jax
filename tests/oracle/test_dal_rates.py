@@ -16,6 +16,20 @@ def native_date(dal, date):
     return dal.Date_(date.year, date.month, date.day)
 
 
+@pytest.mark.oracle
+def test_model_and_valuation_date_mismatch_has_native_error_code(dal):
+    if not hasattr(dal,"MultiFactorGSRModelData_New"):
+        pytest.skip("rates validation requires pinned DAL source build")
+    model,native_model = model_pair(dal)
+    dates,events = [TODAY.add_days(365)],["pay PAYS 1"]
+    from dal_jax.errors import ScriptError
+    with pytest.raises(ScriptError,match="InvalidModelEvaluationDate"):
+        prepare(Product_New(dates,events),TODAY.add_days(1),model=model)
+    valuation = dal.ScriptValuationSettings_(evaluation_date=native_date(dal,TODAY.add_days(1)))
+    with pytest.raises(RuntimeError,match="InvalidModelEvaluationDate"):
+        dal.ScriptValuation_Explain(dal.Product_New([native_date(dal,d) for d in dates],events),native_model,valuation=valuation)
+
+
 def model_pair(dal, *, multi=False, zero=False, projections=False, knots=False):
     dates = (TODAY, TODAY.add_days(365), TODAY.add_days(730), TODAY.add_days(365*8))
     curve = GSRCurve(evaluation_date=TODAY, currency="USD", node_dates=dates, discount_log_df=(0., -.03, -.06, -.25),
