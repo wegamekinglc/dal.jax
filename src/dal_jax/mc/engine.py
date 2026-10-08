@@ -452,8 +452,8 @@ class MonteCarloEngine:
 
     def path_collector(self, n_paths: int) -> Callable[[Params], Array]:
         """Collect exact path outputs and error flags in global path order."""
+        layout = self.layout(n_paths)
         if n_paths not in self._record_functions:
-            layout = self.layout(n_paths)
 
             def local(params, block_ids, count, axis_name):
                 state = self._simulation_state(params)

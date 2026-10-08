@@ -1,9 +1,13 @@
+import gc
+import weakref
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from dal_jax.errors import InvalidRandomSequence
+from dal_jax.random import sobol
 from dal_jax.random.sobol import MUL, N_KNOWN, Sobol, digital_shifts, directions
 
 
@@ -59,13 +63,30 @@ def test_uniforms_are_states_scaled_by_two_to_minus_32():
     assert MUL == 2.0**-32
 
 
-def test_cached_tables_are_read_only():
+def test_owned_tables_are_read_only():
     for table in (directions(5), digital_shifts(5, 42)):
         with pytest.raises(ValueError):
             table[0] = 1
     np.testing.assert_array_equal(
         np.asarray(jax.vmap(Sobol(dim=3).uniform)(jnp.arange(2)))[:, 0], [0.5, 0.75]
     )
+
+
+@pytest.mark.parametrize("dim", (1, 128))
+def test_generator_releases_the_full_direction_table(dim, monkeypatch):
+    tables = []
+    load = sobol._direction_table
+
+    def tracked_load():
+        table = load()
+        tables.append(weakref.ref(table))
+        return table
+
+    monkeypatch.setattr(sobol, "_direction_table", tracked_load)
+    sequence = Sobol(dim=dim)
+    gc.collect()
+    assert tables[0]() is None
+    np.testing.assert_array_equal(sequence.uniform(0), np.full(dim, 0.5))
 
 
 def test_dimension_limits():

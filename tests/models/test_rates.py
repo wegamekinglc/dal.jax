@@ -43,6 +43,28 @@ def rates(zero=False, singular=False):
     return GSR(curve=curve, vol=vol)
 
 
+def test_curve_rows_preserve_discount_aliases_and_reject_invalid_projections():
+    curve = replace(
+        rates().curve,
+        projection_tenors=("3M",),
+        projection_log_df=((0.0, -0.06, -0.36),),
+    )
+    params = curve.default_params()
+    plan = curve.interpolation_plan((0.5, 1.0, 0.5), (-2, -1, 0))
+    values = jax.jit(lambda p: curve.interpolate(p, plan))
+    np.testing.assert_allclose(values(params), (-0.015, -0.03, -0.03), atol=1e-15)
+    gradients = jax.jacrev(values)(params)
+    maturity = curve.node_dates[1]
+    np.testing.assert_array_equal(gradients[f"logdf:OIS:{maturity}"], (0.5, 1.0, 0.0))
+    np.testing.assert_array_equal(gradients[f"logdf:3M:{maturity}"], (0.0, 0.0, 0.5))
+    assert float(curve.log_df(params, 1.0, row=-3)) == pytest.approx(-0.03)
+    with pytest.raises(IndexError):
+        curve.log_df(params, 1.0, row=1)
+    discount_only = rates().curve
+    with pytest.raises(IndexError):
+        discount_only.log_df(discount_only.default_params(), 1.0, row=0)
+
+
 def rate_model(kind, zero=False):
     gaussian = rates(zero)
     smile = GSRSLV(

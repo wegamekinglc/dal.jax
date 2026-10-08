@@ -304,6 +304,16 @@ def test_invalid_inputs(one_cpu):
         PathProduct(timeline=(1.0,), payoff=call_payoff, payoff_names=())
 
 
+def test_record_collection_validates_counts_after_cache_warmup(one_cpu):
+    eng = engine(devices=one_cpu)
+    with pytest.raises(InvalidPathCount):
+        eng.path_collector(1.0)
+    records = eng.path_collector(1)(eng.default_params())
+    assert records.shape == (1, 1)
+    with pytest.raises(InvalidPathCount):
+        eng.path_collector(1.0)
+
+
 @pytest.mark.parametrize(
     "settings",
     [

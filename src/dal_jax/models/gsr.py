@@ -146,8 +146,10 @@ class GSRCurve:
         intervals = tuple(_curve_interval(knots, time) for time in times)
         upper = tuple(index for index, _ in intervals)
         weights = tuple(weight for _, weight in intervals)
+        projection_rows = range(1, len(self.projection_tenors) + 1)
         slots = tuple(
-            (row + 1) * len(knots) + index for row, index in zip(rows, upper, strict=True)
+            (0 if row < 0 else projection_rows[row]) * len(knots) + index
+            for row, index in zip(rows, upper, strict=True)
         )
         return CurveInterpolationPlan(tuple(index - 1 for index in slots), slots, weights)
 

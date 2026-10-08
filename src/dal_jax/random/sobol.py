@@ -36,7 +36,7 @@ def directions(dim: int) -> np.ndarray:
             f"Sobol dimension {dim} outside [1, {N_KNOWN - 1}]; "
             "not enough primitive polynomials available to generate Sobol sequences"
         )
-    return _read_only(np.ascontiguousarray(_direction_table()[:dim].T))
+    return _read_only(np.array(_direction_table()[:dim].T, copy=True, order="C"))
 
 
 def digital_shifts(dim: int, key: int) -> np.ndarray:
