@@ -2,6 +2,8 @@
 
 所有示例都是可直接运行的普通 Python 脚本。每个脚本都打印 JAX 与 dal-python 的数值结果、误差和性能，并自动校验可逐路径比较的 PV 与 Greeks。DAL 是必需的对照依赖。默认使用 65,536 条路径、8 个以内的虚拟 CPU 设备，热运行重复 3 次。
 
+终端表格采用 DAL 的定宽样式：文字列左对齐、数值列右对齐，列宽按表头与内容自动计算，分隔线覆盖整张表。
+
 | 脚本 | 内容 |
 |---|---|
 | [01_european_option.py](01_european_option.py) | 原生 payoff、全部 Greeks、Black–Scholes 闭式解、Sobol/PRNG 收敛 |
