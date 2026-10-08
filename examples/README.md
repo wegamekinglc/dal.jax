@@ -1,16 +1,16 @@
 # Python examples
 
-所有示例都是可直接运行的普通 Python 脚本。每个脚本都打印 JAX 与 dal-python 的数值结果、误差和性能，并自动校验可逐路径比较的 PV 与 Greeks。DAL 是必需的对照依赖。默认使用 65,536 条路径、8 个以内的虚拟 CPU 设备，热运行重复 3 次。
+所有示例都是可直接运行的普通 Python 脚本。所有合约必须定义为事件脚本，通过 `prepare(...).engine(...)` 估值，不允许手写 payoff 回调。闭式解和统计公式只用作结果对照；多合约 Jacobian 组合的是脚本引擎的价格函数。每个脚本都打印 JAX 与 dal-python 的数值结果、误差和性能，并自动校验可逐路径比较的 PV 与 Greeks。DAL 是必需的对照依赖。默认使用 65,536 条路径、8 个以内的虚拟 CPU 设备，热运行重复 3 次。
 
 终端表格采用 DAL 的定宽样式：文字列左对齐、数值列右对齐，列宽按表头与内容自动计算，分隔线覆盖整张表。
 
 | 脚本 | 内容 |
 |---|---|
-| [01_european_option.py](01_european_option.py) | 原生 payoff、全部 Greeks、Black–Scholes 闭式解、Sobol/PRNG 收敛 |
+| [01_european_option.py](01_european_option.py) | 欧式期权脚本、全部 Greeks、Black–Scholes 闭式解、Sobol/PRNG 收敛 |
 | [02_barrier_option.py](02_barrier_option.py) | 硬判断与 fuzzy 的障碍风险、Brownian bridge、共同路径有限差分 |
-| [03_jax_transforms.py](03_jax_transforms.py) | jacfwd/jacrev/JVP、C1 Hessian 与 DAL delta bump、vmap spot ladder、多 payoff Jacobian |
+| [03_jax_transforms.py](03_jax_transforms.py) | jacfwd/jacrev/JVP、C1 Hessian 与 DAL delta bump、vmap spot ladder、多脚本价格 Jacobian |
 | [04_parallel_and_precision.py](04_parallel_and_precision.py) | 四种并行策略、确定性规约、float32、路径数分桶 |
-| [05_script_and_history.py](05_script_and_history.py) | 脚本参数、历史回放、Asian、DCF 日程、原生贴现槽位和延迟支付 |
+| [05_script_and_history.py](05_script_and_history.py) | 脚本参数、历史回放、Asian、DCF 日程、PAYS ON 延迟支付 |
 | [06_scan_and_smoothing.py](06_scan_and_smoothing.py) | 扫描与展开、事件分组、C1 核与 DAL 等价三次多项式 |
 | [07_prng_streams.py](07_prng_streams.py) | Threefry/RBG 的统计检验与并行流一致性 |
 | [08_gpu_and_precision.py](08_gpu_and_precision.py) | CPU/GPU 选择、float64/float32/auto、自动块大小与 DAL 对照 |

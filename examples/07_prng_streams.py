@@ -3,12 +3,7 @@
 import jax.numpy as jnp
 import numpy as np
 
-import dal_jax as dj
-from _common import BS, MATURITY, arguments, compare, finish, model, settings, table
-
-
-def forward(_params, scenario, _ctx):
-    return scenario.spot[-1]/scenario.numeraire[-1]
+from _common import BS, MATURITY, arguments, compare, finish, model, prepare, settings, table
 
 
 def standard_errors(n):
@@ -22,11 +17,11 @@ def standard_errors(n):
 def main():
     args = arguments(__doc__)
     rows = ([MATURITY], ["pay PAYS SPOT()"])
-    product = dj.PathProduct(timeline=(3.,), payoff=forward)
+    product = prepare(rows)
     comparisons = []
     errors = standard_errors(args.paths)
     for impl in ("threefry2x32", "rbg"):
-        engine = dj.MonteCarloEngine(product, model(), settings(args, rsg="mrg32", prng_impl=impl))
+        engine = product.engine(model(), settings(args, rsg="mrg32", prng_impl=impl))
         record = compare(f"{impl}: statistical comparison (different streams)", engine, rows, args, check=False)
         standardized = []
         for name, se in errors.items():
@@ -34,7 +29,7 @@ def main():
             assert difference <= 3*np.sqrt(2)*se+1e-10, (impl, name, difference)  # nosec B101: executable numerical validation
             standardized.append([name, difference, np.sqrt(2)*se])
         table(["quantity", "difference", "combined standard error"], standardized)
-        parallel = dj.MonteCarloEngine(product, model(), settings(args, rsg="mrg32", prng_impl=impl, parallel="auto"))
+        parallel = product.engine(model(), settings(args, rsg="mrg32", prng_impl=impl, parallel="auto"))
         actual = parallel.value(args.paths)
         for name, value in actual.items():
             np.testing.assert_allclose(value, record["jax"]["result"][name], rtol=1e-13, atol=1e-10)

@@ -62,8 +62,8 @@ def require_p5_oracle():
         raise RuntimeError("This example needs the pinned DAL source oracle. Run scripts/build_dal_oracle.sh as documented in examples/README.md.")
 
 
-def prepare(rows):
-    return dj.prepare(Product_New(*rows), TODAY)
+def prepare(rows, *, model=None):
+    return dj.prepare(Product_New(*rows), TODAY, model=model)
 
 
 def european_rows():

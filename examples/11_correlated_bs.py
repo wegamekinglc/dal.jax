@@ -21,13 +21,13 @@ def main():
                                        ("Worst-of with Brownian bridge", "MIN(FIX(EQ[A]),FIX(EQ[B]))", True)]:
         rows = (["K", end], ["100", f"pay PAYS MAX({expression}-K,0)"])
         product = dj.prepare(Product_New(*rows), TODAY, model=bs)
-        engine = dj.MonteCarloEngine(product.path_product(), bs, settings(args, use_bb=bridge))
+        engine = product.engine(bs, settings(args, use_bb=bridge))
         comparisons.append(compare(label, engine, rows, args, bs=native))
     rows = ([end], ["pay PAYS SPOT()+FIX(EQ[B])"])
     product = dj.prepare(Product_New(*rows, settings=ScriptProductSettings(default_index="EQ[B]")), TODAY, model=bs)
     native_product = dal.Product_New([dal.Date_(end.year, end.month, end.day)], rows[1],
                                      settings=dal.ScriptProductSettings_(default_index="EQ[B]"))
-    engine = dj.MonteCarloEngine(product.path_product(), bs, settings(args))
+    engine = product.engine(bs, settings(args))
     comparisons.append(compare("SPOT bound to the second equity", engine, rows, args, bs=native, product=native_product))
     finish(args, comparisons, factors=bs.n_factors, param_labels=bs.param_labels,
            correlation_is_passive=True)

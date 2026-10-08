@@ -2,7 +2,6 @@
 
 import numpy as np
 
-import dal_jax as dj
 from _common import arguments, barrier_rows, compare, finish, model, prepare, settings, table
 
 
@@ -23,12 +22,12 @@ def main():
     prepared = prepare(rows)
     comparisons = []
     for threshold in (0, 4):
-        engine = dj.MonteCarloEngine(prepared.path_product(), model(), settings(args, scan_group_threshold=threshold))
+        engine = prepared.engine(model(), settings(args, scan_group_threshold=threshold))
         comparisons.append(compare(f"DAL kernel, scan threshold {threshold}", engine, rows, args))
     for name in comparisons[0]["jax"]["result"]:
         np.testing.assert_allclose(comparisons[0]["jax"]["result"][name], comparisons[1]["jax"]["result"][name],
                                    rtol=1e-13, atol=1e-13)
-    engine = dj.MonteCarloEngine(prepared.path_product(), model(), settings(args, smoothing_kernel="smoothstep"))
+    engine = prepared.engine(model(), settings(args, smoothing_kernel="smoothstep"))
     comparisons.append(compare("C1 smoothstep vs DAL explicit cubic payoff", engine, cubic_oracle_rows(.25), args))
     groups = [[group.start, group.stop, group.size, group.scanned] for group in prepared.event_groups(fuzzy=True)]
     table(["event start", "event stop", "count", "scan"], groups)

@@ -21,7 +21,7 @@ def main():
         native_surf = dal.LocalVolSurfaceData_New("surface", surf.spots, surf.times, dal.DoubleMatrix_(vols))
         native = dal.BSLocalVolModelData_New("local_vol", "EQ[A]", "USD", "W_EQ", oracle_model(), native_surf, .25)
         product = dj.prepare(Product_New(*rows), TODAY, model=bs)
-        engine = dj.MonteCarloEngine(product.path_product(), bs, settings(args))
+        engine = product.engine(bs, settings(args))
         comparisons.append(compare(label, engine, rows, args, bs=native))
     params = engine.default_params()
     price = jax.jit(lambda p: engine.pricer(args.paths)(p)[0])

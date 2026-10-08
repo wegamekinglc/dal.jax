@@ -4,30 +4,31 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-import dal_jax as dj
 from _common import arguments, compare, finish, model, oracle_model, oracle_product, prepare, settings, table, timed
 from _common import MATURITY, dal
 
 
-def multiple_payoffs(params, scenario, _ctx):
-    spot = scenario.spot[-1]
-    difference = spot-params["script"]["STRIKE"]
-    return jnp.stack([jnp.maximum(difference, 0.), jnp.maximum(-difference, 0.), spot])/scenario.numeraire[-1]
-
-
 def multiple_comparisons(args):
-    product = dj.PathProduct(timeline=(3.,), payoff=multiple_payoffs, payoff_names=("call", "put", "forward"),
-                             script_params={"STRIKE": 120.})
-    engine = dj.MonteCarloEngine(product, model(), settings(args))
+    names = ("call", "put", "forward")
     bodies = ("MAX(SPOT()-STRIKE,0)", "MAX(STRIKE-SPOT(),0)", "SPOT()+0*STRIKE")
+    engines = []
     comparisons = []
-    for i, (name, body) in enumerate(zip(engine.payoff_names, bodies)):
-        rows = (["STRIKE", MATURITY], ["120", "pay PAYS "+body])
-        comparisons.append(compare(f"Multiple-payoff Jacobian: {name}", engine, rows, args, payoff_index=i))
-    jacobian = jax.jit(jax.jacrev(engine.pricer(args.paths)))(engine.default_params())
+    for name, body in zip(names, bodies):
+        rows = (["STRIKE", MATURITY], ["120", f"{name} PAYS {body}"])
+        engine = prepare(rows).engine(model(), settings(args))
+        engines.append(engine)
+        comparisons.append(compare(f"Multiple-script Jacobian: {name}", engine, rows, args))
+    # Each contract is evaluated by the script engine; combine their prices
+    # into a vector before applying JAX's Jacobian transform.
+    pricers = tuple(engine.pricer(args.paths) for engine in engines)
+    def prices(params):
+        return jnp.concatenate([price(params) for price in pricers])
+    jacobian = jax.jit(jax.jacrev(prices))(engines[0].default_params())
+    np.testing.assert_allclose(jacobian["model"]["spot"],
+                               [record["dal"]["result"]["d_spot"] for record in comparisons], rtol=1e-8, atol=1e-10)
     table(["payoff", "Jacobian delta", "DAL delta"],
           [[name, float(jacobian["model"]["spot"][i]), record["dal"]["result"]["d_spot"]]
-           for i, (name, record) in enumerate(zip(engine.payoff_names, comparisons))])
+           for i, (name, record) in enumerate(zip(names, comparisons))])
     return comparisons
 
 
@@ -38,7 +39,7 @@ def main():
     reference = (["STRIKE", MATURITY], ["120",
         "d=SPOT()-STRIKE y=(d+2)/4 IF d>=2:0.000000000001 THEN call PAYS d "
         "ELSE IF d>-2:0.000000000001 THEN call PAYS d*y*y*(3-2*y) ELSE call PAYS 0 END END"])
-    engine = dj.MonteCarloEngine(prepare(rows).path_product(), model(), settings(args, smoothing_kernel="smoothstep"))
+    engine = prepare(rows).engine(model(), settings(args, smoothing_kernel="smoothstep"))
     comparisons = [compare("C1 fuzzy call, width 4 vs DAL explicit cubic", engine, reference, args)]
     params = engine.default_params()
     price = engine.pricer(args.paths)

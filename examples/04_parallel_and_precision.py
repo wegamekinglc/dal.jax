@@ -11,22 +11,22 @@ from _common import arguments, compare, european_rows, finish, model, prepare, s
 def main():
     args = arguments(__doc__)
     rows = european_rows()
-    product = prepare(rows).path_product()
+    product = prepare(rows)
     comparisons = []
     for strategy in ("none", "shard_map", "auto", "pmap"):
-        engine = dj.MonteCarloEngine(product, model(), settings(args, parallel=strategy))
+        engine = product.engine(model(), settings(args, parallel=strategy))
         comparisons.append(compare(strategy, engine, rows, args))
     deterministic = []
     devices = dj.config.devices(args.platform)
     for selected in (devices[:1], devices):
-        engine = dj.MonteCarloEngine(product, model(), settings(args, devices=selected, block_size=1024, deterministic_reduction=True))
+        engine = product.engine(model(), settings(args, devices=selected, block_size=1024, deterministic_reduction=True))
         record = compare(f"Deterministic, {len(selected)} devices", engine, rows, args)
         deterministic.append(record["jax"]["result"])
         comparisons.append(record)
     assert deterministic[0] == deterministic[1]  # nosec B101: executable numerical validation
-    engine = dj.MonteCarloEngine(product, model(), settings(args, dtype="float32"))
+    engine = product.engine(model(), settings(args, dtype="float32"))
     comparisons.append(compare("float32 paths, float64 block accumulation", engine, rows, args))
-    bucketed = dj.MonteCarloEngine(product, model(), settings(args, block_size=1024, block_bucketing=True))
+    bucketed = product.engine(model(), settings(args, block_size=1024, block_bucketing=True))
     for n in (args.paths+1, args.paths+2):
         local = copy(args)
         local.paths = n
