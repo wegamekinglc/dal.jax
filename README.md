@@ -13,6 +13,8 @@ The full plan is in [issue #1](https://github.com/wegamekinglc/dal.jax/issues/1)
 - **milestone P6**: three-phase LSMC exercise valuation, guarded normalized regression, held-out degree selection, RQMC replicas and frozen/retrained-policy risks.
 - **milestone P7**: single/multi-factor GSR, GSRSLV, domestic equity/rate hybrids and preparation/simulation diagnostics. The `0.1.0a1` release package is prepared; PyPI upload is deferred.
 
+Choose a task: [price scripts and supply history](docs/user-guide.md), [configure simulation](docs/settings.md), [train exercise policies and use rate models](docs/p6-p7.md), or [run the sixteen examples](examples/README.md). The [architecture guide](docs/architecture.md) explains ownership and numerical contracts; [the refactoring report](docs/refactoring.md) records the style changes and measurements.
+
 ## Install
 
 ```bash
@@ -33,7 +35,8 @@ product = Product_New(
     ["120", "call PAYS MAX(SPOT()-STRIKE,0)"],
 )
 model = dj.BlackScholes(spot=100.0, vol=0.15, rate=0.05, div=0.03)
-prepared = dj.prepare(product, today, model=model)
+context = dj.ValuationContext(evaluation_date=today)
+prepared = dj.prepare(product, valuation=context, model=model)
 engine = prepared.engine(model, dj.MonteCarloSettings(enable_aad=True))
 engine.value(2**20)
 # {'PV': 5.201768833210826, 'd_spot': 0.33503144936845, 'd_vol': 59.5850327569119,
@@ -63,15 +66,16 @@ In fuzzy mode (`enable_aad=True`, or `pricer(..., fuzzy=True)`) script products 
 `dal_jax.api` has dal-python's names and signatures, so event tables move over unchanged. A string cell is a definition or a schedule, and a date cell is an event date:
 
 ```python
-from dal_jax.api import BSModelData_New, EvaluationDate_Set, MonteCarlo_Value, Product_New, Product_DebugTree, Product_Describe
+import dal_jax as dj
+from dal_jax.api import BSModelData_New, MonteCarlo_ValueWithSettings, Product_New, Product_DebugTree, Product_Describe
 from dal_jax.dates import Date
 
-EvaluationDate_Set(Date.ymd(2026, 10, 7))
+context = dj.ValuationContext(evaluation_date=Date.ymd(2026, 10, 7))
 product = Product_New(
     ["STRIKE", "BARRIER", Date.ymd(2026, 10, 7), "START: 2026-10-07 END: 2027-01-07 FREQ: 1M", Date.ymd(2027, 1, 7)],
     ["120", "150", "alive = 1", "IF spot() >= BARRIER:0.1 THEN alive = 0 END", "call PAYS alive * MAX(spot() - STRIKE, 0)"],
 )
-print(Product_DebugTree(product))
+print(Product_DebugTree(product, valuation=context))
 ```
 
 ```
@@ -96,7 +100,10 @@ Price the same event table through the compatibility API:
 
 ```python
 model = BSModelData_New(100.0, 0.15, 0.05, 0.03)
-result = MonteCarlo_Value(product, model, 2**16, "sobol", use_bb=True, enable_aad=True)
+result = MonteCarlo_ValueWithSettings(
+    product, model, 2**16, valuation=context,
+    simulation=dj.MonteCarloSettings(use_bb=True, enable_aad=True),
+)
 print(result)  # PV, d_spot, d_vol, d_rate, d_div, d_BARRIER, d_STRIKE
 ```
 
@@ -106,9 +113,7 @@ For repeated pricing or JAX transforms, prepare once and keep the engine:
 
 ```python
 from dal_jax import prepare
-from dal_jax.api import EvaluationDate_Get
-
-prepared = prepare(product, EvaluationDate_Get(), model=model)  # immutable event and observation plan
+prepared = prepare(product, valuation=context, model=model)
 engine = prepared.engine(model)
 price = engine.value(2**16)
 f = engine.pricer(2**16)                          # exact scalar script payoff
@@ -134,7 +139,7 @@ Valuation supports mutable vectors, expanded `FOR`, reductions, dated `FIX` and 
 
 ## Settings
 
-`MonteCarloSettings` mirrors DAL's `MonteCarloSettings_` and adds the execution fields:
+`MonteCarloSettings` mirrors DAL's `MonteCarloSettings_` and adds the execution fields below. The [configuration reference](docs/settings.md) includes every field, including PRNG seeds, LSMC and valuation contexts.
 
 | field | default | meaning |
 |---|---|---|
@@ -171,6 +176,8 @@ The compatibility default stays float64 on both platforms. Choose float32 explic
 
 `prng_impl="rbg"` is an optional GPU choice for `mrg32`/`irn`. RBG block generation maps keys sequentially when batched, preserving each block's stream under GSPMD and nested `vmap`. With a fixed block size, device count and parallel strategy do not change the stream. Changing block size changes PRNG paths; Sobol paths depend only on global path id. `value` places caller parameters on the selected device mesh; native transforms should start from `engine.default_params()`.
 
+Engine configuration is read-only; construct a new engine with revised settings. `clear_cache()` releases its owned function caches. LSMC `evaluate()` returns values, replica prices and training diagnostics in one immutable result. The [migration guide](docs/user-guide.md#migrate-legacy-stateful-calls) covers legacy global setters and former last-result fields.
+
 ## How the engine works
 
 ```
@@ -204,6 +211,8 @@ For the script front end, `tests/oracle/test_dal_script_frontend.py` checks that
 `uv run python benchmarks/bench_suite.py --devices 8 --dal --output cpu.json` runs the five scalar script products with 2²⁰ paths, exact prices and fuzzy prices plus all Greeks. It records lowering, compilation, synchronized warm times, results and memory estimates. GPU runs select `--platform gpu --dtype float64` or `float32`.
 
 The [P6/P7 performance report](docs/p6-p7-performance.md) adds million-path Bermudan phase timings on CPU 1/4 and GPU, plus rate/SLV/hybrid comparisons. The [P4 performance report](docs/performance.md) contains CPU 1/4/8/16/32 device runs, block and strategy comparisons, checkpoint storage, actual RTX 4060 Laptop GPU results, DAL comparisons and the limits of float32 Greeks. On this machine CPU 8 balances the long workloads; GPU auto sizing uses 32768 price paths per block and 8192–32768 for Greeks. Narrow autocall conditions require float64 for reliable Greeks. Raw reports are in `benchmarks/p4_*.json`; `bench_mc.py` remains the earlier hand-written payoff benchmark.
+
+`benchmarks/bench_style.py --output style.json --platform cpu --experiments` measures batched rate-model preparation and isolated Sobol, Welford and LSMC loop alternatives. It reports lowering, XLA compilation, synchronized warm medians and compiled temporary-buffer estimates separately. [The refactoring report](docs/refactoring.md) records backend-specific acceptance decisions.
 
 `uv run python benchmarks/bench_script_compile.py --output benchmarks/script_compile_cpu.json` isolates compilation of script price and parameter gradients from path generation. It reports graph equation counts, StableHLO size, lowering time and compilation time for grouped and unrolled daily schedules. The checked-in JSON records a CPU run; timings vary by machine.
 

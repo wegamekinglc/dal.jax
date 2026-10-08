@@ -2,7 +2,7 @@
 
 审查基线：`17bc047245baf1cd67b3fe69d782ef4656d60903`，2026-10-08。
 
-目标：更 Pythonic 的表达、极简注释与完整用户文档、适当的并行计算、不可变数据和函数式核心。本文交付审查发现及实施方案；建议中的生产代码重构尚未实施。
+目标：更 Pythonic 的表达、极简注释与完整用户文档、适当的并行计算、不可变数据和函数式核心。本文保留基线审查发现及实施方案。后续修改的交付状态、兼容迁移、测试和性能取舍见 [实施报告](refactoring.md)。以下复现实验针对审查基线，部分代码在当前版本已明确拒绝。
 
 ## 结论与范围
 
@@ -28,7 +28,7 @@
 
 ### R1 · 高优先级：引擎允许修改配置，却复用旧编译结果
 
-**位置：** [engine.py:125](../src/dal_jax/mc/engine.py#L125)、[engine.py:371](../src/dal_jax/mc/engine.py#L371)。
+**位置：** [engine.py:125](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/engine.py#L125)、[engine.py:371](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/engine.py#L371)。
 
 构造时生成 `_normals`、执行布局及类型；`_value_function` 缓存键只有 layout、`enable_aad` 和 payoff index。公开的 `settings`、`model`、`product` 等属性仍能赋值。预热后替换 `settings.smooth` 对应的新 settings，缓存中的闭包仍使用旧平滑宽度。
 
@@ -48,7 +48,7 @@
 
 ### R2 · 高优先级：估值日期和 fixing 来自两个独立全局状态
 
-**位置：** [api.py:33](../src/dal_jax/api.py#L33)、[fixings.py:111](../src/dal_jax/script/fixings.py#L111)、[preparation.py:254](../src/dal_jax/script/preparation.py#L254)、[observation.py:122](../src/dal_jax/script/observation.py#L122)。
+**位置：** [api.py:33](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/api.py#L33)、[fixings.py:111](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/script/fixings.py#L111)、[preparation.py:254](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/script/preparation.py#L254)、[observation.py:122](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/script/observation.py#L122)。
 
 `_evaluation_date` 和 `_global_snapshot` 分别受锁保护。锁能保护单次读写，不能保证一个估值请求从设置日期到读取历史的完整隔离；两个请求交错设置时会互相影响。日期首次默认读取还会将当天日期保存在进程中，长期进程不会自动跨日。显式传入 date 和 snapshot 的调用路径已有良好基础。
 
@@ -60,7 +60,7 @@
 
 ### R3 · 中优先级：冻结对象未统一快照化调用者的集合
 
-**位置：** [base.py:30](../src/dal_jax/models/base.py#L30)、[product.py:23](../src/dal_jax/script/product.py#L23)、[gsrslv.py:43](../src/dal_jax/models/gsrslv.py#L43)、[hybrid.py:167](../src/dal_jax/models/hybrid.py#L167)。
+**位置：** [base.py:30](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/base.py#L30)、[product.py:23](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/script/product.py#L23)、[gsrslv.py:43](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/gsrslv.py#L43)、[hybrid.py:167](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/hybrid.py#L167)。
 
 `SampleDef.index_names`、`ScriptProductSettings.regression_features`、`GSRSLVSettings.variance_correlations` 已实测：传入列表后修改原列表，冻结对象的内容随之变化。`HybridGSRRate.factors` 也缺少边界归一化。字段标注 tuple 并不执行运行时校验；传列表不符合其注解，但当前构造器接受了它，且其他模型构造器已经采用自动转 tuple 的约定。
 
@@ -70,7 +70,7 @@
 
 ### R4 · 中优先级：可变模块常量、全局缓存和启动设置需要分别治理
 
-**位置：** [inverse_normal.py:92](../src/dal_jax/random/inverse_normal.py#L92)、[settings.py:25](../src/dal_jax/mc/settings.py#L25)、[parser.py:39](../src/dal_jax/script/parser.py#L39)、[sobol.py:37](../src/dal_jax/random/sobol.py#L37)、[prng.py:28](../src/dal_jax/random/prng.py#L28)、[__init__.py:9](../src/dal_jax/__init__.py#L9)。
+**位置：** [inverse_normal.py:92](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/random/inverse_normal.py#L92)、[settings.py:25](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/settings.py#L25)、[parser.py:39](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/script/parser.py#L39)、[sobol.py:37](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/random/sobol.py#L37)、[prng.py:28](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/random/prng.py#L28)、[__init__.py:9](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/__init__.py#L9)。
 
 - `_SPLINE_FPP` 是模块级 NumPy 数组，已确认 `flags.writeable=True`。它参与逆正态近似，意外修改会改变以后构建的计算；不同已编译函数可能保留不同常量。
 - `_CHOICES`、`_FUNCTIONS`、`_PARSERS`、`_KERNELS`、日期分发表等都是可变 dict；目前未发现运行中修改它们的正常路径，属于不可变约定未落实，不应误报为已发生的数据竞争。
@@ -85,7 +85,7 @@ JAX 转换要求纯函数；外部值可能在 tracing 时被捕获，不能依�
 
 ### R5 · 中优先级：LSMC 把训练结果、运行诊断和编译缓存混在对象上
 
-**位置：** [lsmc.py:93](../src/dal_jax/mc/lsmc.py#L93)、[lsmc.py:221](../src/dal_jax/mc/lsmc.py#L221)、[lsmc.py:269](../src/dal_jax/mc/lsmc.py#L269)、[lsmc.py:352](../src/dal_jax/mc/lsmc.py#L352)、[explain.py:191](../src/dal_jax/script/explain.py#L191)。
+**位置：** [lsmc.py:93](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/lsmc.py#L93)、[lsmc.py:221](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/lsmc.py#L221)、[lsmc.py:269](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/lsmc.py#L269)、[lsmc.py:352](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/lsmc.py#L352)、[explain.py:191](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/script/explain.py#L191)。
 
 `_collect_raw` 动态给另一个 engine 添加 `_record_functions`，并依赖多个私有方法。`train` 写 `self.regressions`，`value` 写 `self.replicate_means`，diagnostics 再从 engine 读取回归结果。调用顺序和“最近一次运行”成为隐式输入，重入或并发复用同一对象时尤其难推理。当前审查未证明有 tracer 泄漏或常规单次估值错误。
 
@@ -95,7 +95,7 @@ JAX 转换要求纯函数；外部值可能在 tracing 时被捕获，不能依�
 
 ### R6 · 中优先级：每次 fixing 查找都重建完整字典
 
-**位置：** [fixings.py:68](../src/dal_jax/script/fixings.py#L68)、[observation.py:122](../src/dal_jax/script/observation.py#L122)。
+**位置：** [fixings.py:68](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/script/fixings.py#L68)、[observation.py:122](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/script/observation.py#L122)。
 
 `find` 每调用一次就将全部 `entries` 转成 dict。若历史快照有 N 条、准备阶段查询 H 次，仅重建索引就要 O(HN) 工作。它比许多只有几个元素的 host for 循环更值得优化。
 
@@ -105,7 +105,7 @@ JAX 转换要求纯函数；外部值可能在 tracing 时被捕获，不能依�
 
 ### R7 · 中优先级：GSR/SLV/Hybrid 的静态规划与数值预计算混合
 
-**位置：** [gsr.py:285](../src/dal_jax/models/gsr.py#L285)、[gsr.py:294](../src/dal_jax/models/gsr.py#L294)、[gsr.py:328](../src/dal_jax/models/gsr.py#L328)、[gsrslv.py:179](../src/dal_jax/models/gsrslv.py#L179)、[hybrid.py:467](../src/dal_jax/models/hybrid.py#L467)。
+**位置：** [gsr.py:285](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/gsr.py#L285)、[gsr.py:294](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/gsr.py#L294)、[gsr.py:328](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/gsr.py#L328)、[gsrslv.py:179](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/gsrslv.py#L179)、[hybrid.py:467](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/hybrid.py#L467)。
 
 日期/knot 分段、区间积分、到期日系数和采样输出交错使用 Python 循环；部分 `integrals(0, time)` 重复计算。随着日期和 maturity 增加，tracing 展开及重复预计算值得测量。此项是源码定位的性能候选，尚未测得端到端加速比。
 
@@ -117,7 +117,7 @@ JAX 转换要求纯函数；外部值可能在 tracing 时被捕获，不能依�
 
 ### R8 · 中优先级：LSMC 有伪批量表达，也有必须保序的训练循环
 
-**位置：** [regression.py:218](../src/dal_jax/mc/regression.py#L218)、[regression.py:263](../src/dal_jax/mc/regression.py#L263)、[lsmc.py:159](../src/dal_jax/mc/lsmc.py#L159)。
+**位置：** [regression.py:218](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/regression.py#L218)、[regression.py:263](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/regression.py#L263)、[lsmc.py:159](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/lsmc.py#L159)。
 
 `select_regression` 在 `vmap(lambda i: stack(all_predictions)[i])` 中，索引 i 只选择已经构造的预测栈；表达比直接 stack 复杂，并没有把不同阶数的拟合本身变成统一批量求解。不能据此断言实际重复执行 degree 次，编译器可能消除重复。
 
@@ -131,7 +131,7 @@ scan 用于表达递推并限制 Python tracing 展开，不代表递推各步�
 
 ### R9 · 中优先级：状态记录过度依赖位置，类型信息不均匀
 
-**位置：** [gsrslv.py:84](../src/dal_jax/models/gsrslv.py#L84)、[gsrslv.py:232](../src/dal_jax/models/gsrslv.py#L232)、[hybrid.py:519](../src/dal_jax/models/hybrid.py#L519)、[localvol.py:99](../src/dal_jax/models/localvol.py#L99)、[state.py:8](../src/dal_jax/script/lower/state.py#L8)。
+**位置：** [gsrslv.py:84](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/gsrslv.py#L84)、[gsrslv.py:232](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/gsrslv.py#L232)、[hybrid.py:519](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/hybrid.py#L519)、[localvol.py:99](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/localvol.py#L99)、[state.py:8](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/script/lower/state.py#L8)。
 
 `tuple(state[1:10])` 与 `state.rate[1:10]` 把状态字段排列变成跨模块契约。多个 `NamedTuple` 字段写作 `object` 或无参数的 `tuple`，难以读出数组、静态元数据和子记录的边界。
 
@@ -141,7 +141,7 @@ scan 用于表达递推并限制 Python tracing 展开，不代表递推各步�
 
 ### R10 · 中优先级：格式缺少统一约束，后期模块更密集
 
-**位置：** [regression.py](../src/dal_jax/mc/regression.py)、[regression_device.py](../src/dal_jax/mc/regression_device.py)、[hybrid.py](../src/dal_jax/models/hybrid.py)、[explain.py](../src/dal_jax/script/explain.py)、[test_dal_hybrid.py:12](../tests/oracle/test_dal_hybrid.py#L12)、[pyproject.toml](../pyproject.toml)、[CI](../.github/workflows/ci.yml)。
+**位置：** [regression.py](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/regression.py)、[regression_device.py](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/regression_device.py)、[hybrid.py](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/hybrid.py)、[explain.py](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/script/explain.py)、[test_dal_hybrid.py:12](../tests/oracle/test_dal_hybrid.py#L12)、[pyproject.toml](../pyproject.toml)、[CI](../.github/workflows/ci.yml)。
 
 逗号/运算符空格、多语句分号、长行和 import 顺序不一致；oracle 测试仍有星号导入。现有 CI 有复杂度、错误和安全检查，但没有统一 formatter/lint 风格门槛。
 
@@ -153,7 +153,7 @@ scan 用于表达递推并限制 Python tracing 展开，不代表递推各步�
 
 ### R11 · 中优先级：用户功能说明分散在 docstring 与里程碑文档
 
-**位置：** [settings.py:52](../src/dal_jax/mc/settings.py#L52)、[engine.py:1](../src/dal_jax/mc/engine.py#L1)、[base.py:1](../src/dal_jax/models/base.py#L1)、[product.py:1](../src/dal_jax/script/product.py#L1)、[README](../README.md)、[P5 文档](p5.md)、[P6/P7 文档](p6-p7.md)。
+**位置：** [settings.py:52](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/settings.py#L52)、[engine.py:1](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/mc/engine.py#L1)、[base.py:1](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/models/base.py#L1)、[product.py:1](https://github.com/wegamekinglc/dal.jax/blob/17bc047245baf1cd67b3fe69d782ef4656d60903/src/dal_jax/script/product.py#L1)、[README](../README.md)、[P5 文档](p5.md)、[P6/P7 文档](p6-p7.md)。
 
 注释总体不算多，重点是职责和位置：配置教程、大段模块背景、阶段性开发说明和装饰分隔线应收敛。当前未发现源码注释引用仓库文档路径；`examples/08_gpu_and_precision.py` 输出的文档路径是运行时文本，不是注释，不能作为该规则的违规证据。
 
