@@ -80,6 +80,10 @@ def group_events(events: tuple[A.Event, ...], threshold: int = 4) -> tuple[Event
         while stop < len(events) and normalized[stop][0] == template:
             stop += 1
         constants = tuple(row for _, row in normalized[start:stop])
-        groups.append(EventGroup(start, stop, template, constants, threshold > 0 and stop - start >= threshold))
+        groups.append(
+            EventGroup(
+                start, stop, template, constants, threshold > 0 and stop - start >= threshold
+            )
+        )
         start = stop
     return tuple(groups)

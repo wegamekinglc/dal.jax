@@ -12,7 +12,9 @@ import re
 import sys
 from pathlib import Path
 
-DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "src" / "dal_jax" / "dates" / "calendar_data.py"
+DEFAULT_OUTPUT = (
+    Path(__file__).resolve().parents[1] / "src" / "dal_jax" / "dates" / "calendar_data.py"
+)
 DATE = re.compile(r"Date_\((\d+),\s*(\d+),\s*(\d+)\)")
 
 
@@ -24,7 +26,10 @@ def table(source: str, name: str) -> list[tuple[int, int, int]]:
 
 
 def render(name: str, dates: list[tuple[int, int, int]]) -> str:
-    rows = [", ".join(f"({y}, {m}, {d})" for y, m, d in dates[i : i + 6]) for i in range(0, len(dates), 6)]
+    rows = [
+        ", ".join(f"({y}, {m}, {d})" for y, m, d in dates[i : i + 6])
+        for i in range(0, len(dates), 6)
+    ]
     return f"{name} = (\n" + "".join(f"    {row},\n" for row in rows) + ")\n"
 
 

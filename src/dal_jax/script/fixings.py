@@ -25,7 +25,9 @@ def fixing_time(value):
     if isinstance(value, dt.datetime):
         if value.tzinfo is not None:
             raise InvalidSetting("fixing timestamps must have no timezone")
-        micros = ((value.hour*60+value.minute)*60+value.second)*1_000_000+value.microsecond
+        micros = (
+            (value.hour * 60 + value.minute) * 60 + value.second
+        ) * 1_000_000 + value.microsecond
         return Date.from_python(value.date()), micros
     if isinstance(value, dt.date):
         return Date.from_python(value), 0
@@ -74,14 +76,16 @@ class FixingSnapshot:
             return direct
         reverse = _reverse_fx(name)
         value = values.get((reverse, date, micros))
-        return None if value is None else 1./value
+        return None if value is None else 1.0 / value
 
 
 def _validate_reciprocals(records):
     for (name, date, micros), value in records.items():
         reverse = records.get((_reverse_fx(name), date, micros))
-        if reverse is not None and abs(value*reverse-1.) > 1e-10:
-            raise script_error(f"InvalidFixingSnapshot: inconsistent direct/reverse FX fixings for {name} at {date}")
+        if reverse is not None and abs(value * reverse - 1.0) > 1e-10:
+            raise script_error(
+                f"InvalidFixingSnapshot: inconsistent direct/reverse FX fixings for {name} at {date}"
+            )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -94,7 +98,9 @@ class ValuationSettings:
         try:
             policy = TodayFixingPolicy(self.today_fixing_policy)
         except ValueError as error:
-            raise InvalidSetting("today_fixing_policy must be Model or RequireHistorical") from error
+            raise InvalidSetting(
+                "today_fixing_policy must be Model or RequireHistorical"
+            ) from error
         object.__setattr__(self, "today_fixing_policy", policy)
         if self.evaluation_date is not None:
             date, micros = fixing_time(self.evaluation_date)
@@ -105,7 +111,10 @@ class ValuationSettings:
             raise InvalidSetting("fixings must be a FixingSnapshot")
 
     def historical(self, date, evaluation_date):
-        return date < evaluation_date or (date == evaluation_date and self.today_fixing_policy == TodayFixingPolicy.REQUIREHISTORICAL)
+        return date < evaluation_date or (
+            date == evaluation_date
+            and self.today_fixing_policy == TodayFixingPolicy.REQUIREHISTORICAL
+        )
 
 
 _global_lock = threading.Lock()

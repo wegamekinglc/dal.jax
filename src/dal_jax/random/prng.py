@@ -21,7 +21,9 @@ _STREAM_SALT = {"mrg32": 0, "irn": 1}
 
 def prng_key(rsg: str, seed: int, impl: str | None = None) -> Array:
     if rsg not in _STREAM_SALT:
-        raise InvalidSetting(f"simulation.rsg_={rsg}; expected mrg32 or irn for a pseudo-random stream")
+        raise InvalidSetting(
+            f"simulation.rsg_={rsg}; expected mrg32 or irn for a pseudo-random stream"
+        )
     return jax.random.fold_in(jax.random.key(seed, impl=impl), _STREAM_SALT[rsg])
 
 
@@ -29,12 +31,17 @@ def prng_key(rsg: str, seed: int, impl: str | None = None) -> Array:
 def _sequential_blocks(block_size: int, dim: int):
     # RBG's native batching uses only the first key. Sequential key mapping
     # preserves each global block's stream under GSPMD and business vmaps.
-    return sequential_vmap(lambda key, block_id: jax.random.normal(
-        jax.random.fold_in(key, block_id), (block_size, dim), dtype=jnp.float64))
+    return sequential_vmap(
+        lambda key, block_id: jax.random.normal(
+            jax.random.fold_in(key, block_id), (block_size, dim), dtype=jnp.float64
+        )
+    )
 
 
 def block_normals(key: Array, block_id: Array, block_size: int, dim: int) -> Array:
     """``float64[block_size, dim]`` standard normals for one block."""
     if str(jax.random.key_impl(key)) in ("rbg", "unsafe_rbg"):
         return _sequential_blocks(block_size, dim)(key, block_id)
-    return jax.random.normal(jax.random.fold_in(key, block_id), (block_size, dim), dtype=jnp.float64)
+    return jax.random.normal(
+        jax.random.fold_in(key, block_id), (block_size, dim), dtype=jnp.float64
+    )

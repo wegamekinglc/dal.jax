@@ -21,10 +21,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--devices", type=int, default=1, help="virtual CPU devices (jax_num_cpu_devices)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--devices", type=int, default=1, help="virtual CPU devices (jax_num_cpu_devices)"
+    )
     parser.add_argument("--platform", choices=("cpu", "gpu", "auto"), default="cpu")
-    parser.add_argument("--parallel", choices=("shard_map", "auto", "pmap", "none"), default="shard_map")
+    parser.add_argument(
+        "--parallel", choices=("shard_map", "auto", "pmap", "none"), default="shard_map"
+    )
     parser.add_argument("--dtype", choices=("float64", "float32"), default="float64")
     parser.add_argument("--paths", type=int, default=2**20)
     parser.add_argument("--block-size", type=int, default=8192)
@@ -58,16 +64,35 @@ def dal_cases(dal):
     dal.EvaluationDate_Set(today)
     maturity = today.AddDays(int(365 * MATURITY))
     model = dal.BSModelData_New(SPOT, VOL, RATE, DIV)
-    european = dal.Product_New(["STRIKE", maturity], [f"{STRIKE}", "call pays MAX(spot() - STRIKE, 0.0)"])
+    european = dal.Product_New(
+        ["STRIKE", maturity], [f"{STRIKE}", "call pays MAX(spot() - STRIKE, 0.0)"]
+    )
 
     def barrier(freq):
-        dates = ["STRIKE", "BARRIER", today, f"START: {today} END: {maturity} FREQ: {freq}", maturity]
-        events = [f"{STRIKE:.2f}", f"{BARRIER:.2f}", "alive = 1", "if spot() >= BARRIER:0.1 then alive = 0 end",
-                  "if spot() >= BARRIER:0.1 then alive = 0 end\ncall pays alive * MAX(spot() - STRIKE, 0.0)"]
+        dates = [
+            "STRIKE",
+            "BARRIER",
+            today,
+            f"START: {today} END: {maturity} FREQ: {freq}",
+            maturity,
+        ]
+        events = [
+            f"{STRIKE:.2f}",
+            f"{BARRIER:.2f}",
+            "alive = 1",
+            "if spot() >= BARRIER:0.1 then alive = 0 end",
+            "if spot() >= BARRIER:0.1 then alive = 0 end\ncall pays alive * MAX(spot() - STRIKE, 0.0)",
+        ]
         return dal.Product_New(dates, events)
 
     monthly, weekly = barrier("1M"), barrier("1W")
-    return {"european": european, "barrier_1m": monthly, "barrier_1w": weekly, "barrier_1m_vec": monthly, "barrier_1w_vec": weekly}, model
+    return {
+        "european": european,
+        "barrier_1m": monthly,
+        "barrier_1w": weekly,
+        "barrier_1m_vec": monthly,
+        "barrier_1w_vec": weekly,
+    }, model
 
 
 def jax_products():
@@ -95,19 +120,31 @@ def bench_jax(args, cases) -> None:
 
     products = jax_products()
     devices = dal_jax.config.devices(args.platform)
-    print(f"jax {jax.__version__}, platform={args.platform}, devices={len(devices)} ({devices[0].device_kind}), "
-          f"parallel={args.parallel}, dtype={args.dtype}, paths={args.paths}, block={args.block_size}")
+    print(
+        f"jax {jax.__version__}, platform={args.platform}, devices={len(devices)} ({devices[0].device_kind}), "
+        f"parallel={args.parallel}, dtype={args.dtype}, paths={args.paths}, block={args.block_size}"
+    )
     print()
     print("| case | mode | compile + first run (s) | warm (ms) | PV |")
     print("|---|---|---:|---:|---:|")
     for case in cases:
         for greeks in (False, True):
-            settings = MonteCarloSettings(enable_aad=greeks, platform=args.platform, parallel=args.parallel,
-                                          dtype=args.dtype, block_size=args.block_size)
+            settings = MonteCarloSettings(
+                enable_aad=greeks,
+                platform=args.platform,
+                parallel=args.parallel,
+                dtype=args.dtype,
+                block_size=args.block_size,
+            )
             engine = MonteCarloEngine(products[case], bs_model(), settings)
             result = {}
-            first, best = timed(lambda engine=engine, result=result: result.update(engine.value(args.paths)), args.repeat)
-            print(f"| {case} | {'price + grad' if greeks else 'price'} | {first:.2f} | {best * 1e3:.1f} | {result['PV']:.10f} |")
+            first, best = timed(
+                lambda engine=engine, result=result: result.update(engine.value(args.paths)),
+                args.repeat,
+            )
+            print(
+                f"| {case} | {'price + grad' if greeks else 'price'} | {first:.2f} | {best * 1e3:.1f} | {result['PV']:.10f} |"
+            )
 
 
 def bench_dal(args, cases) -> None:
@@ -122,10 +159,14 @@ def bench_dal(args, cases) -> None:
             result = {}
 
             def run(product=products[case], greeks=greeks, result=result):
-                result.update(dict(dal.MonteCarlo_Value(product, model, args.paths, "sobol", False, greeks)))
+                result.update(
+                    dict(dal.MonteCarlo_Value(product, model, args.paths, "sobol", False, greeks))
+                )
 
             _, best = timed(run, args.repeat)
-            print(f"| {case} | {'price + grad' if greeks else 'price'} | {best * 1e3:.1f} | {result['PV']:.10f} |")
+            print(
+                f"| {case} | {'price + grad' if greeks else 'price'} | {best * 1e3:.1f} | {result['PV']:.10f} |"
+            )
 
 
 def main() -> int:

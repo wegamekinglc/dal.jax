@@ -12,7 +12,18 @@ import math
 import jax
 import numpy as np
 import pytest
-from support import BARRIER, DIV, MATURITY, RATE, SPOT, STRIKE, VOL, bs_model, european_call, up_and_out_call
+from support import (
+    BARRIER,
+    DIV,
+    MATURITY,
+    RATE,
+    SPOT,
+    STRIKE,
+    VOL,
+    bs_model,
+    european_call,
+    up_and_out_call,
+)
 
 from dal_jax import MonteCarloEngine, MonteCarloSettings
 from dal_jax.random.sobol import Sobol
@@ -38,16 +49,24 @@ def assert_parity(ours: dict, theirs: dict) -> None:
     assert set(ours) == set(theirs)
     np.testing.assert_allclose(ours["PV"], theirs["PV"], rtol=PV_RTOL)
     for key in ours.keys() - {"PV"}:
-        np.testing.assert_allclose(ours[key], theirs[key], rtol=GREEK_RTOL, atol=GREEK_ATOL, err_msg=key)
+        np.testing.assert_allclose(
+            ours[key], theirs[key], rtol=GREEK_RTOL, atol=GREEK_ATOL, err_msg=key
+        )
 
 
 @pytest.mark.parametrize("dim,start", [(1, 0), (3, 5), (37, 1023), (500, 2**20 - 9), (21200, 7)])
 def test_sobol_uniforms_and_normals(dal, dim, start):
     seq = Sobol(dim=dim)
     ids = jax.numpy.arange(start, start + 8)
-    np.testing.assert_array_equal(np.asarray(jax.vmap(seq.uniform)(ids)), as_array(dal.SobolRSG_Get_Uniform(dal.SobolRSG_New(start, dim), 8)))
+    np.testing.assert_array_equal(
+        np.asarray(jax.vmap(seq.uniform)(ids)),
+        as_array(dal.SobolRSG_Get_Uniform(dal.SobolRSG_New(start, dim), 8)),
+    )
     np.testing.assert_allclose(
-        np.asarray(jax.vmap(seq.normal)(ids)), as_array(dal.SobolRSG_Get_Normal(dal.SobolRSG_New(start, dim), 8)), rtol=1e-14, atol=1e-15
+        np.asarray(jax.vmap(seq.normal)(ids)),
+        as_array(dal.SobolRSG_Get_Normal(dal.SobolRSG_New(start, dim), 8)),
+        rtol=1e-14,
+        atol=1e-15,
     )
 
 
@@ -56,13 +75,18 @@ def test_sobol_polished_normals(dal, precise, polish):
     seq = Sobol(dim=16, precise=precise, polish=polish)
     ids = jax.numpy.arange(0, 64)
     theirs = as_array(dal.SobolRSG_Get_Normal(dal.SobolRSG_New(0, 16, precise, polish), 64))
-    np.testing.assert_allclose(np.asarray(jax.vmap(seq.normal)(ids)), theirs, rtol=1e-13, atol=1e-14)
+    np.testing.assert_allclose(
+        np.asarray(jax.vmap(seq.normal)(ids)), theirs, rtol=1e-13, atol=1e-14
+    )
 
 
 @pytest.fixture(scope="module")
 def dal_european(dal):
     today = dal.EvaluationDate_Get()
-    product = dal.Product_New(["STRIKE", today.AddDays(int(365 * MATURITY))], [f"{STRIKE}", "call pays MAX(spot() - STRIKE, 0.0)"])
+    product = dal.Product_New(
+        ["STRIKE", today.AddDays(int(365 * MATURITY))],
+        [f"{STRIKE}", "call pays MAX(spot() - STRIKE, 0.0)"],
+    )
     return product, dal.BSModelData_New(SPOT, VOL, RATE, DIV)
 
 
@@ -71,7 +95,9 @@ def test_european_pv_and_five_greeks(dal, dal_european, cpu_devices, enable_aad)
     product, model = dal_european
     assert explain_timeline(dal, product, model) == (MATURITY,)
     n = 2**18
-    ours = MonteCarloEngine(european_call(), bs_model(), MonteCarloSettings(enable_aad=enable_aad, devices=cpu_devices)).value(n)
+    ours = MonteCarloEngine(
+        european_call(), bs_model(), MonteCarloSettings(enable_aad=enable_aad, devices=cpu_devices)
+    ).value(n)
     assert_parity(ours, dict(dal.MonteCarlo_Value(product, model, n, "sobol", False, enable_aad)))
 
 
@@ -108,7 +134,9 @@ def test_monthly_barrier_exact_and_fuzzy(dal, dal_barrier, cpu_devices, use_bb, 
 def test_barrier_greeks_match_dal_reference(dal, dal_barrier, cpu_devices):
     """DAL's AAD Greeks at 2**20 paths; a hard-condition ``jax.grad`` would give d_BARRIER = 0."""
     _, _, ours_product = dal_barrier
-    ours = MonteCarloEngine(ours_product, bs_model(), MonteCarloSettings(enable_aad=True, devices=cpu_devices)).value(2**20)
+    ours = MonteCarloEngine(
+        ours_product, bs_model(), MonteCarloSettings(enable_aad=True, devices=cpu_devices)
+    ).value(2**20)
     assert ours["d_BARRIER"] == pytest.approx(0.08925165480978217, rel=1e-6)
     assert ours["d_vol"] == pytest.approx(-7.227015534889115, rel=1e-6)
 
@@ -124,9 +152,13 @@ def test_pseudo_random_streams_agree_statistically(dal, dal_european, cpu_device
     product, model = dal_european
     reference = dict(dal.MonteCarlo_Value(product, model, 2**20, "sobol", False, False))["PV"]
     n = 2**16
-    eng = MonteCarloEngine(european_call(), bs_model(), MonteCarloSettings(rsg=rsg, devices=cpu_devices))
+    eng = MonteCarloEngine(
+        european_call(), bs_model(), MonteCarloSettings(rsg=rsg, devices=cpu_devices)
+    )
     params = eng.default_params()
-    values = np.concatenate([np.asarray(eng.path_payoffs(params, b, n)[1][:, 0]) for b in range(eng.layout(n).n_blocks)])[:n]
+    values = np.concatenate(
+        [np.asarray(eng.path_payoffs(params, b, n)[1][:, 0]) for b in range(eng.layout(n).n_blocks)]
+    )[:n]
     se = values.std() / math.sqrt(n)
     assert abs(values.mean() - reference) < 3.0 * se
     np.testing.assert_allclose(eng.value(n)["PV"], values.mean(), rtol=1e-12)

@@ -37,10 +37,14 @@ def _check_choices(settings: "MonteCarloSettings") -> None:
     for name, allowed in _CHOICES.items():
         value = getattr(settings, name)
         if value not in allowed:
-            raise InvalidSetting(f"{_DAL_FIELD_NAMES.get(name, name)}={value}; expected one of {', '.join(allowed)}")
+            raise InvalidSetting(
+                f"{_DAL_FIELD_NAMES.get(name, name)}={value}; expected one of {', '.join(allowed)}"
+            )
 
 
-def _check_integer(name: str, value: object, low: float = -math.inf, high: float = math.inf) -> None:
+def _check_integer(
+    name: str, value: object, low: float = -math.inf, high: float = math.inf
+) -> None:
     """Integers only: ``True`` and ``8192.0`` would fail later as JAX shapes or seeds."""
     is_integer = isinstance(value, numbers.Integral) and not isinstance(value, bool)
     if not (is_integer and low <= value <= high):
@@ -105,7 +109,9 @@ class MonteCarloSettings:
     def __post_init__(self) -> None:
         _check_choices(self)
         if not (math.isfinite(self.smooth) and self.smooth > 0.0):
-            raise InvalidSmoothing(f"simulation.smooth_={self.smooth}; expected a finite positive width")
+            raise InvalidSmoothing(
+                f"simulation.smooth_={self.smooth}; expected a finite positive width"
+            )
         if self.block_size != "auto":
             _check_integer("block_size", self.block_size, low=1)
             object.__setattr__(self, "block_size", int(self.block_size))
@@ -126,12 +132,20 @@ class MonteCarloSettings:
 
     def _check_lsmc(self) -> None:
         _check_integer("lsmc_basis_degree", self.lsmc_basis_degree, 1, 8)
-        for name, low in (("lsmc_training_paths", 1), ("lsmc_validation_paths", 0), ("lsmc_rqmc_replicates", 2),
-                          ("lsmc_training_seed", 0), ("lsmc_pricing_seed", 0)):
+        for name, low in (
+            ("lsmc_training_paths", 1),
+            ("lsmc_validation_paths", 0),
+            ("lsmc_rqmc_replicates", 2),
+            ("lsmc_training_seed", 0),
+            ("lsmc_pricing_seed", 0),
+        ):
             value = getattr(self, name)
             if value is not None:
-                _check_integer(name, value, low, 2**31-1)
-        if not math.isfinite(self.lsmc_policy_bump_relative) or not 0 < self.lsmc_policy_bump_relative <= 0.1:
+                _check_integer(name, value, low, 2**31 - 1)
+        if (
+            not math.isfinite(self.lsmc_policy_bump_relative)
+            or not 0 < self.lsmc_policy_bump_relative <= 0.1
+        ):
             raise InvalidSetting("lsmc_policy_bump_relative must be finite and in (0, 0.1]")
         self._check_lsmc_modes()
 
@@ -140,7 +154,9 @@ class MonteCarloSettings:
             raise InvalidSetting("lsmc_policy_risk_mode=RetrainedBump requires enable_aad=True")
         if self.lsmc_rqmc_replicates is not None and self.rsg != "sobol":
             raise InvalidSetting("lsmc_rqmc_replicates requires rsg=sobol")
-        if self.lsmc_rqmc_replicates is None and (self.lsmc_training_seed is not None or self.lsmc_pricing_seed is not None):
+        if self.lsmc_rqmc_replicates is None and (
+            self.lsmc_training_seed is not None or self.lsmc_pricing_seed is not None
+        ):
             raise InvalidSetting("LSMC seeds require lsmc_rqmc_replicates")
 
     def resolved_devices(self) -> tuple[jax.Device, ...]:

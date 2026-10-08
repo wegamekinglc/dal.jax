@@ -38,16 +38,28 @@ class Bound:
     def __eq__(self, rhs: object) -> bool:
         if not isinstance(rhs, Bound):
             return NotImplemented
-        return (self.plus_inf and rhs.plus_inf) or (self.minus_inf and rhs.minus_inf) or abs(self.real - rhs.real) < EPSILON
+        return (
+            (self.plus_inf and rhs.plus_inf)
+            or (self.minus_inf and rhs.minus_inf)
+            or abs(self.real - rhs.real) < EPSILON
+        )
 
     def __hash__(self) -> int:  # pragma: no cover - fuzzy equality, never hashed
         return 0
 
     def __lt__(self, rhs: "Bound") -> bool:
-        return (self.minus_inf and not rhs.minus_inf) or (not self.plus_inf and rhs.plus_inf) or self.real < rhs.real - EPSILON
+        return (
+            (self.minus_inf and not rhs.minus_inf)
+            or (not self.plus_inf and rhs.plus_inf)
+            or self.real < rhs.real - EPSILON
+        )
 
     def __gt__(self, rhs: "Bound") -> bool:
-        return (not self.minus_inf and rhs.minus_inf) or (self.plus_inf and not rhs.plus_inf) or self.real > rhs.real + EPSILON
+        return (
+            (not self.minus_inf and rhs.minus_inf)
+            or (self.plus_inf and not rhs.plus_inf)
+            or self.real > rhs.real + EPSILON
+        )
 
     def __le__(self, rhs: "Bound") -> bool:
         return not self > rhs
@@ -56,7 +68,9 @@ class Bound:
         return not self < rhs
 
     def _same_strict_sign(self, rhs: "Bound") -> bool:
-        return (self.is_positive(True) and rhs.is_positive(True)) or (self.is_negative(True) and rhs.is_negative(True))
+        return (self.is_positive(True) and rhs.is_positive(True)) or (
+            self.is_negative(True) and rhs.is_negative(True)
+        )
 
     def __mul__(self, rhs: "Bound") -> "Bound":
         if not (self.is_infinite or rhs.is_infinite):
@@ -145,8 +159,16 @@ class Interval:
         return self.left < rhs.left or (self.left == rhs.left and self.right < rhs.right)
 
     def __add__(self, rhs: "Interval") -> "Interval":
-        lb = MINUS_INF if self.left.minus_inf or rhs.left.minus_inf else Bound(self.left.real + rhs.left.real)
-        rb = PLUS_INF if self.right.plus_inf or rhs.right.plus_inf else Bound(self.right.real + rhs.right.real)
+        lb = (
+            MINUS_INF
+            if self.left.minus_inf or rhs.left.minus_inf
+            else Bound(self.left.real + rhs.left.real)
+        )
+        rb = (
+            PLUS_INF
+            if self.right.plus_inf or rhs.right.plus_inf
+            else Bound(self.right.real + rhs.right.real)
+        )
         return Interval.of(lb, rb)
 
     def __neg__(self) -> "Interval":
@@ -158,7 +180,12 @@ class Interval:
     def __mul__(self, rhs: "Interval") -> "Interval":
         if self.is_zero or rhs.is_zero:
             return Interval.singleton(0.0)
-        b = [self.right * rhs.right, self.right * rhs.left, self.left * rhs.right, self.left * rhs.left]
+        b = [
+            self.right * rhs.right,
+            self.right * rhs.left,
+            self.left * rhs.right,
+            self.left * rhs.left,
+        ]
         return Interval.of(_min_bound(b), _max_bound(b))
 
     def _inverse_away_from_zero(self) -> "Interval":
@@ -172,7 +199,11 @@ class Interval:
     def _inverse_touching_zero(self) -> "Interval":
         """1/x for an interval with 0 as one of its bounds."""
         if self.is_infinite:
-            return Interval.of(Bound(0.0), PLUS_INF) if self.is_positive() else Interval.of(MINUS_INF, Bound(0.0))
+            return (
+                Interval.of(Bound(0.0), PLUS_INF)
+                if self.is_positive()
+                else Interval.of(MINUS_INF, Bound(0.0))
+            )
         if self.is_positive():
             return Interval.of(Bound(1.0 / self.right.real), PLUS_INF)
         return Interval.of(MINUS_INF, Bound(1.0 / self.left.real))
@@ -444,10 +475,14 @@ class Domain:
         return any(i.is_zero for i in self.intervals)
 
     def can_be_positive(self, strict: bool) -> bool:
-        return bool(self.intervals) and self.intervals[-1].right.real > (EPSILON if strict else -EPSILON)
+        return bool(self.intervals) and self.intervals[-1].right.real > (
+            EPSILON if strict else -EPSILON
+        )
 
     def can_be_negative(self, strict: bool) -> bool:
-        return bool(self.intervals) and self.intervals[0].left.real < (-EPSILON if strict else EPSILON)
+        return bool(self.intervals) and self.intervals[0].left.real < (
+            -EPSILON if strict else EPSILON
+        )
 
     def smallest_pos_lb(self, strict: bool = False) -> float | None:
         if self.intervals[-1].left.is_negative(not strict):
@@ -469,5 +504,8 @@ class Domain:
         def bound(b: Bound) -> str:
             return "+INF" if b.plus_inf else "-INF" if b.minus_inf else f"{b.real:g}"
 
-        parts = [f"{{{i.left.real:g}}}" if i.is_singleton else f"({bound(i.left)},{bound(i.right)})" for i in self.intervals]
+        parts = [
+            f"{{{i.left.real:g}}}" if i.is_singleton else f"({bound(i.left)},{bound(i.right)})"
+            for i in self.intervals
+        ]
         return "{" + ";".join(parts) + "}"

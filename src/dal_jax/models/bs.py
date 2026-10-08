@@ -14,8 +14,8 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 
-from dal_jax.index import Index
 from dal_jax.errors import InvalidModelParameter
+from dal_jax.index import Index
 from dal_jax.models.base import ModelParams, SampleDef, Scenario, validate_timeline
 
 
@@ -83,7 +83,10 @@ class BlackScholes:
         return index.kind == "EQ" and index.name.endswith("]")
 
     def default_params(self) -> dict[str, Array]:
-        return {label: jnp.asarray(getattr(self, label), dtype=jnp.float64) for label in self.param_labels}
+        return {
+            label: jnp.asarray(getattr(self, label), dtype=jnp.float64)
+            for label in self.param_labels
+        }
 
     def validate_params(self, params: ModelParams) -> None:
         spot, vol, rate, div = (float(params[label]) for label in self.param_labels)
@@ -136,4 +139,9 @@ class BlackScholes:
             if plan.today_on_timeline:
                 spots = jnp.concatenate([state.spot[None], spots])
         observations = jnp.broadcast_to(spots[:, None], (len(plan.times), plan.max_observations))
-        return Scenario(spot=spots, numeraire=state.numeraires, observations=observations, discounts=state.discounts)
+        return Scenario(
+            spot=spots,
+            numeraire=state.numeraires,
+            observations=observations,
+            discounts=state.discounts,
+        )

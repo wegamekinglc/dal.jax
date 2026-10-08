@@ -8,12 +8,27 @@ from dal_jax.strings import equivalent
 
 #  Condensed aliases of DAL's DayBasis enum, in declaration order.
 _ALIASES = (
-    ("ACT365F", "ACT_365F"), ("ACT/365F", "ACT_365F"), ("ACT365FIXED", "ACT_365F"), ("ACT/365FIXED", "ACT_365F"),
-    ("ACT365L", "ACT_365L"), ("ACT/365L", "ACT_365L"), ("ISMAYEAR", "ACT_365L"),
-    ("ACT360", "ACT_360"), ("ACT/360", "ACT_360"), ("MONEY", "ACT_360"), ("ACTUAL/360", "ACT_360"),
-    ("ACTACT", "ACT_ACT"), ("ACT/ACT", "ACT_ACT"), ("ACTUAL/ACTUAL", "ACT_ACT"),
-    ("BOND", "BOND"), ("30360", "BOND"), ("30/360", "BOND"), ("BONDBASIS", "BOND"),
-    ("THIRTY360US", "THIRTY_360_US"), ("30360US", "THIRTY_360_US"), ("30U/360", "THIRTY_360_US"),
+    ("ACT365F", "ACT_365F"),
+    ("ACT/365F", "ACT_365F"),
+    ("ACT365FIXED", "ACT_365F"),
+    ("ACT/365FIXED", "ACT_365F"),
+    ("ACT365L", "ACT_365L"),
+    ("ACT/365L", "ACT_365L"),
+    ("ISMAYEAR", "ACT_365L"),
+    ("ACT360", "ACT_360"),
+    ("ACT/360", "ACT_360"),
+    ("MONEY", "ACT_360"),
+    ("ACTUAL/360", "ACT_360"),
+    ("ACTACT", "ACT_ACT"),
+    ("ACT/ACT", "ACT_ACT"),
+    ("ACTUAL/ACTUAL", "ACT_ACT"),
+    ("BOND", "BOND"),
+    ("30360", "BOND"),
+    ("30/360", "BOND"),
+    ("BONDBASIS", "BOND"),
+    ("THIRTY360US", "THIRTY_360_US"),
+    ("30360US", "THIRTY_360_US"),
+    ("30U/360", "THIRTY_360_US"),
 )
 
 

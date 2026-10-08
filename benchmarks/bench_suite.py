@@ -32,10 +32,14 @@ def block_size(text):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--devices", type=int, default=1)
     parser.add_argument("--platform", choices=("cpu", "gpu", "auto"), default="cpu")
-    parser.add_argument("--parallel", choices=("none", "shard_map", "auto", "pmap"), default="shard_map")
+    parser.add_argument(
+        "--parallel", choices=("none", "shard_map", "auto", "pmap"), default="shard_map"
+    )
     parser.add_argument("--dtype", choices=("float64", "float32", "auto"), default="float64")
     parser.add_argument("--paths", type=int, default=2**20)
     parser.add_argument("--block-size", type=block_size, default="auto")
@@ -45,7 +49,7 @@ def parse_args():
     parser.add_argument("--rsg", choices=("sobol", "mrg32", "irn"), default="sobol")
     parser.add_argument("--prng-impl", choices=("threefry2x32", "rbg", "unsafe_rbg"))
     parser.add_argument("--use-bb", action="store_true")
-    parser.add_argument("--smooth", type=float, default=.01)
+    parser.add_argument("--smooth", type=float, default=0.01)
     parser.add_argument("--smoothing-kernel", choices=("dal", "smoothstep"), default="dal")
     parser.add_argument("--no-checkpoint", action="store_true")
     parser.add_argument("--scan-threshold", type=int, default=4)
@@ -63,16 +67,35 @@ def parse_args():
 def cpu_name():
     info = Path("/proc/cpuinfo")
     if info.exists():
-        return next((line.split(":", 1)[1].strip() for line in info.read_text().splitlines() if line.startswith("model name")), platform.processor())
+        return next(
+            (
+                line.split(":", 1)[1].strip()
+                for line in info.read_text().splitlines()
+                if line.startswith("model name")
+            ),
+            platform.processor(),
+        )
     return platform.processor()
 
 
 def configuration(args):
-    return {"platform": args.platform, "devices": args.devices, "parallel": args.parallel, "dtype": args.dtype,
-            "paths": args.paths, "block_size": args.block_size, "rsg": args.rsg, "prng_impl": args.prng_impl,
-            "use_bb": args.use_bb, "smooth": args.smooth, "smoothing_kernel": args.smoothing_kernel,
-            "checkpoint": not args.no_checkpoint, "scan_group_threshold": args.scan_threshold,
-            "deterministic_reduction": args.deterministic, "repeat": args.repeat}
+    return {
+        "platform": args.platform,
+        "devices": args.devices,
+        "parallel": args.parallel,
+        "dtype": args.dtype,
+        "paths": args.paths,
+        "block_size": args.block_size,
+        "rsg": args.rsg,
+        "prng_impl": args.prng_impl,
+        "use_bb": args.use_bb,
+        "smooth": args.smooth,
+        "smoothing_kernel": args.smoothing_kernel,
+        "checkpoint": not args.no_checkpoint,
+        "scan_group_threshold": args.scan_threshold,
+        "deterministic_reduction": args.deterministic,
+        "repeat": args.repeat,
+    }
 
 
 def result_dict(output, greeks):
@@ -87,16 +110,32 @@ def result_dict(output, greeks):
 
 def memory_analysis(compiled):
     stats = compiled.memory_analysis()
-    names = ("argument_size_in_bytes", "output_size_in_bytes", "temp_size_in_bytes", "alias_size_in_bytes")
+    names = (
+        "argument_size_in_bytes",
+        "output_size_in_bytes",
+        "temp_size_in_bytes",
+        "alias_size_in_bytes",
+    )
     return {name: getattr(stats, name) for name in names} if stats is not None else None
 
 
 def measure_jax(prepared, args, greeks):
-    settings = MonteCarloSettings(enable_aad=greeks, platform=args.platform, devices=config.devices(args.platform)[:args.devices],
-                                 parallel=args.parallel, dtype=args.dtype, block_size=args.block_size, rsg=args.rsg,
-                                 prng_impl=args.prng_impl, use_bb=args.use_bb, checkpoint=not args.no_checkpoint,
-                                 smooth=args.smooth, smoothing_kernel=args.smoothing_kernel,
-                                 scan_group_threshold=args.scan_threshold, deterministic_reduction=args.deterministic)
+    settings = MonteCarloSettings(
+        enable_aad=greeks,
+        platform=args.platform,
+        devices=config.devices(args.platform)[: args.devices],
+        parallel=args.parallel,
+        dtype=args.dtype,
+        block_size=args.block_size,
+        rsg=args.rsg,
+        prng_impl=args.prng_impl,
+        use_bb=args.use_bb,
+        checkpoint=not args.no_checkpoint,
+        smooth=args.smooth,
+        smoothing_kernel=args.smoothing_kernel,
+        scan_group_threshold=args.scan_threshold,
+        deterministic_reduction=args.deterministic,
+    )
     engine = MonteCarloEngine(prepared.path_product(), model(), settings)
     params = engine.default_params()
     price = engine.pricer(args.paths)
@@ -115,24 +154,45 @@ def measure_jax(prepared, args, greeks):
         start = time.perf_counter()
         output = jax.block_until_ready(compiled(params))
         durations.append(time.perf_counter() - start)
-    return {"backend": engine.devices[0].platform, "device_kind": engine.devices[0].device_kind, "n_devices": len(engine.devices),
-            "dtype": str(engine.dtype), "block_size": engine.layout(args.paths).block_size, "sim_dim": engine.sim_dim,
-            "scan_spans": [[group.start, group.stop] for group in prepared.event_groups(fuzzy=greeks, threshold=args.scan_threshold) if group.scanned],
-            "lower_seconds": lower_seconds, "compile_seconds": compile_seconds, "first_run_seconds": first_seconds,
-            "warm_min_seconds": min(durations), "warm_median_seconds": statistics.median(durations), "warm_runs_seconds": durations,
-            "compiled_memory": memory_analysis(compiled), "allocator_stats_after_run": engine.devices[0].memory_stats(),
-            "result": result_dict(output, greeks)}
+    return {
+        "backend": engine.devices[0].platform,
+        "device_kind": engine.devices[0].device_kind,
+        "n_devices": len(engine.devices),
+        "dtype": str(engine.dtype),
+        "block_size": engine.layout(args.paths).block_size,
+        "sim_dim": engine.sim_dim,
+        "scan_spans": [
+            [group.start, group.stop]
+            for group in prepared.event_groups(fuzzy=greeks, threshold=args.scan_threshold)
+            if group.scanned
+        ],
+        "lower_seconds": lower_seconds,
+        "compile_seconds": compile_seconds,
+        "first_run_seconds": first_seconds,
+        "warm_min_seconds": min(durations),
+        "warm_median_seconds": statistics.median(durations),
+        "warm_runs_seconds": durations,
+        "compiled_memory": memory_analysis(compiled),
+        "allocator_stats_after_run": engine.devices[0].memory_stats(),
+        "result": result_dict(output, greeks),
+    }
 
 
 def measure_dal(product, bs, args, greeks, dal):
-    run = lambda: dict(dal.MonteCarlo_Value(product, bs, args.paths, args.rsg, args.use_bb, greeks, args.smooth))
+    run = lambda: dict(
+        dal.MonteCarlo_Value(product, bs, args.paths, args.rsg, args.use_bb, greeks, args.smooth)
+    )
     run()
     durations = []
     for _ in range(args.repeat):
         start = time.perf_counter()
         result = run()
         durations.append(time.perf_counter() - start)
-    return {"warm_min_seconds": min(durations), "warm_median_seconds": statistics.median(durations), "result": result}
+    return {
+        "warm_min_seconds": min(durations),
+        "warm_median_seconds": statistics.median(durations),
+        "result": result,
+    }
 
 
 def main():
@@ -140,16 +200,29 @@ def main():
     config.configure(num_cpu_devices=args.devices)
     products = prepared_products()
     modes = {"price": (False,), "greeks": (True,), "both": (False, True)}[args.mode]
-    report = {"environment": {"python": platform.python_version(), "jax": jax.__version__, "os": platform.platform(), "cpu": cpu_name()},
-              "configuration": configuration(args), "measurements": []}
+    report = {
+        "environment": {
+            "python": platform.python_version(),
+            "jax": jax.__version__,
+            "os": platform.platform(),
+            "cpu": cpu_name(),
+        },
+        "configuration": configuration(args),
+        "measurements": [],
+    }
     dal, reference, bs = None, {}, None
     if args.dal:
         import dal as oracle
+
         dal = oracle
         reference, bs = dal_products(dal)
     for name in args.cases.split(","):
         for greeks in modes:
-            row = {"case": name, "mode": "greeks" if greeks else "price", "jax": measure_jax(products[name], args, greeks)}
+            row = {
+                "case": name,
+                "mode": "greeks" if greeks else "price",
+                "jax": measure_jax(products[name], args, greeks),
+            }
             if dal is not None:
                 row["dal"] = measure_dal(reference[name], bs, args, greeks, dal)
             report["measurements"].append(row)

@@ -38,7 +38,9 @@ class _Indexer:
 
     def _vector(self, name: str, source) -> list[int]:
         if name in self.vars or name in self.consts:
-            raise script_error("VectorNameConflict: vector name also names a scalar; " + source.describe())
+            raise script_error(
+                "VectorNameConflict: vector name also names a scalar; " + source.describe()
+            )
         if name not in self.vectors:
             self.vectors[name] = [len(self.vectors), 0, 0]
         return self.vectors[name]
@@ -71,7 +73,11 @@ class _Indexer:
 
     def visit(self, node: A.Node) -> A.Node:
         handler = self._handlers.get(type(node))
-        return handler(node) if handler else node.with_args(tuple(self.visit(arg) for arg in node.args))
+        return (
+            handler(node)
+            if handler
+            else node.with_args(tuple(self.visit(arg) for arg in node.args))
+        )
 
     def table(self) -> VarTable:
         def by_index(mapping, index_of):
@@ -95,8 +101,13 @@ class _Indexer:
         )
 
 
-def index_variables(event_groups: Sequence[Sequence[A.Event]]) -> tuple[list[list[A.Event]], VarTable]:
+def index_variables(
+    event_groups: Sequence[Sequence[A.Event]],
+) -> tuple[list[list[A.Event]], VarTable]:
     """Number every event of every group (e.g. past then future) with one shared table."""
     indexer = _Indexer()
-    indexed = [[tuple(indexer.visit(statement) for statement in event) for event in events] for events in event_groups]
+    indexed = [
+        [tuple(indexer.visit(statement) for statement in event) for event in events]
+        for events in event_groups
+    ]
     return indexed, indexer.table()

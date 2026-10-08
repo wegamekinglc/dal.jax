@@ -16,7 +16,11 @@ def barrier():
 
 
 def run(product, devices, **settings):
-    eng = MonteCarloEngine(product, bs_model(), MonteCarloSettings(devices=devices, block_size=1024, enable_aad=True, **settings))
+    eng = MonteCarloEngine(
+        product,
+        bs_model(),
+        MonteCarloSettings(devices=devices, block_size=1024, enable_aad=True, **settings),
+    )
     return eng.value(N_PATHS)
 
 
@@ -32,12 +36,19 @@ def test_one_device_against_four(barrier, cpu_devices):
 
 @pytest.mark.parametrize("strategy", ["none", "auto", "pmap"])
 def test_strategies_agree_with_shard_map(barrier, cpu_devices, strategy):
-    assert_close(run(barrier, cpu_devices, parallel=strategy), run(barrier, cpu_devices, parallel="shard_map"))
+    assert_close(
+        run(barrier, cpu_devices, parallel=strategy),
+        run(barrier, cpu_devices, parallel="shard_map"),
+    )
 
 
 @pytest.mark.parametrize("block_size", [512, 2048, 2**13 + 1000])
 def test_block_size_only_reorders_the_sum(barrier, cpu_devices, block_size):
-    eng = MonteCarloEngine(barrier, bs_model(), MonteCarloSettings(devices=cpu_devices, block_size=block_size, enable_aad=True))
+    eng = MonteCarloEngine(
+        barrier,
+        bs_model(),
+        MonteCarloSettings(devices=cpu_devices, block_size=block_size, enable_aad=True),
+    )
     assert_close(eng.value(N_PATHS), run(barrier, cpu_devices))
 
 
@@ -60,9 +71,15 @@ def test_deterministic_reduction_is_bitwise_invariant(barrier, cpu_devices):
 
 
 def test_deterministic_reduction_supports_reverse_mode_on_the_pure_pricer(barrier, cpu_devices):
-    eng = MonteCarloEngine(barrier, bs_model(), MonteCarloSettings(devices=cpu_devices, block_size=1024, deterministic_reduction=True))
+    eng = MonteCarloEngine(
+        barrier,
+        bs_model(),
+        MonteCarloSettings(devices=cpu_devices, block_size=1024, deterministic_reduction=True),
+    )
     f = eng.pricer(N_PATHS, fuzzy=True)
     params = eng.default_params()
     grads = jax.jit(jax.grad(lambda p: f(p)[0]))(params)
     reference = run(barrier, cpu_devices)
-    np.testing.assert_allclose(float(grads["script"]["BARRIER"]), reference["d_BARRIER"], rtol=1e-13)
+    np.testing.assert_allclose(
+        float(grads["script"]["BARRIER"]), reference["d_BARRIER"], rtol=1e-13
+    )

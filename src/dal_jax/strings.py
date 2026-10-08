@@ -99,7 +99,9 @@ def _finite_value(match: re.Match, body: str) -> tuple[float, str]:
     if match.group("hex"):
         mantissa = match.group("hex")
         sign = "-" if body.startswith("-") else ""
-        value = float.fromhex(sign + (mantissa if re.search(r"[pP]", mantissa) else mantissa + "p0"))
+        value = float.fromhex(
+            sign + (mantissa if re.search(r"[pP]", mantissa) else mantissa + "p0")
+        )
         return value, re.split(r"[pP]", mantissa[2:])[0]
     return float(body.lstrip("+")), re.split(r"[eE]", match.group("dec"))[0]
 

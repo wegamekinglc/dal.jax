@@ -36,7 +36,9 @@ class SampleDef:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "index_names", tuple(self.index_names))
-        object.__setattr__(self, "discount_mats", tuple(float(value) for value in self.discount_mats))
+        object.__setattr__(
+            self, "discount_mats", tuple(float(value) for value in self.discount_mats)
+        )
 
 
 class Sample(NamedTuple):
@@ -69,7 +71,10 @@ class Scenario(NamedTuple):
         mode, while one ``unstack`` per field transposes to a single ``stack``
         (an order of magnitude faster on CPU for a 36-date barrier).
         """
-        fields = [jnp.unstack(x, axis=0) for x in (self.spot, self.numeraire, self.observations, self.discounts)]
+        fields = [
+            jnp.unstack(x, axis=0)
+            for x in (self.spot, self.numeraire, self.observations, self.discounts)
+        ]
         return tuple(Sample(*row) for row in zip(*fields))
 
 
@@ -100,7 +105,9 @@ class Model(Protocol):
     def generate(self, state, plan, normals: Array) -> Scenario: ...
 
 
-def validate_timeline(model: Model, timeline: Sequence[float], sample_defs: Sequence[SampleDef]) -> None:
+def validate_timeline(
+    model: Model, timeline: Sequence[float], sample_defs: Sequence[SampleDef]
+) -> None:
     """``Model_::ValidateTimeline``: increasing non-negative times, sane maturities, index budget."""
     if not timeline or len(timeline) != len(sample_defs):
         raise InvalidModelTimeline("sample definitions must match dates")
@@ -115,8 +122,12 @@ def validate_timeline(model: Model, timeline: Sequence[float], sample_defs: Sequ
 
 def _validate_sample(model: Model, time: float, definition: SampleDef, observed: set[str]) -> None:
     """One date's requests; ``observed`` accumulates the distinct index names seen so far."""
-    if not all(math.isfinite(maturity) and maturity >= time for maturity in definition.discount_mats):
-        raise InvalidModelTimeline("discount maturities must be finite and not precede their sample")
+    if not all(
+        math.isfinite(maturity) and maturity >= time for maturity in definition.discount_mats
+    ):
+        raise InvalidModelTimeline(
+            "discount maturities must be finite and not precede their sample"
+        )
     if definition.discount_mats and not model.supports_discount_factors:
         raise UnsupportedModelObservation("model does not provide discount factors")
     if len(definition.index_names) > model.max_output_slots_per_sample:

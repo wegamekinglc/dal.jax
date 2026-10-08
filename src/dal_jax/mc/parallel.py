@@ -28,7 +28,9 @@ type LocalFn = Callable[..., object]
 
 
 def make_mesh(devices: Sequence[jax.Device]) -> jax.sharding.Mesh:
-    return jax.make_mesh((len(devices),), (AXIS,), axis_types=(AxisType.Auto,), devices=tuple(devices))
+    return jax.make_mesh(
+        (len(devices),), (AXIS,), axis_types=(AxisType.Auto,), devices=tuple(devices)
+    )
 
 
 def _varying(tree: object) -> object:
@@ -66,16 +68,24 @@ def sum_blocks(
             per_device = n_blocks // n_devices
 
             def run(p, n):
-                ids = jax.lax.axis_index(AXIS) * per_device + jnp.arange(per_device, dtype=jnp.int64)
+                ids = jax.lax.axis_index(AXIS) * per_device + jnp.arange(
+                    per_device, dtype=jnp.int64
+                )
                 return jax.lax.psum(local(_varying(p), ids, n, AXIS), AXIS)
 
-            return jax.shard_map(run, mesh=make_mesh(devices), in_specs=(P(), P()), out_specs=P())(params, n_paths)
+            return jax.shard_map(run, mesh=make_mesh(devices), in_specs=(P(), P()), out_specs=P())(
+                params, n_paths
+            )
         case "auto":
             rows = _device_rows(n_blocks, n_devices, make_mesh(devices))
             return jax.vmap(lambda ids: local(params, ids, n_paths, None))(rows).sum(axis=0)
         case "pmap":
             rows = _device_rows(n_blocks, n_devices, None)
-            run = jax.pmap(lambda p, ids, n: local(p, ids, n, None), in_axes=(None, 0, None), devices=list(devices))
+            run = jax.pmap(
+                lambda p, ids, n: local(p, ids, n, None),
+                in_axes=(None, 0, None),
+                devices=list(devices),
+            )
             return run(params, rows, n_paths).sum(axis=0)
         case _:
             raise ValueError(f"unknown parallel strategy {strategy!r}")
@@ -103,16 +113,24 @@ def gather_blocks(
             per_device = n_blocks // n_devices
 
             def run(p, n):
-                ids = jax.lax.axis_index(AXIS) * per_device + jnp.arange(per_device, dtype=jnp.int64)
+                ids = jax.lax.axis_index(AXIS) * per_device + jnp.arange(
+                    per_device, dtype=jnp.int64
+                )
                 return local(_varying(p), ids, n, AXIS)
 
-            return jax.shard_map(run, mesh=make_mesh(devices), in_specs=(P(), P()), out_specs=P(AXIS))(params, n_paths)
+            return jax.shard_map(
+                run, mesh=make_mesh(devices), in_specs=(P(), P()), out_specs=P(AXIS)
+            )(params, n_paths)
         case "auto":
             rows = _device_rows(n_blocks, n_devices, make_mesh(devices))
             return flatten_rows(jax.vmap(lambda ids: local(params, ids, n_paths, None))(rows))
         case "pmap":
             rows = _device_rows(n_blocks, n_devices, None)
-            run = jax.pmap(lambda p, ids, n: local(p, ids, n, None), in_axes=(None, 0, None), devices=list(devices))
+            run = jax.pmap(
+                lambda p, ids, n: local(p, ids, n, None),
+                in_axes=(None, 0, None),
+                devices=list(devices),
+            )
             return flatten_rows(run(params, rows, n_paths))
         case _:
             raise ValueError(f"unknown parallel strategy {strategy!r}")

@@ -29,15 +29,25 @@ def sequential_states(dim: int, n_points: int, start: int = 0) -> np.ndarray:
 
 def test_first_points_match_known_sequence():
     u = jax.vmap(Sobol(dim=3).uniform)(jnp.arange(5))
-    expected = [[0.5, 0.5, 0.5], [0.75, 0.25, 0.25], [0.25, 0.75, 0.75], [0.375, 0.375, 0.625], [0.875, 0.875, 0.125]]
+    expected = [
+        [0.5, 0.5, 0.5],
+        [0.75, 0.25, 0.25],
+        [0.25, 0.75, 0.75],
+        [0.375, 0.375, 0.625],
+        [0.875, 0.875, 0.125],
+    ]
     np.testing.assert_array_equal(np.asarray(u), expected)
 
 
-@pytest.mark.parametrize("dim,start", [(1, 0), (7, 0), (40, 1000), (300, 2**20 - 17), (5, 2**31 - 70)])
+@pytest.mark.parametrize(
+    "dim,start", [(1, 0), (7, 0), (40, 1000), (300, 2**20 - 17), (5, 2**31 - 70)]
+)
 def test_random_access_equals_gray_code_recurrence(dim, start):
     seq = Sobol(dim=dim)
     states = jax.vmap(seq.state)(jnp.arange(start, start + 64))
-    np.testing.assert_array_equal(np.asarray(states, dtype=np.uint64), sequential_states(dim, 64, start))
+    np.testing.assert_array_equal(
+        np.asarray(states, dtype=np.uint64), sequential_states(dim, 64, start)
+    )
 
 
 def test_uniforms_are_states_scaled_by_two_to_minus_32():
@@ -53,7 +63,9 @@ def test_cached_tables_are_read_only():
     for table in (directions(5), digital_shifts(5, 42)):
         with pytest.raises(ValueError):
             table[0] = 1
-    np.testing.assert_array_equal(np.asarray(jax.vmap(Sobol(dim=3).uniform)(jnp.arange(2)))[:, 0], [0.5, 0.75])
+    np.testing.assert_array_equal(
+        np.asarray(jax.vmap(Sobol(dim=3).uniform)(jnp.arange(2)))[:, 0], [0.5, 0.75]
+    )
 
 
 def test_dimension_limits():
@@ -65,7 +77,9 @@ def test_dimension_limits():
 
 def test_digital_shift_uses_split_mix64_high_words():
     # SplitMix64 seeded with 0 starts 0xE220A8397B1DCDAF, 0x6E789E6AA1B965F4, ...
-    np.testing.assert_array_equal(digital_shifts(2, 0), np.array([0xE220A839, 0x6E789E6A], dtype=np.uint32))
+    np.testing.assert_array_equal(
+        digital_shifts(2, 0), np.array([0xE220A839, 0x6E789E6A], dtype=np.uint32)
+    )
     seq = Sobol(dim=2, shift_key=0)
     ids = jnp.arange(8)
     shifted = jax.vmap(seq.uniform)(ids)

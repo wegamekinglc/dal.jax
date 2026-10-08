@@ -43,7 +43,9 @@ class ScriptProductData:
         object.__setattr__(self, "dates", tuple(self.dates))
         object.__setattr__(self, "events", tuple(self.events))
         if len(self.dates) != len(self.events):
-            raise script_error(f"InvalidSetting: dates.size={len(self.dates)}; events.size={len(self.events)}; expected equal lengths")
+            raise script_error(
+                f"InvalidSetting: dates.size={len(self.dates)}; events.size={len(self.events)}; expected equal lengths"
+            )
 
     def product(self) -> "ScriptProduct":
         return ScriptProduct(list(zip(self.dates, self.events)))
@@ -101,9 +103,13 @@ class ScriptProduct:
         self.evaluation_date = evaluation_date
 
     def index_variables(self) -> None:
-        (self.past_events, self.events), self.vars = index_variables([self.past_events, self.events])
+        (self.past_events, self.events), self.vars = index_variables(
+            [self.past_events, self.events]
+        )
         names = self.vars.var_names
-        self.payoff_index = next((i for i, name in enumerate(names) if ci_eq(name, self.payoff)), -1)
+        self.payoff_index = next(
+            (i for i, name in enumerate(names) if ci_eq(name, self.payoff)), -1
+        )
         #  The default receiver is the last variable; an EXERCISE-only product has none.
         if self.payoff_index == -1 and names and (self.has_pays or not self.has_exercise):
             self.payoff_index = len(names) - 1

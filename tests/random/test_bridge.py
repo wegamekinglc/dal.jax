@@ -41,7 +41,12 @@ def test_scan_and_unrolled_recursions_agree(n):
     #  Same arithmetic; XLA may contract multiply-adds differently, so allow a few ulps.
     plan = bridge.bridge_plan(n)
     z = jax.random.normal(jax.random.key(n), (n,), dtype=jnp.float64)
-    np.testing.assert_allclose(np.asarray(bridge._path_unrolled(plan, z)), np.asarray(bridge._path_scan(plan, z)), rtol=1e-14, atol=1e-15)
+    np.testing.assert_allclose(
+        np.asarray(bridge._path_unrolled(plan, z)),
+        np.asarray(bridge._path_scan(plan, z)),
+        rtol=1e-14,
+        atol=1e-15,
+    )
 
 
 def test_factor_bridge_layout():
@@ -52,7 +57,9 @@ def test_factor_bridge_layout():
     for factor in range(f):
         expected = np.asarray(bridge.apply(plan, z[factor * n : (factor + 1) * n]))
         np.testing.assert_array_equal(out[factor::f], expected)
-    np.testing.assert_array_equal(np.asarray(bridge.apply_factors(plan, z[:n], 1)), np.asarray(bridge.apply(plan, z[:n])))
+    np.testing.assert_array_equal(
+        np.asarray(bridge.apply_factors(plan, z[:n], 1)), np.asarray(bridge.apply(plan, z[:n]))
+    )
 
 
 def test_invalid_dimensions():

@@ -17,7 +17,15 @@ from enum import Enum
 
 from dal_jax.errors import script_error
 from dal_jax.script import ast as A
-from dal_jax.script.passes.intervals import POSITIVE_HALF_LINE, REAL_LINE, Domain, c_exp, c_log, c_pow, c_sqrt
+from dal_jax.script.passes.intervals import (
+    POSITIVE_HALF_LINE,
+    REAL_LINE,
+    Domain,
+    c_exp,
+    c_log,
+    c_pow,
+    c_sqrt,
+)
 
 
 class Cond(Enum):
@@ -31,10 +39,19 @@ def _flags(cond: Cond) -> dict:
 
 
 class DomainProcessor:
-    def __init__(self, n_vars: int, fuzzy: bool, initial_domains: Sequence[Domain] | None = None,
-                 known_observations: Mapping[int, float] | None = None) -> None:
+    def __init__(
+        self,
+        n_vars: int,
+        fuzzy: bool,
+        initial_domains: Sequence[Domain] | None = None,
+        known_observations: Mapping[int, float] | None = None,
+    ) -> None:
         self.fuzzy = fuzzy
-        self.var_domains = [d.copy() for d in initial_domains] if initial_domains is not None else [Domain.value(0.0) for _ in range(n_vars)]
+        self.var_domains = (
+            [d.copy() for d in initial_domains]
+            if initial_domains is not None
+            else [Domain.value(0.0) for _ in range(n_vars)]
+        )
         self.known = known_observations
         self.doms: list[Domain] = []
         self.conds: list[Cond] = []
@@ -99,25 +116,43 @@ class DomainProcessor:
         return node
 
     def _equal(self, node: A.Equal) -> A.Node:
-        return self._compare(node, lambda d: not d.can_be_zero(), lambda d: not d.can_be_non_zero(), _equal_bounds)
+        return self._compare(
+            node, lambda d: not d.can_be_zero(), lambda d: not d.can_be_non_zero(), _equal_bounds
+        )
 
     def _sup(self, node: A.Comparison, strict: bool) -> A.Node:
-        return self._compare(node, lambda d: not d.can_be_positive(strict), lambda d: not d.can_be_negative(not strict),
-                             lambda n, d: _sup_bounds(n, d, strict))
+        return self._compare(
+            node,
+            lambda d: not d.can_be_positive(strict),
+            lambda d: not d.can_be_negative(not strict),
+            lambda n, d: _sup_bounds(n, d, strict),
+        )
 
     def _logical(self, node: A.Node) -> A.Node:
         args = self._args(node)
         if isinstance(node, A.Not):
             cp = self.conds.pop()
-            cond = {Cond.ALWAYS_TRUE: Cond.ALWAYS_FALSE, Cond.ALWAYS_FALSE: Cond.ALWAYS_TRUE}.get(cp, Cond.TRUE_OR_FALSE)
+            cond = {Cond.ALWAYS_TRUE: Cond.ALWAYS_FALSE, Cond.ALWAYS_FALSE: Cond.ALWAYS_TRUE}.get(
+                cp, Cond.TRUE_OR_FALSE
+            )
         else:
             cp1, cp2 = self.conds.pop(), self.conds.pop()
             if isinstance(node, A.And):
-                cond = (Cond.ALWAYS_TRUE if cp1 is cp2 is Cond.ALWAYS_TRUE
-                        else Cond.ALWAYS_FALSE if Cond.ALWAYS_FALSE in (cp1, cp2) else Cond.TRUE_OR_FALSE)
+                cond = (
+                    Cond.ALWAYS_TRUE
+                    if cp1 is cp2 is Cond.ALWAYS_TRUE
+                    else Cond.ALWAYS_FALSE
+                    if Cond.ALWAYS_FALSE in (cp1, cp2)
+                    else Cond.TRUE_OR_FALSE
+                )
             else:
-                cond = (Cond.ALWAYS_TRUE if Cond.ALWAYS_TRUE in (cp1, cp2)
-                        else Cond.ALWAYS_FALSE if cp1 is cp2 is Cond.ALWAYS_FALSE else Cond.TRUE_OR_FALSE)
+                cond = (
+                    Cond.ALWAYS_TRUE
+                    if Cond.ALWAYS_TRUE in (cp1, cp2)
+                    else Cond.ALWAYS_FALSE
+                    if cp1 is cp2 is Cond.ALWAYS_FALSE
+                    else Cond.TRUE_OR_FALSE
+                )
         self.conds.append(cond)
         return replace(node, args=args, **_flags(cond))
 
@@ -162,7 +197,9 @@ class DomainProcessor:
     def _pays(self, node: A.Pays) -> A.Node:
         value = self.visit(node.args[1])
         index = node.args[0].index
-        self.var_domains[index] = self.var_domains[index] + self.doms.pop() / Domain(POSITIVE_HALF_LINE)
+        self.var_domains[index] = self.var_domains[index] + self.doms.pop() / Domain(
+            POSITIVE_HALF_LINE
+        )
         return node.with_args((node.args[0], value))
 
     #  vector writes: the value is analysed but vectors carry no domain
@@ -277,6 +314,11 @@ def _sup_bounds(node: A.Comparison, domain: Domain, strict: bool) -> A.Node:
     return replace(node, is_discrete=True, lb=lb, rb=rb)
 
 
-def process_domains(event_groups: Sequence[Sequence[A.Event]], n_vars: int, fuzzy: bool) -> list[list[A.Event]]:
+def process_domains(
+    event_groups: Sequence[Sequence[A.Event]], n_vars: int, fuzzy: bool
+) -> list[list[A.Event]]:
     processor = DomainProcessor(n_vars, fuzzy)
-    return [[tuple(processor.visit(statement) for statement in event) for event in events] for events in event_groups]
+    return [
+        [tuple(processor.visit(statement) for statement in event) for event in events]
+        for events in event_groups
+    ]

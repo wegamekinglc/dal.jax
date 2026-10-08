@@ -82,7 +82,7 @@ def _word_end(text: str, start: int) -> int:
 
 
 def _index_context(text: str, source: SourceLocation) -> str:
-    return f"; {source.describe()}; input={text[source.offset:]}"
+    return f"; {source.describe()}; input={text[source.offset :]}"
 
 
 def _index_body_end(text: str, start: int, source: SourceLocation) -> int:
@@ -123,7 +123,9 @@ def _script_token_end(text: str, pos: int, source: SourceLocation) -> int:
     if text[pos] in "!<>" and end < len(text) and text[end] == "=":
         return end + 1
     if text[pos] not in _OPERATORS:
-        raise script_error(f"InvalidScript: unexpected character '{text[pos]}'; {source.describe()}")
+        raise script_error(
+            f"InvalidScript: unexpected character '{text[pos]}'; {source.describe()}"
+        )
     return end
 
 

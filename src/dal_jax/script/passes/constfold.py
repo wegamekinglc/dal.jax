@@ -17,13 +17,24 @@ from dataclasses import replace
 from dal_jax.script import ast as A
 from dal_jax.script.passes.intervals import _c_div, c_exp, c_log, c_pow, c_sqrt
 
-_BINARY = {A.Add: lambda x, y: x + y, A.Sub: lambda x, y: x - y, A.Mul: lambda x, y: x * y, A.Div: _c_div, A.Pow: c_pow}
+_BINARY = {
+    A.Add: lambda x, y: x + y,
+    A.Sub: lambda x, y: x - y,
+    A.Mul: lambda x, y: x * y,
+    A.Div: _c_div,
+    A.Pow: c_pow,
+}
 _UNARY = {A.UPlus: lambda x: x, A.UMinus: lambda x: -x, A.Log: c_log, A.Sqrt: c_sqrt, A.Exp: c_exp}
 _REDUCTIONS = {A.Max: max, A.Min: min}
 
 
 class ConstProcessor:
-    def __init__(self, n_vars: int, known_observations: Mapping[int, float] | None = None, historical: bool = False) -> None:
+    def __init__(
+        self,
+        n_vars: int,
+        known_observations: Mapping[int, float] | None = None,
+        historical: bool = False,
+    ) -> None:
         self.var_const = [True] * n_vars
         self.var_value = [0.0] * n_vars
         self.in_conditional = False
@@ -45,7 +56,9 @@ class ConstProcessor:
     @staticmethod
     def _folded(node: A.Node, args: tuple[A.Node, ...], op) -> A.Node:
         if all(isinstance(arg, A.Expr) and arg.is_const for arg in args):
-            return replace(node, args=args, is_const=True, const_val=op(*(arg.const_val for arg in args)))
+            return replace(
+                node, args=args, is_const=True, const_val=op(*(arg.const_val for arg in args))
+            )
         return replace(node, args=args, is_const=False)
 
     def visit(self, node: A.Node) -> A.Node:
@@ -91,13 +104,22 @@ class ConstProcessor:
         known = None
         if self.known is not None and node.observation_id is not None:
             known = self.known.get(node.observation_id)
-        return replace(node, is_const=False) if known is None else replace(node, is_const=True, const_val=known)
+        return (
+            replace(node, is_const=False)
+            if known is None
+            else replace(node, is_const=True, const_val=known)
+        )
 
     def _args(self, node: A.Node) -> tuple[A.Node, ...]:
         return tuple(self.visit(arg) for arg in node.args)
 
 
-def process_constants(event_groups: Sequence[Sequence[A.Event]], n_vars: int) -> list[list[A.Event]]:
+def process_constants(
+    event_groups: Sequence[Sequence[A.Event]], n_vars: int
+) -> list[list[A.Event]]:
     """Mark constants across event groups visited in order (past, then future)."""
     processor = ConstProcessor(n_vars)
-    return [[tuple(processor.visit(statement) for statement in event) for event in events] for events in event_groups]
+    return [
+        [tuple(processor.visit(statement) for statement in event) for event in events]
+        for events in event_groups
+    ]

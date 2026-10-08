@@ -23,16 +23,25 @@ def _easter_sunday(year: int) -> Date:
     g = (b - f + 1) // 3
     h = (19 * a + b - d - g + 15) % 30
     i, k = c // 4, c % 4
-    l = (32 + 2 * e + 2 * i - h - k) % 7
-    m = (a + 11 * h + 22 * l) // 451
-    return Date.ymd(year, (h + l - 7 * m + 114) // 31, ((h + l - 7 * m + 114) % 31) + 1)
+    correction = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * correction) // 451
+    return Date.ymd(
+        year, (h + correction - 7 * m + 114) // 31, ((h + correction - 7 * m + 114) % 31) + 1
+    )
 
 
 def _target_holidays(start: int, end: int) -> tuple[Date, ...]:
     days = set()
     for y in range(start, end + 1):
         easter = _easter_sunday(y)
-        for d in (Date.ymd(y, 1, 1), easter.add_days(-2), easter.add_days(1), Date.ymd(y, 5, 1), Date.ymd(y, 12, 25), Date.ymd(y, 12, 26)):
+        for d in (
+            Date.ymd(y, 1, 1),
+            easter.add_days(-2),
+            easter.add_days(1),
+            Date.ymd(y, 5, 1),
+            Date.ymd(y, 12, 25),
+            Date.ymd(y, 12, 26),
+        ):
             if not d.is_weekend():
                 days.add(d)
     return tuple(sorted(days))
@@ -95,7 +104,12 @@ class Holidays:
 
 NO_HOLIDAYS = Holidays("")
 
-BIZ_DAY_CONVENTIONS = {"UNADJUSTED": "Unadjusted", "FOLLOWING": "Following", "MODIFIEDFOLLOWING": "ModifiedFollowing", "PRECEDING": "Preceding"}
+BIZ_DAY_CONVENTIONS = {
+    "UNADJUSTED": "Unadjusted",
+    "FOLLOWING": "Following",
+    "MODIFIEDFOLLOWING": "ModifiedFollowing",
+    "PRECEDING": "Preceding",
+}
 
 
 def biz_day_convention(text: str) -> str:

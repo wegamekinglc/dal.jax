@@ -248,13 +248,48 @@ _CODE_PREFIX = re.compile(r"([A-Z][A-Za-z]+): ?")
 _SCRIPT_CODES = {
     cls.code: cls
     for cls in (
-        InvalidSetting, InvalidSmoothing, InvalidPathCount, UnsupportedExecutionMode, InvalidPayoff, UnsupportedBrownianBridge,
-        InvalidScript, InvalidScriptStructure, ReservedIdentifier, InvalidIndex, UnknownIndex, InvalidFixingDate, InvalidPaymentDate,
-        InvalidAssignmentTarget, InvalidPaymentTarget, DuplicateElse, InvalidFor, InvalidVectorDefinition, InvalidVectorEntry,
-        InvalidVectorReduction, InvalidVectorAppend, ImmutableVector, VectorNameConflict, VectorIndexOutOfRange, EmptyVectorReduction,
-        DuplicateExercise, UnsupportedExerciseNesting, InvalidExerciseCondition, UnsupportedExercisePayoff, PreparationRequired,
-        UnboundHistoricalSpot, LookAheadObservation, MissingFixing, MissingDefaultIndex, InvalidFixingSnapshot, InvalidFixing, MultipleModelIndices, UnsupportedHistoricalIndex,
-        UnsupportedDelayedPayment, UnsettledDelayedPayment, UnsupportedModelObservation, DebugSchemaUnsupported,
+        InvalidSetting,
+        InvalidSmoothing,
+        InvalidPathCount,
+        UnsupportedExecutionMode,
+        InvalidPayoff,
+        UnsupportedBrownianBridge,
+        InvalidScript,
+        InvalidScriptStructure,
+        ReservedIdentifier,
+        InvalidIndex,
+        UnknownIndex,
+        InvalidFixingDate,
+        InvalidPaymentDate,
+        InvalidAssignmentTarget,
+        InvalidPaymentTarget,
+        DuplicateElse,
+        InvalidFor,
+        InvalidVectorDefinition,
+        InvalidVectorEntry,
+        InvalidVectorReduction,
+        InvalidVectorAppend,
+        ImmutableVector,
+        VectorNameConflict,
+        VectorIndexOutOfRange,
+        EmptyVectorReduction,
+        DuplicateExercise,
+        UnsupportedExerciseNesting,
+        InvalidExerciseCondition,
+        UnsupportedExercisePayoff,
+        PreparationRequired,
+        UnboundHistoricalSpot,
+        LookAheadObservation,
+        MissingFixing,
+        MissingDefaultIndex,
+        InvalidFixingSnapshot,
+        InvalidFixing,
+        MultipleModelIndices,
+        UnsupportedHistoricalIndex,
+        UnsupportedDelayedPayment,
+        UnsettledDelayedPayment,
+        UnsupportedModelObservation,
+        DebugSchemaUnsupported,
     )
 }
 
@@ -265,7 +300,7 @@ def script_error(message: str) -> ScriptError:
     cls = _SCRIPT_CODES.get(match.group(1), ScriptError) if match else ScriptError
     error = cls.__new__(cls)
     Exception.__init__(error, message)
-    error.detail = message[match.end():] if match and cls is not ScriptError else message
+    error.detail = message[match.end() :] if match and cls is not ScriptError else message
     if cls is ScriptError and match:
         error.code = match.group(1)
     return error

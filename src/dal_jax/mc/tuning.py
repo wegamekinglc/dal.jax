@@ -27,8 +27,12 @@ def estimated_path_bytes(product, sim_dim, dtype, enable_aad):
     This is a sizing heuristic, not an XLA memory bound. Scenario slots include
     spot, numeraire, requested observations and discounts on every event date.
     """
-    samples = sum(2 + len(sample.index_names) + len(sample.discount_mats) for sample in product.sample_defs)
-    slots = samples + len(product.payoff_names) + len(product.error_messages) + product.path_state_size
+    samples = sum(
+        2 + len(sample.index_names) + len(sample.discount_mats) for sample in product.sample_defs
+    )
+    slots = (
+        samples + len(product.payoff_names) + len(product.error_messages) + product.path_state_size
+    )
     arrays = max(1, sim_dim) * 8 + slots * np.dtype(dtype).itemsize
     return arrays * (16 if enable_aad else 4)
 

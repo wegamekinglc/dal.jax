@@ -10,39 +10,72 @@ from dal_jax.errors import VectorIndexOutOfRange
 pytestmark = pytest.mark.gpu
 
 
-@pytest.mark.parametrize("name", ["vector_asian", "vector_fuzzy", "dated_fix_payment", "payment_schedule", "correlated_basket", "localvol_skew"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "vector_asian",
+        "vector_fuzzy",
+        "dated_fix_payment",
+        "payment_schedule",
+        "correlated_basket",
+        "localvol_skew",
+    ],
+)
 @pytest.mark.parametrize("bridge", [False, True])
 def test_gpu_float64_values_and_all_greeks(gpu_devices, cpu_devices, dal, name, bridge):
     rows, model = case(name)
     product = prepare(Product_New(*rows), TODAY, model=model).path_product()
     settings = dict(enable_aad=True, use_bb=bridge, block_size=512)
-    gpu = MonteCarloEngine(product, model, MonteCarloSettings(**settings, devices=gpu_devices, platform="gpu"))
-    cpu = MonteCarloEngine(product, model, MonteCarloSettings(**settings, devices=cpu_devices, platform="cpu"))
+    gpu = MonteCarloEngine(
+        product, model, MonteCarloSettings(**settings, devices=gpu_devices, platform="gpu")
+    )
+    cpu = MonteCarloEngine(
+        product, model, MonteCarloSettings(**settings, devices=cpu_devices, platform="cpu")
+    )
     actual = gpu.value(1025)
     compare(actual, cpu.value(1025))
     if not hasattr(dal, "CorrelatedBSModelData_New"):
         pytest.skip("CPU/GPU passed; native P5 comparison needs the pinned source oracle")
     dal.EvaluationDate_Set(dal.Date_(TODAY.year, TODAY.month, TODAY.day))
-    native = dal.MonteCarlo_Value(dal.Product_New(native_dates(dal, rows[0]), rows[1]), native_model(dal, model),
-                                  1025, enable_aad=True, use_bb=bridge)
+    native = dal.MonteCarlo_Value(
+        dal.Product_New(native_dates(dal, rows[0]), rows[1]),
+        native_model(dal, model),
+        1025,
+        enable_aad=True,
+        use_bb=bridge,
+    )
     compare(actual, dict(native))
 
 
 def test_gpu_vector_error_flags_reach_host(gpu_devices):
     prepared = prepare(Product_New([TODAY], ["pay PAYS v[0]"]), TODAY)
     _, model = case("vector_asian")
-    engine = MonteCarloEngine(prepared.path_product(), model, MonteCarloSettings(platform="gpu", devices=gpu_devices, enable_aad=True))
+    engine = MonteCarloEngine(
+        prepared.path_product(),
+        model,
+        MonteCarloSettings(platform="gpu", devices=gpu_devices, enable_aad=True),
+    )
     with pytest.raises(VectorIndexOutOfRange):
         engine.value(16)
 
 
-@pytest.mark.parametrize("name", ["vector_asian", "vector_fuzzy", "dated_fix_payment", "correlated_basket", "localvol_skew"])
+@pytest.mark.parametrize(
+    "name",
+    ["vector_asian", "vector_fuzzy", "dated_fix_payment", "correlated_basket", "localvol_skew"],
+)
 def test_gpu_float32_p5_values_and_risks(gpu_devices, name):
     import numpy as np
+
     rows, model = case(name)
     product = prepare(Product_New(*rows), TODAY, model=model).path_product()
     settings = dict(enable_aad=True, devices=gpu_devices, platform="gpu", block_size=512)
-    a = MonteCarloEngine(product, model, MonteCarloSettings(**settings, dtype="float64")).value(8193)
-    b = MonteCarloEngine(product, model, MonteCarloSettings(**settings, dtype="float32")).value(8193)
+    a = MonteCarloEngine(product, model, MonteCarloSettings(**settings, dtype="float64")).value(
+        8193
+    )
+    b = MonteCarloEngine(product, model, MonteCarloSettings(**settings, dtype="float32")).value(
+        8193
+    )
     for label in a:
-        np.testing.assert_allclose(b[label], a[label], rtol=2e-5 if label == "PV" else 5e-3, atol=2e-4, err_msg=label)
+        np.testing.assert_allclose(
+            b[label], a[label], rtol=2e-5 if label == "PV" else 5e-3, atol=2e-4, err_msg=label
+        )

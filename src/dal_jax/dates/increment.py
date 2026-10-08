@@ -15,10 +15,34 @@ from dal_jax.errors import InvalidDate
 from dal_jax.strings import equivalent
 
 #  Condensed aliases of DAL's Machinist enums, in declaration order.
-_SPECIAL_DAYS = {"IMM": "IMM", "IMM3": "IMM", "IMMQUARTERLY": "IMM", "IMM1": "IMM1", "IMMMONTHLY": "IMM1",
-                 "CDS": "CDS", "CDS3": "CDS", "CDSQUARTERLY": "CDS", "EOM": "EOM"}
-_STEP_SIZES = {"Y": "Y", "YEAR": "Y", "YEARS": "Y", "M": "M", "MONTH": "M", "MONTHS": "M", "W": "W", "WEEK": "W", "WEEKS": "W",
-               "BD": "BD", "BUSDAY": "BD", "BUSINESSDAY": "BD", "CD": "CD", "CALDAY": "CD", "CALENDARDAY": "CD"}
+_SPECIAL_DAYS = {
+    "IMM": "IMM",
+    "IMM3": "IMM",
+    "IMMQUARTERLY": "IMM",
+    "IMM1": "IMM1",
+    "IMMMONTHLY": "IMM1",
+    "CDS": "CDS",
+    "CDS3": "CDS",
+    "CDSQUARTERLY": "CDS",
+    "EOM": "EOM",
+}
+_STEP_SIZES = {
+    "Y": "Y",
+    "YEAR": "Y",
+    "YEARS": "Y",
+    "M": "M",
+    "MONTH": "M",
+    "MONTHS": "M",
+    "W": "W",
+    "WEEK": "W",
+    "WEEKS": "W",
+    "BD": "BD",
+    "BUSDAY": "BD",
+    "BUSINESSDAY": "BD",
+    "CD": "CD",
+    "CALDAY": "CD",
+    "CALENDARDAY": "CD",
+}
 
 
 def _enum(text: str, aliases: dict[str, str], what: str) -> str:
@@ -75,7 +99,11 @@ class SpecialDay:
             case "IMM1":
                 return _to_imm(date, forward, 1)
             case _:
-                return date.end_of_month() if forward else Date.ymd(date.year, date.month, 1).add_days(-1)
+                return (
+                    date.end_of_month()
+                    if forward
+                    else Date.ymd(date.year, date.month, 1).add_days(-1)
+                )
 
     def fwd_from(self, date: Date) -> Date:
         return self._step(date, True)
@@ -100,7 +128,11 @@ class Multistep:
 
     def _business_days(self, date: Date, forward: bool) -> Date:
         for _ in range(self.n):
-            date = self.holidays.next_bus(date.add_days(1)) if forward else self.holidays.prev_bus(date.add_days(-1))
+            date = (
+                self.holidays.next_bus(date.add_days(1))
+                if forward
+                else self.holidays.prev_bus(date.add_days(-1))
+            )
         return date
 
     def _step(self, date: Date, forward: bool) -> Date:

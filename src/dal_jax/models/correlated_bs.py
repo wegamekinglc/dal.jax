@@ -8,10 +8,16 @@ from typing import NamedTuple
 import jax.numpy as jnp
 import numpy as np
 
-from dal_jax.errors import DuplicateModelIndex, InvalidCorrelation, InvalidModelIndex, InvalidModelParameter, UnsupportedModelObservation
+from dal_jax.errors import (
+    DuplicateModelIndex,
+    InvalidCorrelation,
+    InvalidModelIndex,
+    InvalidModelParameter,
+    UnsupportedModelObservation,
+)
 from dal_jax.index import parse_index
 from dal_jax.models.base import SampleDef, Scenario
-from dal_jax.models.bs import BSPlan, BlackScholes, deterministic_outputs
+from dal_jax.models.bs import BlackScholes, BSPlan, deterministic_outputs
 from dal_jax.strings import ci_eq, ci_key
 
 
@@ -22,12 +28,11 @@ def plain_equity(name):
     return index.name
 
 
-
 def _validate_correlations(values, size):
     if values.shape != (size, size) or not np.isfinite(values).all():
         raise InvalidCorrelation("dimensions must match the assets and entries must be finite")
-    symmetric = np.allclose(values, values.T, rtol=0., atol=1e-12)
-    unit_diagonal = np.allclose(np.diag(values), 1., rtol=0., atol=1e-12)
+    symmetric = np.allclose(values, values.T, rtol=0.0, atol=1e-12)
+    unit_diagonal = np.allclose(np.diag(values), 1.0, rtol=0.0, atol=1e-12)
     if not symmetric or not unit_diagonal:
         raise InvalidCorrelation("matrix must be symmetric with unit diagonal")
 
@@ -39,7 +44,7 @@ def _correlation_factor(matrix, size):
         lower = np.linalg.cholesky(values)
     except np.linalg.LinAlgError as error:
         raise InvalidCorrelation("matrix must be positive definite") from error
-    if np.min(np.diag(lower)**2) <= 1e-14:
+    if np.min(np.diag(lower) ** 2) <= 1e-14:
         raise InvalidCorrelation("matrix must be positive definite")
     return tuple(tuple(float(x) for x in row) for row in lower)
 
@@ -81,7 +86,7 @@ class CorrelatedBlackScholes:
     supports_bb = True
     numeraire_is_deterministic = True
     supports_discount_factors = True
-    max_output_slots_per_sample = 2**31-1
+    max_output_slots_per_sample = 2**31 - 1
 
     def __post_init__(self):
         names = _asset_names(self.indices)
@@ -92,7 +97,9 @@ class CorrelatedBlackScholes:
                 raise InvalidModelParameter("correlated BS asset parameter sizes differ")
             object.__setattr__(self, field, values)
         _correlation_factor(self.correlations, len(names))
-        object.__setattr__(self, "correlations", tuple(tuple(float(x) for x in row) for row in self.correlations))
+        object.__setattr__(
+            self, "correlations", tuple(tuple(float(x) for x in row) for row in self.correlations)
+        )
         self.validate_params(self.default_params())
 
     @property
@@ -109,20 +116,32 @@ class CorrelatedBlackScholes:
 
     @property
     def param_labels(self):
-        return tuple(f"{kind}:{name}" for name in self.indices for kind in ("spot", "vol", "div"))+("rate",)
+        return tuple(
+            f"{kind}:{name}" for name in self.indices for kind in ("spot", "vol", "div")
+        ) + ("rate",)
 
     def default_params(self):
-        values = {f"{kind}:{name}": jnp.asarray(value, dtype=jnp.float64)
-                  for i, name in enumerate(self.indices) for kind, value in (
-                      ("spot", self.spots[i]), ("vol", self.vols[i]), ("div", self.divs[i]))}
+        values = {
+            f"{kind}:{name}": jnp.asarray(value, dtype=jnp.float64)
+            for i, name in enumerate(self.indices)
+            for kind, value in (
+                ("spot", self.spots[i]),
+                ("vol", self.vols[i]),
+                ("div", self.divs[i]),
+            )
+        }
         return values | {"rate": jnp.asarray(self.rate, dtype=jnp.float64)}
 
     def validate_params(self, params):
         if not math.isfinite(float(params["rate"])):
             raise InvalidModelParameter("rate must be finite")
         for name in self.indices:
-            BlackScholes(spot=float(params[f"spot:{name}"]), vol=float(params[f"vol:{name}"]),
-                         rate=float(params["rate"]), div=float(params[f"div:{name}"]))
+            BlackScholes(
+                spot=float(params[f"spot:{name}"]),
+                vol=float(params[f"vol:{name}"]),
+                rate=float(params["rate"]),
+                div=float(params[f"div:{name}"]),
+            )
 
     def supports_index(self, index):
         return index.kind == "EQ" and any(ci_eq(index.name, name) for name in self.indices)
@@ -136,33 +155,55 @@ class CorrelatedBlackScholes:
 
     def allocate(self, timeline: Sequence[float], sample_defs: Sequence[SampleDef]):
         from dal_jax.models.base import validate_timeline
+
         validate_timeline(self, timeline, sample_defs)
         # Reuse deterministic BS grid and discount construction; all asset outputs
         # are mapped separately and the single-asset observation budget is not used.
-        dummy = tuple(SampleDef(numeraire=d.numeraire, discount_mats=d.discount_mats) for d in sample_defs)
-        base = BlackScholes(spot=self.spots[0], vol=self.vols[0], rate=self.rate, div=self.divs[0]).allocate(timeline, dummy)
+        dummy = tuple(
+            SampleDef(numeraire=d.numeraire, discount_mats=d.discount_mats) for d in sample_defs
+        )
+        base = BlackScholes(
+            spot=self.spots[0], vol=self.vols[0], rate=self.rate, div=self.divs[0]
+        ).allocate(timeline, dummy)
         width = max(len(d.index_names) for d in sample_defs)
-        slots = tuple(tuple(self._asset_slot(name) for name in d.index_names)+(0,)*(width-len(d.index_names)) for d in sample_defs)
-        return CorrelatedBSPlan(base, slots, _correlation_factor(self.correlations, self.num_assets))
+        slots = tuple(
+            tuple(self._asset_slot(name) for name in d.index_names)
+            + (0,) * (width - len(d.index_names))
+            for d in sample_defs
+        )
+        return CorrelatedBSPlan(
+            base, slots, _correlation_factor(self.correlations, self.num_assets)
+        )
 
     def sim_dim(self, plan):
-        return len(plan.base.dts)*self.n_factors
+        return len(plan.base.dts) * self.n_factors
 
     def init(self, params, plan):
-        spots, vols, divs = (jnp.stack([params[f"{kind}:{name}"] for name in self.indices]) for kind in ("spot", "vol", "div"))
+        spots, vols, divs = (
+            jnp.stack([params[f"{kind}:{name}"] for name in self.indices])
+            for kind in ("spot", "vol", "div")
+        )
         rate = params["rate"]
         dts = jnp.asarray(plan.base.dts)
         numeraires, discounts = deterministic_outputs(rate, plan.base)
-        return CorrelatedBSState(spots, jnp.log(spots), dts[:, None]*(rate-divs-.5*vols*vols),
-                                 jnp.sqrt(dts)[:, None]*vols, numeraires, discounts)
+        return CorrelatedBSState(
+            spots,
+            jnp.log(spots),
+            dts[:, None] * (rate - divs - 0.5 * vols * vols),
+            jnp.sqrt(dts)[:, None] * vols,
+            numeraires,
+            discounts,
+        )
 
     def generate(self, state, plan, normals):
         base = plan.base
         if not base.dts:
             spots = state.spots[None, :]
         else:
-            correlated = normals.reshape(-1, self.n_factors) @ jnp.asarray(plan.lower, dtype=normals.dtype).T
-            increments = state.drifts+state.stds*correlated
+            correlated = (
+                normals.reshape(-1, self.n_factors) @ jnp.asarray(plan.lower, dtype=normals.dtype).T
+            )
+            increments = state.drifts + state.stds * correlated
             logs = jnp.cumsum(jnp.concatenate((state.log_spots[None, :], increments)), axis=0)[1:]
             spots = jnp.exp(logs)
             if base.today_on_timeline:
