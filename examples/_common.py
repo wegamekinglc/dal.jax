@@ -77,13 +77,36 @@ def barrier_rows(width=.1):
     ]
 
 
+def _table_cell(value):
+    return f"{value:.10g}" if isinstance(value, (float, np.floating)) else str(value)
+
+
+def _table_alignment(column):
+    numeric = (int, float, np.integer, np.floating)
+    return ">" if any(isinstance(value, numeric) and not isinstance(value, (bool, np.bool_))
+                      for value in column) else "<"
+
+
+def _table_row(row, widths, alignments):
+    return "  ".join(f"{value:{alignment}{width}}" for value, width, alignment
+                     in zip(row, widths, alignments, strict=True))
+
+
 def table(headers, rows):
-    def cell(value):
-        return f"{value:.10g}" if isinstance(value, (float, np.floating)) else str(value)
-    print("| " + " | ".join(headers) + " |")
-    print("|" + "|".join("---" for _ in headers) + "|")
-    for row in rows:
-        print("| " + " | ".join(cell(value) for value in row) + " |")
+    """Print a DAL-style table with aligned columns and full-width rules."""
+    if not headers:
+        return
+    columns = list(zip(headers, *rows, strict=True))
+    alignments = [_table_alignment(column[1:]) for column in columns]
+    cells = [[_table_cell(value) for value in column] for column in columns]
+    widths = [max(map(len, column)) for column in cells]
+    formatted_rows = iter(zip(*cells, strict=True))
+    rule = "-" * (sum(widths) + 2 * (len(widths) - 1))
+    print(_table_row(next(formatted_rows), widths, alignments))
+    print(rule)
+    for row in formatted_rows:
+        print(_table_row(row, widths, alignments))
+    print(rule)
 
 
 def timed(fn, repeat):
