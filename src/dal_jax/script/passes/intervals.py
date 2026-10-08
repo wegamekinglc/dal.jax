@@ -1,10 +1,4 @@
-"""Interval arithmetic of DAL's ``visitor/domain.hpp``: ``Bound_``, ``Interval_``, ``Domain_``.
-
-Comparisons carry DAL's tolerance ``EPSILON = 2e-14`` and infinite bounds are
-flagged (their value is ``INF = 1e29``).  A domain is a sorted set of disjoint
-intervals; inserting an interval merges every interval it touches, and an
-element equivalent to an existing one is dropped, as ``std::set`` does.
-"""
+"""Interval arithmetic of DAL's ``visitor/domain.hpp``: ``Bound_``, ``Interval_``, ``Domain_``."""
 
 import math
 from dataclasses import dataclass

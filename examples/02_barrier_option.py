@@ -19,7 +19,7 @@ def gradient_diagnostics(engine, args):
     bump = 1e-6
     fd = float((fuzzy(150.0 + bump) - fuzzy(150.0 - bump)) / (2 * bump))
     np.testing.assert_allclose(slope, fd, rtol=1e-6, atol=1e-8)
-    assert float(hard) == 0.0  # nosec B101: executable numerical validation
+    assert float(hard) == 0.0  # nosec B101
     table(
         ["method", "d_BARRIER"],
         [["hard pathwise derivative", float(hard)], ["fuzzy grad", slope], ["common-path FD", fd]],

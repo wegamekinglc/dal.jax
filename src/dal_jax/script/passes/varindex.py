@@ -1,10 +1,4 @@
-"""Variable numbering, a port of DAL's ``visitor/varindexer.hpp``.
-
-Variables, named constants and vectors are numbered in pre-order of first
-appearance across all events (past first, then future), case-insensitively,
-keeping the first spelling.  A vector's capacity is its largest indexed write
-plus one, plus the number of ``APPEND`` statements.
-"""
+"""Variable numbering, a port of DAL's ``visitor/varindexer.hpp``."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace

@@ -1,9 +1,4 @@
-"""Frozen LSMC regressions: device moments, host Cholesky and pivoted QR.
-
-Scalar fits use DAL's normalized monomials, relative ridge and rank guard.
-Two/three-feature fits use its ordered total-degree basis and scaled QR.
-Only the small system (or, on rank loss, its design rows) reaches the host.
-"""
+"""Frozen LSMC regressions: device moments, host Cholesky and pivoted QR."""
 
 from dataclasses import dataclass, replace
 from functools import partial
@@ -225,7 +220,36 @@ def _scalar_guard(fit, constant, sigma, floor, degree):
     return None
 
 
+@jax.jit
+def ordered_moments(x, y, included):
+    """Masked Welford moments in the original path order."""
+
+    def step(carry, row):
+        count, means, m2, target = carry
+        values, value, valid = row
+        count = count + valid.astype(jnp.int32)
+        denominator = jnp.maximum(count, 1)
+        delta = jnp.where(valid, values, means) - means
+        updated = means + delta / denominator
+        target = target + (jnp.where(valid, value, target) - target) / denominator
+        return (
+            count,
+            updated,
+            m2 + delta * (jnp.where(valid, values, updated) - updated),
+            target,
+        ), None
+
+    initial = (
+        jnp.asarray(0, jnp.int32),
+        jnp.zeros(x.shape[1], x.dtype),
+        jnp.zeros(x.shape[1], x.dtype),
+        jnp.asarray(0.0, y.dtype),
+    )
+    return jax.lax.scan(step, initial, (x, y, included))[0]
+
+
 def _multi_fit(x, y, included, degree):
+    moments = _cpu_moments(x, y, included)
     x, y, mask = jax.device_get((x, y, included))
     x, y = np.asarray(x)[mask], np.asarray(y)[mask]
     count, features = x.shape
@@ -234,7 +258,7 @@ def _multi_fit(x, y, included, degree):
         return _constant(fit, 0.0, "ConditionPathsBelowMin")
     if not np.all(np.isfinite(x)) or not np.all(np.isfinite(y)):
         raise script_error("InvalidRegressionInput: non-finite included feature or target")
-    fit, constant, below = _multi_normalization(fit, x, y)
+    fit, constant, below = _multi_normalization(fit, moments, x, y)
     for candidate in range(degree, 0, -1):
         powers = basis_powers(features, candidate)
         if count < 10 * len(powers):
@@ -246,20 +270,31 @@ def _multi_fit(x, y, included, degree):
     return _multi_constant(fit, constant, below)
 
 
-def _multi_normalization(fit, x, y):
-    # Native multivariate normalization uses Welford's path-order moments.
-    count, features = x.shape
-    means, m2, constant = np.zeros(features), np.zeros(features), 0.0
-    for i, (row, target) in enumerate(zip(x, y), 1):
-        constant += (target - constant) / i
+def _cpu_moments(x, y, included):
+    if all(device.platform == "cpu" for device in x.devices()):
+        return ordered_moments(x, y, included)
+    return None
+
+
+def _host_moments(x, y):
+    # Per-path GPU scans are slower; host QR already requires these rows.
+    means, m2, target = np.zeros(x.shape[1]), np.zeros(x.shape[1]), 0.0
+    for count, (row, value) in enumerate(zip(x, y, strict=True), 1):
+        target += (value - target) / count
         delta = row - means
-        means += delta / i
+        means += delta / count
         m2 += delta * (row - means)
+    return len(x), means, m2, target
+
+
+def _multi_normalization(fit, moments, x, y):
+    # Native multivariate normalization uses Welford's path-order moments.
+    count, means, m2, constant = _host_moments(x, y) if moments is None else jax.device_get(moments)
     sigma = np.sqrt(np.maximum(m2 / count, 0.0))
     below = sigma < 1e-10 * np.maximum(1.0, np.abs(means))
     sigma = np.where(below, 1.0, sigma)
     fit = replace(fit, means=tuple(means), sigmas=tuple(sigma))
-    return fit, constant, below
+    return fit, float(constant), below
 
 
 def _multi_candidate(fit, coefficients, powers, rank, candidate, degree, below):
@@ -318,9 +353,7 @@ def select_regression(x, targets, included, degree, validation=None):
         return solve_regression(x, targets, included, degree)
     fits = tuple(solve_regression(x, targets, included, d) for d in range(1, degree + 1))
     vx, vy, mask = validation
-    predictions = jax.vmap(lambda i: jnp.stack(tuple(fit.predict(vx) for fit in fits))[i])(
-        jnp.arange(degree)
-    )
+    predictions = jnp.stack(tuple(fit.predict(vx) for fit in fits))
     losses = jnp.where(jnp.asarray(mask)[None, :], (predictions - vy) ** 2, 0.0)
     count = jnp.sum(mask)
     mse = jnp.sum(losses, axis=1) / count

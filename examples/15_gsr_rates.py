@@ -1,7 +1,7 @@
 """Single/multi-factor GSR: projection curves, bond/caplet/swap and rate exercise."""
 
 import dal
-from _common import TODAY, arguments, compare, finish, require_p5_oracle, settings, table
+from _common import TODAY, VALUATION, arguments, compare, finish, require_p5_oracle, settings, table
 
 import dal_jax as dj
 import dal_jax.api as api
@@ -71,7 +71,7 @@ def main():
     for multi in (False, True):
         model, native = model_pair(multi)
         product = api.Product_New(*rows)
-        prepared = dj.prepare(product, TODAY, model=model)
+        prepared = dj.prepare(product, valuation=VALUATION, model=model)
         engine = prepared.engine(model, settings(args, use_bb=True, block_size=1024))
         comparisons.append(
             compare(
@@ -90,7 +90,7 @@ def main():
         exercise_rows[1],
         settings=np_settings,
     )
-    engine = dj.prepare(product, TODAY, model=model).engine(
+    engine = dj.prepare(product, valuation=VALUATION, model=model).engine(
         model,
         settings(args, use_bb=True, block_size=1024, lsmc_training_paths=min(args.paths, 4096)),
     )
@@ -104,7 +104,7 @@ def main():
             product=nproduct,
         )
     )
-    diagnostics = api.ScriptValuation_Explain(product, model)
+    diagnostics = api.ScriptValuation_Explain(product, model, valuation=VALUATION)
     print("\nModel observation slots")
     table(
         ["sample", "date", "indices"],

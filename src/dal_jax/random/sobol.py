@@ -1,16 +1,6 @@
-"""Random-access Sobol sequence, point-for-point compatible with DAL's ``SobolSet_``.
+"""Random-access Sobol sequence, point-for-point compatible with DAL's ``SobolSet_``."""
 
-DAL advances a Gray-code state: ``FillUniform`` first increments the path
-counter, so global path ``n`` (0-based) is Sobol point ``n + 1`` and its state
-is the XOR of ``dir[j]`` over the set bits ``j`` of ``gray(n + 1)``.  Computing
-that state directly lets any device produce any path without ``SkipTo``.
-
-Uniforms are ``state * 2**-32``; with a digital shift (DAL's
-``NewDigitallyShiftedSobol``) they are ``((state ^ shift) + 0.5) * 2**-32``.
-"""
-
-import functools
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib import resources
 
 import jax.numpy as jnp
@@ -29,18 +19,16 @@ _MASK64 = (1 << 64) - 1
 
 
 def _read_only(array: np.ndarray) -> np.ndarray:
-    """Cached tables are shared by every caller, so they must not be writable."""
+    """Publish an owned table without writable views."""
     array.setflags(write=False)
     return array
 
 
-@functools.cache
 def _direction_table() -> np.ndarray:
     with resources.files("dal_jax.random").joinpath("directions.npy").open("rb") as stream:
         return _read_only(np.load(stream))
 
 
-@functools.cache
 def directions(dim: int) -> np.ndarray:
     """``uint32`` array of shape ``(32, dim)``: ``directions[bit, coordinate]``."""
     if not 0 < dim < N_KNOWN:
@@ -51,23 +39,14 @@ def directions(dim: int) -> np.ndarray:
     return _read_only(np.ascontiguousarray(_direction_table()[:dim].T))
 
 
-def _next_split_mix64(state: int) -> tuple[int, int]:
-    state = (state + 0x9E3779B97F4A7C15) & _MASK64
-    value = state
-    value = ((value ^ (value >> 30)) * 0xBF58476D1CE4E5B9) & _MASK64
-    value = ((value ^ (value >> 27)) * 0x94D049BB133111EB) & _MASK64
-    return state, value ^ (value >> 31)
-
-
-@functools.cache
 def digital_shifts(dim: int, key: int) -> np.ndarray:
     """One XOR mask per coordinate: the high 32 bits of successive SplitMix64(key) outputs."""
-    state = key & _MASK64
-    shifts = np.empty(dim, dtype=np.uint32)
-    for i in range(dim):
-        state, value = _next_split_mix64(state)
-        shifts[i] = value >> 32
-    return _read_only(shifts)
+    states = np.uint64(key & _MASK64) + np.arange(1, dim + 1, dtype=np.uint64) * np.uint64(
+        0x9E3779B97F4A7C15
+    )
+    values = (states ^ (states >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+    values = (values ^ (values >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+    return _read_only(((values ^ (values >> np.uint64(31))) >> np.uint64(32)).astype(np.uint32))
 
 
 def sobol_state(path_id: Array, dirs: Array) -> Array:
@@ -93,18 +72,25 @@ class Sobol:
     shift_key: int | None = None
     precise: bool = False
     polish: bool = False
+    _directions: np.ndarray = field(init=False, repr=False, compare=False)
+    _shift: np.ndarray | None = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        directions(self.dim)  # validate eagerly
+        object.__setattr__(self, "_directions", directions(self.dim))
+        object.__setattr__(
+            self,
+            "_shift",
+            None if self.shift_key is None else digital_shifts(self.dim, self.shift_key),
+        )
 
     def state(self, path_id: Array) -> Array:
-        return sobol_state(path_id, jnp.asarray(directions(self.dim)))
+        return sobol_state(path_id, jnp.asarray(self._directions))
 
     def uniform(self, path_id: Array) -> Array:
         state = self.state(path_id)
         if self.shift_key is None:
             return state.astype(jnp.float64) * MUL
-        shifted = state ^ jnp.asarray(digital_shifts(self.dim, self.shift_key))
+        shifted = state ^ jnp.asarray(self._shift)
         return (shifted.astype(jnp.float64) + 0.5) * MUL
 
     def normal(self, path_id: Array) -> Array:

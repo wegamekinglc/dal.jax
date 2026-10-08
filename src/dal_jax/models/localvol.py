@@ -11,6 +11,7 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax import Array
 
 from dal_jax.errors import (
     InvalidLocalVolSurface,
@@ -121,15 +122,15 @@ class LocalVolPlan:
 
 
 class LocalVolState(NamedTuple):
-    spot: object
-    log_spot: object
-    grid: object
-    dts: object
-    carry: object
-    div: object
-    vols: object
-    numeraires: object
-    discounts: object
+    spot: Array
+    log_spot: Array
+    grid: Array
+    dts: Array
+    carry: Array
+    div: Array
+    vols: Array
+    numeraires: Array
+    discounts: Array
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

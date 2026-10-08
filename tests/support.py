@@ -34,13 +34,7 @@ def european_call(maturity: float = MATURITY, strike: float = STRIKE) -> PathPro
 def up_and_out_call(
     timeline: tuple[float, ...], barrier_dates: tuple[int, ...], *, vectorized: bool = False
 ) -> PathProduct:
-    """``alive = 1`` today; ``if spot() >= BARRIER:0.1 then alive = 0 end`` on each of
-    ``barrier_dates`` (sample indices, repeats allowed); ``call pays alive * MAX(spot() - STRIKE, 0)``
-    on the last sample.  Fuzzy mode blends with DAL's call-spread kernel.
-
-    The default evaluates date by date, like DAL's event loop.  ``vectorized``
-    computes the same survival product over all dates at once, which keeps the
-    traced program small for long schedules."""
+    """``alive = 1`` today; ``if spot() >= BARRIER:0.1 then alive = 0 end`` on each of"""
 
     def payoff(params, scenario, ctx):
         barrier, strike = params["script"]["BARRIER"], params["script"]["STRIKE"]

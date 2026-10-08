@@ -7,6 +7,7 @@ import jax
 import numpy as np
 from _common import (
     TODAY,
+    VALUATION,
     arguments,
     compare,
     finish,
@@ -29,7 +30,7 @@ def main():
     dates = [TODAY.add_days(days) for days in (180, 365, 545, 730)]
     rows = (["K"] + dates, ["100"] + ["EXERCISE MAX(K-SPOT(),0)"] * len(dates))
     bs = model()
-    prepared = dj.prepare(Product_New(*rows), TODAY, model=bs)
+    prepared = dj.prepare(Product_New(*rows), valuation=VALUATION, model=bs)
     simulation = settings(
         args, lsmc_training_paths=args.paths, lsmc_basis_degree=3, use_bb=True, block_size=1024
     )
@@ -60,7 +61,7 @@ def main():
     )(jax.numpy.asarray([80.0, 100.0, 120.0]))
     diagnostic_settings = replace(simulation, enable_aad=False)
     diagnostics = ScriptSimulation_Explain(
-        Product_New(*rows), bs, args.paths, simulation=diagnostic_settings
+        Product_New(*rows), bs, args.paths, valuation=VALUATION, simulation=diagnostic_settings
     )
     native = dal.ScriptSimulation_Explain(
         oracle_product(rows),

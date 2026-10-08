@@ -1,6 +1,7 @@
 """Day-count fractions (``dal/time/daybasis.cpp``)."""
 
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from dal_jax.dates.date import Date, days_in_month, is_leap_year
 from dal_jax.errors import InvalidDate
@@ -98,14 +99,16 @@ def _act_365l(start: Date, end: Date, context: Context | None) -> float:
     return (end - start) / _days_in_year(context.nominal_end.year)
 
 
-_FRACTIONS = {
-    "ACT_360": lambda start, end, _: (end - start) / 360.0,
-    "ACT_365F": lambda start, end, _: (end - start) / 365.0,
-    "ACT_ACT": lambda start, end, _: _act_act_isda(start, end),
-    "ACT_365L": _act_365l,
-    "BOND": lambda start, end, _: _bond_basis(start, end),
-    "THIRTY_360_US": lambda start, end, _: _thirty_360_us(start, end),
-}
+_FRACTIONS = MappingProxyType(
+    {
+        "ACT_360": lambda start, end, _: (end - start) / 360.0,
+        "ACT_365F": lambda start, end, _: (end - start) / 365.0,
+        "ACT_ACT": lambda start, end, _: _act_act_isda(start, end),
+        "ACT_365L": _act_365l,
+        "BOND": lambda start, end, _: _bond_basis(start, end),
+        "THIRTY_360_US": lambda start, end, _: _thirty_360_us(start, end),
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)

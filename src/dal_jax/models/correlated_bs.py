@@ -7,6 +7,7 @@ from typing import NamedTuple
 
 import jax.numpy as jnp
 import numpy as np
+from jax import Array
 
 from dal_jax.errors import (
     DuplicateModelIndex,
@@ -66,12 +67,12 @@ class CorrelatedBSPlan:
 
 
 class CorrelatedBSState(NamedTuple):
-    spots: object
-    log_spots: object
-    drifts: object
-    stds: object
-    numeraires: object
-    discounts: object
+    spots: Array
+    log_spots: Array
+    drifts: Array
+    stds: Array
+    numeraires: Array
+    discounts: Array
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

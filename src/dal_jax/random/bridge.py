@@ -1,13 +1,5 @@
-"""Port of DAL's ``BrownianBridgeTransform_`` and ``FactorBrownianBridge_``.
+"""Port of DAL's ``BrownianBridgeTransform_`` and ``FactorBrownianBridge_``."""
 
-DAL builds the bridge on unit steps ``t_i = i + 1`` (not the event times) and
-returns normalised increments, so the transform maps N(0, I) to N(0, I) while
-moving the first Sobol coordinates onto the coarsest path structure.  The
-construction tables are computed on the host; ``apply`` is a single-path
-function.
-"""
-
-import functools
 import math
 from dataclasses import dataclass
 
@@ -50,7 +42,6 @@ def _interpolation(t: list[float], j: int, k: int, target: int) -> tuple[float, 
     )
 
 
-@functools.cache
 def bridge_plan(n: int) -> BridgePlan:
     """``BrownianBridgeTransform_::Initialize`` for ``n`` unit steps."""
     if n <= 0:

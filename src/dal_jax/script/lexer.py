@@ -1,12 +1,4 @@
-"""Script tokenizer, a port of DAL's ``script/lexer.cpp``.
-
-Words are ASCII letters, digits, ``_`` and ``.``; operators are single
-characters except ``!=``, ``<=`` and ``>=``.  An identifier immediately
-followed by ``[...]`` (plus an optional ``@date`` / ``>increment`` suffix) is
-one index-literal token, e.g. ``EQ[Aapl]@2026-12-31``.  Every token records its
-source position; ``origins`` map offsets of a merged event text back to the
-event-table row and date they came from.
-"""
+"""Script tokenizer, a port of DAL's ``script/lexer.cpp``."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass

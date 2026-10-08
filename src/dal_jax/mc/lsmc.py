@@ -1,23 +1,19 @@
-"""Three-phase Longstaff-Schwartz training and frozen-policy replay.
+"""Three-phase Longstaff-Schwartz training and frozen-policy replay."""
 
-Training, held-out validation and pricing occupy disjoint Sobol intervals.
-Regression coefficients and normalization are frozen before differentiation.
-Pricing replicas share one trained policy and use DAL's digital-shift keys.
-"""
-
-from dataclasses import replace
-from typing import NamedTuple
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, NamedTuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax import Array
 
 from dal_jax.errors import DalError, InvalidPathCount, InvalidPayoff, script_error
-from dal_jax.mc import parallel
 from dal_jax.mc.engine import MonteCarloEngine, PathProduct
-from dal_jax.mc.regression import _design, basis_powers, select_regression
+from dal_jax.mc.regression import Regression, _design, basis_powers, select_regression
 from dal_jax.mc.regression_device import select_device
 from dal_jax.mc.settings import MonteCarloSettings
+from dal_jax.models.base import Model
 from dal_jax.random import bridge
 from dal_jax.random.inverse_normal import inverse_ncdf, inverse_ncdf_ndtri
 from dal_jax.random.sobol import MAX_POINTS, MUL, Sobol, digital_shifts
@@ -30,12 +26,15 @@ from dal_jax.script.lower.smoothing import (
 )
 from dal_jax.script.lsmcprep import exercise_node
 
+if TYPE_CHECKING:
+    from dal_jax.script.preparation import PreparedProduct
+
 
 class Policy(NamedTuple):
-    coefficients: object  # [events, max_basis]
-    means: object  # [events, features]
-    sigmas: object
-    exercise_mask: object
+    coefficients: Array  # [events, max_basis]
+    means: Array  # [events, features]
+    sigmas: Array
+    exercise_mask: Array
 
     def predict(self, event, x):
         coefficients, mean, sigma = self.coefficients[event], self.means[event], self.sigmas[event]
@@ -50,6 +49,22 @@ class Policy(NamedTuple):
             d for d in range(4) if len(basis_powers(x.shape[-1], d)) == coefficients.shape[-1]
         )
         return _design(z, basis_powers(x.shape[-1], degree)) @ coefficients
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingResult:
+    policy: Policy
+    regressions: tuple[Regression, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class LsmcResult:
+    values: tuple[tuple[str, float], ...]
+    replicate_means: tuple[float, ...]
+    training: TrainingResult
+
+    def as_dict(self) -> dict[str, float]:
+        return dict(self.values)
 
 
 def _policy(regressions, prepared, degree):
@@ -126,31 +141,8 @@ def _records_product(prepared, offset):
     )
 
 
-def _collect_raw(engine, params, n_paths):
-    layout = engine.layout(n_paths)
-
-    def local(p, block_ids, count, axis_name):
-        state = engine._simulation_state(p)
-        ctx = replace(engine._context(False), axis_name=axis_name)
-        return jax.lax.map(
-            lambda b: engine._block_paths(p, state, b, layout.block_size, ctx)[1], block_ids
-        )
-
-    if n_paths not in engine._record_functions:
-        gather = lambda p: parallel.gather_blocks(
-            local,
-            p,
-            jnp.asarray(n_paths),
-            strategy=engine.settings.parallel,
-            devices=engine.devices,
-            n_blocks=layout.n_blocks,
-        )
-        engine._record_functions[n_paths] = jax.jit(gather)
-    return engine._record_functions[n_paths](params).reshape((-1, engine._output_count))[:n_paths]
-
-
 def _collect(engine, params, n_paths):
-    values = _collect_raw(engine, params, n_paths)
+    values = engine.path_collector(n_paths)(params)
     if engine.product.error_messages:
         for flag, message in zip(
             np.asarray(jnp.any(values[:, len(engine.payoff_names) :] > 0, axis=0)),
@@ -212,27 +204,46 @@ def _backward_fit(prepared, training, validation, degree):
 
 
 def _backward_device(prepared, training, validation, degree):
-    blocks = [training] + ([] if validation is None else [validation])
-    values = [jnp.zeros(block.payments.shape[0], jnp.float64) for block in blocks]
+    blocks = (training,) if validation is None else (training, validation)
+    values = tuple(jnp.zeros(block.payments.shape[0], jnp.float64) for block in blocks)
     features = len(prepared.regression_features)
-    coefficients = jnp.zeros((len(prepared.events), len(basis_powers(features, degree))))
-    means, sigmas = (
-        jnp.zeros((len(prepared.events), features)),
-        jnp.ones((len(prepared.events), features)),
-    )
+    width = len(basis_powers(features, degree))
     mask = jnp.asarray(tuple(exercise_node(event) is not None for event in prepared.events))
-    for event in range(len(prepared.events) - 1, -1, -1):
-        _advance_targets(values, blocks, event)
-        if exercise_node(prepared.events[event]) is None:
-            continue
-        rows = _regression_rows(values, blocks, event)
-        fit = select_device(*rows[0], degree, None if len(rows) == 1 else rows[1])
-        coefficients = coefficients.at[event].set(fit.coefficients)
-        means, sigmas = means.at[event].set(fit.means), sigmas.at[event].set(fit.sigmas)
-        for i, (block, row) in enumerate(zip(blocks, rows)):
-            exercise = row[2] & (block.exercise_values[:, event] > fit.predict(row[0]))
-            values[i] = jnp.where(exercise, block.exercise_values[:, event], values[i])
-    return Policy(coefficients, means, sigmas, mask)
+    ratios = tuple(
+        jnp.concatenate(
+            (
+                block.numeraires[:, :-1] / block.numeraires[:, 1:],
+                jnp.zeros((block.payments.shape[0], 1)),
+            ),
+            axis=1,
+        )
+        for block in blocks
+    )
+    empty = (jnp.zeros(width), jnp.zeros(features), jnp.ones(features))
+
+    def step(values, event):
+        holding = tuple(
+            block.payments[:, event] + ratio[:, event] * value
+            for block, ratio, value in zip(blocks, ratios, values, strict=True)
+        )
+
+        def exercise(values):
+            rows = _regression_rows(values, blocks, event)
+            fit = select_device(*rows[0], degree, None if len(rows) == 1 else rows[1])
+            updated = tuple(
+                jnp.where(
+                    row[2] & (block.exercise_values[:, event] > fit.predict(row[0])),
+                    block.exercise_values[:, event],
+                    value,
+                )
+                for block, row, value in zip(blocks, rows, values, strict=True)
+            )
+            return updated, (fit.coefficients, fit.means, fit.sigmas)
+
+        return jax.lax.cond(mask[event], exercise, lambda values: (values, empty), holding)
+
+    _, fields = jax.lax.scan(step, values, jnp.arange(len(prepared.events)), reverse=True)
+    return Policy(*fields, mask)
 
 
 def _fuzzy_value(prepared, records, policy, ctx):
@@ -302,16 +313,28 @@ class _ReplayEngine(MonteCarloEngine):
         return normals
 
 
+@dataclass(frozen=True, init=False, eq=False)
 class LsmcEngine:
     """Host training and a pure, differentiable frozen-policy pricing function."""
 
+    prepared: "PreparedProduct"
+    model: Model
+    settings: MonteCarloSettings
+    _training: MonteCarloEngine
+    _validation_engines: dict
+    _replica_functions: dict
+    _value_functions: dict
+    _policy_risk_functions: dict
+
     def __init__(self, prepared, model, settings=None):
-        self.prepared, self.model, self.settings = prepared, model, settings or MonteCarloSettings()
+        object.__setattr__(self, "prepared", prepared)
+        object.__setattr__(self, "model", model)
+        object.__setattr__(self, "settings", settings or MonteCarloSettings())
         if self.settings.rsg != "sobol":
             raise script_error("UnsupportedRsgForExercise: EXERCISE requires rsg=sobol")
         if len(prepared.regression_features) > 1 and self.settings.lsmc_basis_degree > 3:
             raise script_error("InvalidLsmcFeatureBudget: multivariate basis degree must be 1..3")
-        self._training = MonteCarloEngine(
+        training = MonteCarloEngine(
             _records_product(prepared, 0),
             model,
             replace(
@@ -323,12 +346,14 @@ class LsmcEngine:
                 lsmc_policy_risk_mode="Frozen",
             ),
         )
-        self.regressions = ()
-        self.replicate_means = ()
-        self._validation_engines = {}
-        self._replica_functions = {}
-        self._value_functions = {}
-        self._policy_risk_functions = {}
+        object.__setattr__(self, "_training", training)
+        for name in (
+            "_validation_engines",
+            "_replica_functions",
+            "_value_functions",
+            "_policy_risk_functions",
+        ):
+            object.__setattr__(self, name, {})
 
     def default_params(self):
         return self._training.default_params()
@@ -352,7 +377,7 @@ class LsmcEngine:
             )
         return self._validation_engines[n_train]
 
-    def train(self, n_paths, params=None):
+    def train_result(self, n_paths, params=None) -> TrainingResult:
         params = self.default_params() if params is None else params
         self.model.validate_params(params["model"])
         n_train, n_val, _ = _path_counts(self.settings, n_paths)
@@ -361,21 +386,41 @@ class LsmcEngine:
         if n_val:
             validation_engine = self._validation_engine(n_train)
             validation = _unpack(_collect(validation_engine, params, n_val), self.prepared)
-        self.regressions = _backward_fit(
+        regressions = _backward_fit(
             self.prepared, train, validation, self.settings.lsmc_basis_degree
         )
-        return _policy(self.regressions, self.prepared, self.settings.lsmc_basis_degree)
+        return TrainingResult(
+            _policy(regressions, self.prepared, self.settings.lsmc_basis_degree), regressions
+        )
+
+    def train(self, n_paths, params=None) -> Policy:
+        return self.train_result(n_paths, params).policy
 
     def train_jax(self, n_paths, params):
-        """Pure fixed-shape training, used by vmap for simultaneous policy bumps."""
+        """Host training wrapper; construct training_pricer before applying transforms."""
+        return self.training_pricer(n_paths)(params)
+
+    def training_pricer(self, n_paths):
+        """Build a pure fixed-shape training function before applying JAX transforms."""
         n_train, n_val, _ = _path_counts(self.settings, n_paths)
         width = len(self._training.payoff_names)
-        train = _unpack(_collect_raw(self._training, params, n_train)[:, :width], self.prepared)
-        validation = None
-        if n_val:
-            engine = self._validation_engine(n_train)
-            validation = _unpack(_collect_raw(engine, params, n_val)[:, :width], self.prepared)
-        return _backward_device(self.prepared, train, validation, self.settings.lsmc_basis_degree)
+        collect_train = self._training.path_collector(n_train)
+        collect_validation = (
+            self._validation_engine(n_train).path_collector(n_val) if n_val else None
+        )
+
+        def fit(params):
+            train = _unpack(collect_train(params)[:, :width], self.prepared)
+            validation = (
+                None
+                if collect_validation is None
+                else _unpack(collect_validation(params)[:, :width], self.prepared)
+            )
+            return _backward_device(
+                self.prepared, train, validation, self.settings.lsmc_basis_degree
+            )
+
+        return fit
 
     def _replay(self, n_paths, policy):
         n_train, n_val, _ = _path_counts(self.settings, n_paths)
@@ -450,14 +495,20 @@ class LsmcEngine:
         return lambda params: jnp.mean(prices(params))[None]
 
     def value(self, n_paths, params=None):
+        return self.evaluate(n_paths, params).as_dict()
+
+    def evaluate(self, n_paths, params=None) -> LsmcResult:
         params = self.default_params() if params is None else params
-        policy = self.train(n_paths, params)
+        training = self.train_result(n_paths, params)
+        policy = training.policy
         has_errors = bool(self._training.product.error_messages)
         self.replica_pricer(n_paths, policy, checked=has_errors)
+        replicas = self._replica_functions[n_paths, has_errors]
 
         # Policy arrays are dynamic arguments so repeated training reuses the executable.
         def price(p, selected):
-            replica_price = self.replica_pricer(n_paths, selected, checked=has_errors)
+            frozen = jax.tree.map(jax.lax.stop_gradient, selected)
+            replica_price = lambda p: replicas(dict(p, _lsmc_policy=frozen))
             if has_errors:
                 prices, errors = replica_price(p)
             else:
@@ -475,12 +526,24 @@ class LsmcEngine:
         else:
             pv, (prices, errors) = compiled(params, policy)
             result = {"PV": float(pv)}
-        self.replicate_means = tuple(float(value) for value in prices)
+        replicate_means = tuple(float(value) for value in prices)
         self._validate_result(result, errors)
         if self.settings.lsmc_policy_risk_mode == "RetrainedBump":
             correction = self.policy_risk_correction(n_paths, params, policy)
             self._add_policy_risk(result, correction)
-        return result
+        return LsmcResult(tuple(result.items()), replicate_means, training)
+
+    def clear_cache(self):
+        self._training.clear_cache()
+        for engine in self._validation_engines.values():
+            engine.clear_cache()
+        for cache in (
+            self._validation_engines,
+            self._replica_functions,
+            self._value_functions,
+            self._policy_risk_functions,
+        ):
+            cache.clear()
 
     def _risk_results(self, pv, grads):
         result = {"PV": float(pv)} | {
@@ -534,17 +597,19 @@ class LsmcEngine:
         lower = jnp.where(lower_valid[:, None], jnp.asarray(lower), flat[None, :])
         inputs = jnp.concatenate((jnp.asarray(upper), lower))
         if n_paths not in self._policy_risk_functions:
+            fit = self.training_pricer(n_paths)
+            replicas = self._raw_replica_pricer(n_paths, False)
 
             def bumped_prices(rows, base_params):
                 def value(row):
                     bumped = jax.tree.map(jax.lax.stop_gradient, unravel(row))
-                    policy = self.train_jax(n_paths, bumped)
-                    return jnp.mean(self.replica_pricer(n_paths, policy)(base_params))
+                    policy = fit(bumped)
+                    return jnp.mean(replicas(dict(base_params, _lsmc_policy=policy)))
 
                 return jax.vmap(value)(rows)
 
             def base_price(base_params, policy):
-                return jnp.mean(self.replica_pricer(n_paths, policy)(base_params))
+                return jnp.mean(replicas(dict(base_params, _lsmc_policy=policy)))
 
             self._policy_risk_functions[n_paths] = jax.jit(bumped_prices), jax.jit(base_price)
         bumped_prices, base_price = self._policy_risk_functions[n_paths]

@@ -1,9 +1,4 @@
-"""Black-Scholes model, a port of DAL's ``BlackScholes_``.
-
-Log-spot is accumulated from per-step drifts ``(r - q - vol^2 / 2) dt`` and
-standard deviations ``vol sqrt(dt)`` precomputed in ``init``; the numeraire is
-``exp(r t)`` and discount factors are ``exp(-r (T - t))``.
-"""
+"""Black-Scholes model, a port of DAL's ``BlackScholes_``."""
 
 import math
 from collections.abc import Mapping, Sequence

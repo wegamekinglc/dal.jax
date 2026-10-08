@@ -1,5 +1,7 @@
 """DAL fuzzy conditions and recursive IF blending, sharing safe scalar arithmetic."""
 
+from types import MappingProxyType
+
 import jax.numpy as jnp
 import numpy as np
 
@@ -9,15 +11,17 @@ from dal_jax.script.lower.exact import _Lowerer
 from dal_jax.script.lower.state import merge_vectors, scalars
 from dal_jax.script.passes.intervals import EPSILON
 
-_KERNELS = {
-    "dal": (S.cspr, S.cspr_bounds, S.bfly, S.bfly_bounds),
-    "smoothstep": (
-        S.smoothstep_cspr,
-        S.smoothstep_cspr_bounds,
-        S.smoothstep_bfly,
-        S.smoothstep_bfly_bounds,
-    ),
-}
+_KERNELS = MappingProxyType(
+    {
+        "dal": (S.cspr, S.cspr_bounds, S.bfly, S.bfly_bounds),
+        "smoothstep": (
+            S.smoothstep_cspr,
+            S.smoothstep_cspr_bounds,
+            S.smoothstep_bfly,
+            S.smoothstep_bfly_bounds,
+        ),
+    }
+)
 
 
 class _FuzzyLowerer(_Lowerer):

@@ -6,6 +6,7 @@ import dal
 import numpy as np
 from _common import (
     TODAY,
+    VALUATION,
     arguments,
     compare,
     finish,
@@ -28,7 +29,7 @@ def main():
     rows = ([TODAY.add_days(365), TODAY.add_days(545)], ["EXERCISE MAX(100-SPOT(),0)"] * 2)
     bs = model()
     data = Product_New(*rows)
-    prepared = dj.prepare(data, TODAY, model=bs)
+    prepared = dj.prepare(data, valuation=VALUATION, model=bs)
     simulation = settings(
         args,
         lsmc_training_paths=min(args.paths, 4096),
@@ -42,7 +43,7 @@ def main():
     engine = prepared.engine(bs, simulation)
     result = compare("Validated RQMC frozen policy", engine, rows, args)
     diagnostic = ScriptSimulation_Explain(
-        data, bs, args.paths, simulation=replace(simulation, enable_aad=False)
+        data, bs, args.paths, valuation=VALUATION, simulation=replace(simulation, enable_aad=False)
     )
     native = dal.ScriptSimulation_Explain(
         oracle_product(rows),

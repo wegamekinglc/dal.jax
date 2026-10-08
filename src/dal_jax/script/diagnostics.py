@@ -1,12 +1,4 @@
-"""Product dumps, ports of DAL's ``ScriptProduct_::DebugJson/DebugTree/Debug`` and ``DescribeScriptProductData``.
-
-* ``debug_json`` - schema ``dal.script-product/1``: events partitioned at the
-  evaluation date (past first), variables numbered, no folding.
-* ``describe`` - schema ``dal.script-product/2``: every event with its origins,
-  observations resolved against the default index, no partition.
-* ``debug_tree`` / ``debug_text`` - the human-friendly tree and the legacy
-  s-expression text.
-"""
+"""Product dumps, ports of DAL's ``ScriptProduct_::DebugJson/DebugTree/Debug`` and ``DescribeScriptProductData``."""
 
 from dal_jax.dates.date import Date
 from dal_jax.errors import DalError, script_error

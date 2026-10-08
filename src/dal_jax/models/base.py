@@ -1,17 +1,7 @@
-"""Model protocol, aligned with DAL's ``Model_<T>``.
-
-DAL's ``Allocate`` / ``Init`` / ``GeneratePath`` split into three stages:
-
-* ``allocate(timeline, sample_defs)`` runs once on the host and returns a
-  hashable static plan (time grid, slot layout, capability checks).
-* ``init(params, plan)`` runs once per pricing on device, outside the path
-  ``vmap``; it holds everything that depends only on parameters, so gradients
-  flow through it.
-* ``generate(state, plan, normals)`` describes a single path; the engine
-  ``vmap``-s it over a block.
-"""
+"""Model protocol, aligned with DAL's ``Model_<T>``."""
 
 import math
+from abc import abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import NamedTuple, Protocol, runtime_checkable
@@ -51,12 +41,7 @@ class Sample(NamedTuple):
 
 
 class Scenario(NamedTuple):
-    """One simulated path.  Ragged per-sample vectors are padded to a fixed width.
-
-    ``observations[i, j]`` is the j-th index requested on sample ``i``;
-    ``discounts[i, k]`` is ``P(t_i, discount_mats[k])`` (padding is 1.0, as DAL
-    initialises unused discount slots).
-    """
+    """Single-path arrays with padded observation and discount slots."""
 
     spot: Array  # [n_samples]
     numeraire: Array  # [n_samples]
@@ -64,13 +49,7 @@ class Scenario(NamedTuple):
     discounts: Array  # [n_samples, max_discounts]
 
     def samples(self) -> tuple[Sample, ...]:
-        """Per-date views, like DAL's ``Scenario_ = Vector_<Sample_>``.
-
-        Prefer this over repeated ``scenario.spot[i]`` when a payoff reads many
-        dates: each static slice transposes to a full-size ``pad`` in reverse
-        mode, while one ``unstack`` per field transposes to a single ``stack``
-        (an order of magnitude faster on CPU for a 36-date barrier).
-        """
+        """Per-date views using one unstack per field to avoid repeated reverse-mode padding."""
         fields = [
             jnp.unstack(x, axis=0)
             for x in (self.spot, self.numeraire, self.observations, self.discounts)
@@ -102,6 +81,7 @@ class Model(Protocol):
 
     def init(self, params: ModelParams, plan): ...
 
+    @abstractmethod
     def generate(self, state, plan, normals: Array) -> Scenario: ...
 
 

@@ -26,9 +26,6 @@ def rhs(statement):
     return statement.args[1]
 
 
-# --- constant marking ----------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "text,value",
     [
@@ -82,9 +79,6 @@ def test_named_constants_never_fold():
     assert not rhs(event[0]).is_const and not rhs(event[0]).args[0].is_const
 
 
-# --- IF metadata ---------------------------------------------------------------------------------
-
-
 def test_if_metadata_collects_nested_writes():
     event, _ = indexed(
         "a = 0 b = 0 c = 0 IF spot() > 1 THEN a = 1 IF spot() > 2 THEN b = 2 END ELSE p pays 1 END APPEND(v, 1)"
@@ -95,9 +89,6 @@ def test_if_metadata_collects_nested_writes():
     assert depth == 2 and outer.affected_vars == (0, 1, 3) and inner.affected_vars == (1,)
     (vec_event,), _ = process_ifs([indexed("IF spot() > 1 THEN APPEND(v, 1) w[2] = 3 END")[0]])
     assert vec_event[0].affected_vectors == (0, 1)
-
-
-# --- domains ----------------------------------------------------------------------------------------
 
 
 def domain_processed(text, fuzzy=False):
@@ -136,9 +127,6 @@ def test_fuzzy_domain_sets_discrete_bounds():
 def test_domain_requires_prepared_fixings():
     with pytest.raises(Exception, match="PreparationRequired"):
         domain_processed("x = FIX(EQ[a])")
-
-
-# --- constant-condition folding -------------------------------------------------------------------
 
 
 def const_cond_processed(text):

@@ -3,6 +3,7 @@
 import math
 import numbers
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Literal
 
 import jax
@@ -22,15 +23,17 @@ DEFAULT_BLOCK_SIZE = 8192
 DEFAULT_PRNG_SEED = 1024
 
 #  Allowed values per field; ``rsg`` is reported under DAL's field name.
-_CHOICES = {
-    "rsg": ("sobol", "mrg32", "irn"),
-    "inverse_normal": ("acklam", "acklam_polish", "acklam_polish_precise", "ndtri"),
-    "parallel": ("shard_map", "auto", "pmap", "none"),
-    "dtype": ("float64", "float32", "auto"),
-    "smoothing_kernel": ("dal", "smoothstep"),
-    "lsmc_policy_risk_mode": ("Frozen", "RetrainedBump"),
-}
-_DAL_FIELD_NAMES = {"rsg": "simulation.rsg_"}
+_CHOICES = MappingProxyType(
+    {
+        "rsg": ("sobol", "mrg32", "irn"),
+        "inverse_normal": ("acklam", "acklam_polish", "acklam_polish_precise", "ndtri"),
+        "parallel": ("shard_map", "auto", "pmap", "none"),
+        "dtype": ("float64", "float32", "auto"),
+        "smoothing_kernel": ("dal", "smoothstep"),
+        "lsmc_policy_risk_mode": ("Frozen", "RetrainedBump"),
+    }
+)
+_DAL_FIELD_NAMES = MappingProxyType({"rsg": "simulation.rsg_"})
 
 
 def _check_choices(settings: "MonteCarloSettings") -> None:
@@ -53,31 +56,7 @@ def _check_integer(
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MonteCarloSettings:
-    """Static configuration of a simulation; hashable, so it can key compilation caches.
-
-    DAL fields: ``rsg``, ``use_bb``, ``enable_aad`` (fuzzy evaluation plus
-    gradients), ``smooth`` (default smoothing width).
-    Scripts use DAL's piecewise-linear kernels by default; ``smoothing_kernel``
-    can select ``smoothstep`` for C1 transitions. ``scan_group_threshold``
-    groups adjacent equal event templates (default 4; 0 disables scanning).
-
-    Random numbers: ``inverse_normal`` selects DAL's ``InverseNCDF`` variant
-    (``acklam`` is what DAL's Sobol uses; ``ndtri`` is more accurate but not
-    path-compatible with DAL); ``sobol_shift_key`` applies DAL's digital shift;
-    ``seed`` / ``prng_impl`` drive the ``mrg32`` / ``irn`` streams.
-
-    Execution: ``block_size="auto"`` keeps 8192 on CPU and estimates a GPU
-    block from its allocator memory limit; explicit positive sizes override it.
-    Paths run in these blocks; ``parallel`` spreads
-    blocks over ``devices`` (default: every device of ``platform``);
-    ``dtype="float32"`` casts path arrays while block sums accumulate in
-    float64. ``dtype="auto"`` chooses float64 CPU / float32 GPU paths;
-    the default remains float64. ``deterministic_reduction`` sums per-block values and gradients in
-    block order so results are bitwise independent of the device count;
-    ``block_bucketing`` rounds the block count up to a power of two so nearby
-    path counts reuse one compilation; ``checkpoint`` rematerialises each block
-    in the backward pass so gradient memory is one block, not all paths.
-    """
+    """Static, validated simulation configuration."""
 
     rsg: Rsg = "sobol"
     use_bb: bool = False

@@ -3,13 +3,14 @@
 from typing import NamedTuple
 
 import numpy as np
+from jax import Array
 
 
 class ScriptState(NamedTuple):
-    values: object
-    vectors: tuple
-    lengths: object
-    errors: object
+    values: Array | np.ndarray
+    vectors: tuple[Array | np.ndarray, ...]
+    lengths: Array | np.ndarray
+    errors: Array | np.ndarray
 
     @property
     def dtype(self):

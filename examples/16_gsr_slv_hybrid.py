@@ -3,7 +3,7 @@
 from importlib import import_module
 
 import dal
-from _common import TODAY, arguments, compare, finish, require_p5_oracle, settings
+from _common import TODAY, VALUATION, arguments, compare, finish, require_p5_oracle, settings
 
 import dal_jax as dj
 import dal_jax.api as api
@@ -37,7 +37,7 @@ def main():
     comparisons = [
         compare(
             "Standalone rate SLV",
-            dj.prepare(api.Product_New(*rows), TODAY, model=smile).engine(
+            dj.prepare(api.Product_New(*rows), valuation=VALUATION, model=smile).engine(
                 smile, settings(args, use_bb=True, block_size=1024)
             ),
             rows,
@@ -79,7 +79,7 @@ def main():
             "hybrid", "USD", [native_rate, native_equity], native_correlation
         )
         rows = ([date], ["pay PAYS MAX(FIX(EQ[A])-101,0) + 100*FIX(IR[USD,LIBOR_3M_CME])"])
-        engine = dj.prepare(api.Product_New(*rows), TODAY, model=hybrid).engine(
+        engine = dj.prepare(api.Product_New(*rows), valuation=VALUATION, model=hybrid).engine(
             hybrid, settings(args, use_bb=True, block_size=1024)
         )
         comparisons.append(

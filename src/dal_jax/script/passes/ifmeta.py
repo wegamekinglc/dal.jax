@@ -1,9 +1,4 @@
-"""IF metadata, a port of DAL's ``visitor/ifprocessor.hpp``.
-
-For every ``If`` it records the (sorted) indices of variables and vectors
-written in its branches, nested ``If``s included; fuzzy evaluation blends only
-those.  It also reports the deepest ``If`` nesting.
-"""
+"""IF metadata, a port of DAL's ``visitor/ifprocessor.hpp``."""
 
 from collections.abc import Sequence
 from dataclasses import replace

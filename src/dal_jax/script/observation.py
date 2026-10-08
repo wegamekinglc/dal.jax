@@ -12,7 +12,6 @@ from dal_jax.errors import (
 from dal_jax.index import TRADED_RATES, parse_index
 from dal_jax.models.base import SampleDef
 from dal_jax.script import ast as A
-from dal_jax.script.fixings import global_fixings
 from dal_jax.strings import ci_key
 
 
@@ -153,7 +152,7 @@ class _Collector:
     def resolve_history(self, expired):
         if expired:
             return
-        snapshot = global_fixings() if self.valuation.fixings is None else self.valuation.fixings
+        snapshot = self.valuation.fixings
         source = "GlobalSnapshot" if self.valuation.fixings is None else "ExplicitSnapshot"
         for i, record in enumerate(self.records):
             if not record.historical or not record.index_name:

@@ -1,10 +1,4 @@
-"""Prepare scalar/vector scripts for exact and fuzzy Monte Carlo valuation.
-
-The input event table stays immutable.  Preparation partitions dates, binds
-SPOT/FIX observations and replays history on the host. Exact events additionally
-use domain/condition folding; fuzzy events retain continuous comparisons,
-following DAL's model-aware preparation. Both lower to grouped JAX events.
-"""
+"""Prepare scalar/vector scripts for exact and fuzzy Monte Carlo valuation."""
 
 import math
 from collections.abc import Mapping
@@ -18,7 +12,7 @@ from dal_jax.errors import InvalidScriptStructure, InvalidSetting, UnsupportedEx
 from dal_jax.mc.engine import PathProduct
 from dal_jax.models.base import Sample, SampleDef
 from dal_jax.script import ast as A
-from dal_jax.script.fixings import ValuationSettings
+from dal_jax.script.fixings import ValuationSettings, resolve_valuation
 from dal_jax.script.lower.events import lower_events
 from dal_jax.script.lower.exact import lower_event, replay_events
 from dal_jax.script.lower.state import ScriptState, scalars
@@ -89,7 +83,7 @@ class PreparedProduct:
         return group_events(self.fuzzy_events if fuzzy else self.events, threshold)
 
     def path_product(self) -> PathProduct:
-        """Lower the prepared events to a pure single-path payoff for P0's engine."""
+        """Lower prepared events to a pure single-path payoff."""
         if self.has_exercise:
             raise UnsupportedExecutionMode(
                 "EXERCISE requires LsmcEngine; use prepared.engine(model, settings)"
@@ -333,11 +327,7 @@ def _valuation(evaluation_date, valuation, fixings, today_fixing_policy):
         valuation = _with_snapshot(valuation, fixings)
     if today_fixing_policy is not None:
         valuation = replace(valuation, today_fixing_policy=today_fixing_policy)
-    if valuation.evaluation_date is None:
-        from dal_jax.api import EvaluationDate_Get
-
-        valuation = replace(valuation, evaluation_date=EvaluationDate_Get())
-    return valuation
+    return resolve_valuation(valuation)
 
 
 def prepare(
@@ -350,12 +340,7 @@ def prepare(
     fixings=None,
     today_fixing_policy=None,
 ) -> PreparedProduct:
-    """Prepare vectors, observations, history, discounts and exercise features.
-
-    FIX and delayed payments need ``model=...``. An immutable valuation setting
-    or explicit fixing snapshot selects history; future quotes are always model
-    outputs. Legacy SPOT history can also be supplied by event date.
-    """
+    """Prepare a script product using a captured valuation context."""
     valuation = _valuation(evaluation_date, valuation, fixings, today_fixing_policy)
     date = valuation.evaluation_date
     _validate_model_date(model, date)

@@ -1,12 +1,4 @@
-"""Script front end against dal-python: byte-identical dumps and matching errors (issue #1, P1).
-
-dal-python 2026.9.25 predates vectors, ``FOR``, ``PAYS ... ON``, the IR index
-parser and the ``30U/360`` basis, so the corpus sticks to features it has; the
-newer ones are pinned by the ported DAL unit tests.  ``Product_Describe`` of the
-newer DAL also adds ``regression_features``, which is dropped before comparing.
-DAL error messages carry C++ source locations, so errors compare on the
-exception code and the core message.
-"""
+"""Script front end against dal-python: byte-identical dumps and matching errors."""
 
 import pytest
 

@@ -1,15 +1,4 @@
-"""Domain analysis, a port of DAL's ``visitor/domainproc.hpp``.
-
-Propagates the set of values every variable and expression can take (all
-variables start at ``{0}``) and, for each condition, decides whether it is
-always true, always false, or either.  In fuzzy mode a comparison whose
-operand domain is discrete around zero gets interpolation bounds
-(``is_discrete``, ``lb``, ``rb``) for the butterfly / call-spread.  ``If``
-nodes must carry ``affected_vars`` (run :mod:`ifmeta` first).
-
-With ``known_observations`` (the prepared pipeline) every fuzzy comparison keeps
-its continuous smoothing; without it only constant operands do.
-"""
+"""Domain analysis, a port of DAL's ``visitor/domainproc.hpp``."""
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
@@ -57,8 +46,6 @@ class DomainProcessor:
         self.conds: list[Cond] = []
         self._handlers = self._handler_table()
 
-    # --- helpers ----------------------------------------------------------------------
-
     def _retain_fuzzy(self, node: A.Comparison, domain: Domain) -> A.Node | None:
         if not self.fuzzy or (self.known is None and not domain.is_constant):
             return None
@@ -93,8 +80,6 @@ class DomainProcessor:
             result = result.dmax(self.doms.pop()) if maximum else result.dmin(self.doms.pop())
         self.doms.append(result)
         return node.with_args(args)
-
-    # --- conditions ----------------------------------------------------------------------
 
     def _compare(self, node: A.Comparison, never_true, never_false, fuzzy_bounds) -> A.Node:
         """Shared skeleton of ``Equal`` / ``Sup`` / ``SupEqual`` on the operand's domain."""
@@ -155,8 +140,6 @@ class DomainProcessor:
                 )
         self.conds.append(cond)
         return replace(node, args=args, **_flags(cond))
-
-    # --- statements --------------------------------------------------------------------------
 
     def _visit_range(self, node: A.If, args: list[A.Node], start: int, stop: int) -> None:
         for i in range(start, stop):

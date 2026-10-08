@@ -109,7 +109,8 @@ def test_gpu_lsmc_training_and_vmapped_policy_bumps(gpu_devices, cpu_devices, da
     del native_options["block_size"]
     gpu = prepared.engine(model, MonteCarloSettings(**common, platform="gpu", devices=gpu_devices))
     cpu = prepared.engine(model, MonteCarloSettings(**common, platform="cpu", devices=cpu_devices))
-    actual, expected = gpu.value(257), cpu.value(257)
+    gpu_result, cpu_result = gpu.evaluate(257), cpu.evaluate(257)
+    actual, expected = gpu_result.as_dict(), cpu_result.as_dict()
     native = dal.MonteCarlo_ValueWithSettings(
         dal.Product_New([native_date(dal, d) for d in dates], (event,) * 2),
         dal.BSModelData_New(100.0, 0.2, 0.05, 0.0),
@@ -126,7 +127,7 @@ def test_gpu_lsmc_training_and_vmapped_policy_bumps(gpu_devices, cpu_devices, da
                 atol=1e-9,
                 err_msg=name,
             )
-    for a, b in zip(gpu.regressions, cpu.regressions):
+    for a, b in zip(gpu_result.training.regressions, cpu_result.training.regressions):
         np.testing.assert_allclose(a.coefficients, b.coefficients, rtol=1e-8, atol=1e-10)
 
 

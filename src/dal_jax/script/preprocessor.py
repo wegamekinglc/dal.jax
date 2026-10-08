@@ -1,12 +1,4 @@
-"""Event-table front end, a port of DAL's ``script/preprocessor.cpp`` and ``event/schedule.cpp``.
-
-Rows whose date column is a :class:`~dal_jax.dates.Date` are events.  Other
-rows are definitions: a ``START: ... END: ... FREQ: ...`` schedule (expanded
-into one event per period, with ``PeriodBegin`` / ``PeriodEnd`` replaced), a
-numeric vector ``[a, b, ...]``, a numeric constant, or otherwise a textual
-macro.  Macro names are replaced case-insensitively outside index literals;
-events on the same date are joined with newlines and remember their origins.
-"""
+"""Event-table front end, a port of DAL's ``script/preprocessor.cpp`` and ``event/schedule.cpp``."""
 
 import math
 import re
@@ -34,9 +26,6 @@ class PreprocessedEvents:
     numeric_vectors: CIMap = field(default_factory=CIMap)  # name -> tuple[float, ...]
     events: dict[Date, str] = field(default_factory=dict)  # ordered by date
     sources: dict[Date, list[SourceOrigin]] = field(default_factory=dict)
-
-
-# --- macro replacement --------------------------------------------------------------
 
 
 def _replace_literal(text: str, pattern: str, replacement: str) -> str:
@@ -106,9 +95,6 @@ def replace_outside_indices(statement: str, pattern: str, replacement: str) -> s
         start = end
     out.append(replace(statement[start:]))
     return "".join(out)
-
-
-# --- definitions -----------------------------------------------------------------------
 
 
 def _vector_value(token: str, row: int) -> float:
@@ -305,11 +291,11 @@ class Preprocessor:
         events[date] = statement if date not in events else events[date] + "\n" + statement
 
 
-__all__ = [
+__all__ = (
     "Cell",
     "EventRow",
     "PreprocessedEvents",
     "Preprocessor",
     "parse_schedule",
     "replace_outside_indices",
-]
+)

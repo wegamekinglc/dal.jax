@@ -1,31 +1,25 @@
-"""Constant marking, a port of DAL's ``visitor/constprocessor.hpp``.
-
-Marks expression nodes whose value is known before simulation (``is_const`` /
-``const_val``).  Literal subtrees fold; variables are constant only after an
-unconditional constant assignment; ``PAYS`` (numeraire-deflated) and named
-constants (differentiable parameters) are never constant; ``SPOT``/``FIX`` are
-constant only when ``known_observations`` supplies their fixing.  Nodes are
-annotated, never replaced.
-
-DAL's compiled mode folds ``MAX``/``MIN`` from their first two arguments only;
-this port folds all arguments, matching DAL's tree evaluator.
-"""
+"""Constant marking, a port of DAL's ``visitor/constprocessor.hpp``."""
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from types import MappingProxyType
 
 from dal_jax.script import ast as A
 from dal_jax.script.passes.intervals import _c_div, c_exp, c_log, c_pow, c_sqrt
 
-_BINARY = {
-    A.Add: lambda x, y: x + y,
-    A.Sub: lambda x, y: x - y,
-    A.Mul: lambda x, y: x * y,
-    A.Div: _c_div,
-    A.Pow: c_pow,
-}
-_UNARY = {A.UPlus: lambda x: x, A.UMinus: lambda x: -x, A.Log: c_log, A.Sqrt: c_sqrt, A.Exp: c_exp}
-_REDUCTIONS = {A.Max: max, A.Min: min}
+_BINARY = MappingProxyType(
+    {
+        A.Add: lambda x, y: x + y,
+        A.Sub: lambda x, y: x - y,
+        A.Mul: lambda x, y: x * y,
+        A.Div: _c_div,
+        A.Pow: c_pow,
+    }
+)
+_UNARY = MappingProxyType(
+    {A.UPlus: lambda x: x, A.UMinus: lambda x: -x, A.Log: c_log, A.Sqrt: c_sqrt, A.Exp: c_exp}
+)
+_REDUCTIONS = MappingProxyType({A.Max: max, A.Min: min})
 
 
 class ConstProcessor:

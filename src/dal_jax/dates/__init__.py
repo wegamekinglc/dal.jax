@@ -6,7 +6,7 @@ from dal_jax.dates.holidays import NO_HOLIDAYS, Holidays, adjust, biz_day_conven
 from dal_jax.dates.increment import Increment, parse_increment
 from dal_jax.dates.schedule import date_generate, date_generation, make_schedule
 
-__all__ = [
+__all__ = (
     "NO_HOLIDAYS",
     "Context",
     "Date",
@@ -22,4 +22,4 @@ __all__ = [
     "is_leap_year",
     "make_schedule",
     "parse_increment",
-]
+)

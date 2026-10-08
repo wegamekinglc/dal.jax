@@ -314,8 +314,7 @@ def _exercise_row(prepared, event, fit, names, all_dates, values):
     }
 
 
-def _exercise_diagnostics(data, engine, values):
-    prepared = engine.prepared
+def _exercise_diagnostics(data, prepared, regressions, values):
     all_dates = [event["date"] for event in json.loads(describe(data))["events"]]
     names = [
         _feature_name(feature, _model_bindings(prepared))
@@ -324,7 +323,7 @@ def _exercise_diagnostics(data, engine, values):
     events = (i for i, row in enumerate(prepared.events) if exercise_node(row) is not None)
     return [
         _exercise_row(prepared, event, fit, names, all_dates, values)
-        for event, fit in zip(events, engine.regressions)
+        for event, fit in zip(events, regressions)
     ]
 
 
@@ -349,8 +348,8 @@ def simulation_explain(data, model, n_paths, valuation=None, simulation=None):
         return result
     engine = prepared.engine(model, settings)
     params = engine.default_params()
-    policy = engine.train(n_paths, params)
-    values = _replay_statistics(engine, n_paths, params, policy)
+    training = engine.train_result(n_paths, params)
+    values = _replay_statistics(engine, n_paths, params, training.policy)
     result["uncertainty"] = _policy_uncertainty(settings, n_paths, values)
-    result["exercise_events"] = _exercise_diagnostics(data, engine, values)
+    result["exercise_events"] = _exercise_diagnostics(data, prepared, training.regressions, values)
     return result

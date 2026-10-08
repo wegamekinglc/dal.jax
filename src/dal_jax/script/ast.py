@@ -1,12 +1,4 @@
-"""Script syntax tree: one frozen dataclass per DAL ``Node*_`` (``script/node.hpp``).
-
-Children live in ``args`` in DAL's ``arguments_`` order, so visitors port line
-by line: binary operators hold ``(lhs, rhs)``, comparisons hold the single
-operand ``lhs - rhs`` (``x > y`` is ``Sup(x - y)``, ``x < y`` is
-``Sup(y - x)``), ``If`` holds ``(condition, *then, *else)`` with
-``first_else`` (``-1`` without else), assignments hold ``(target, value)``.
-Passes never mutate a tree: they return a rebuilt one (``dataclasses.replace``).
-"""
+"""Script syntax tree: one frozen dataclass per DAL ``Node*_`` (``script/node.hpp``)."""
 
 from dataclasses import dataclass, replace
 from typing import Literal
@@ -21,9 +13,6 @@ class Node:
 
     def with_args(self, args: tuple["Node", ...]) -> "Node":
         return self if args == self.args else replace(self, args=args)
-
-
-# --- expressions -----------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -160,9 +149,6 @@ class Fix(Expr):
         return f"PreparationRequired: FIX requires a prepared observation; index={self.literal}; {self.source.describe()}"
 
 
-# --- conditions --------------------------------------------------------------------------
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class BoolNode(Node):
     always_true: bool = False
@@ -217,9 +203,6 @@ class TrueNode(BoolNode):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class FalseNode(BoolNode):
     always_false: bool = True
-
-
-# --- statements ----------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

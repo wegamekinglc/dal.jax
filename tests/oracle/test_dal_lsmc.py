@@ -92,7 +92,8 @@ def test_price_risks_and_training_coefficients(dal, name, aad, bridge):
         lsmc_validation_paths=128,
     )
     engine = prepare(Product_New(*rows), TODAY, model=model).engine(model, settings)
-    ours = engine.value(513)
+    evaluated = engine.evaluate(513)
+    ours = evaluated.as_dict()
     product = dal.Product_New([_native_date(dal, day) for day in rows[0]], rows[1])
     nmodel = dal.BSModelData_New(model.spot, model.vol, model.rate, model.div)
     valuation = dal.ScriptValuationSettings_(evaluation_date=_native_date(dal, TODAY))
@@ -111,7 +112,7 @@ def test_price_risks_and_training_coefficients(dal, name, aad, bridge):
         valuation=valuation,
         simulation=_settings(dal, replace(settings, enable_aad=False)),
     )
-    for fit, event in zip(engine.regressions, diagnostics["exercise_events"]):
+    for fit, event in zip(evaluated.training.regressions, diagnostics["exercise_events"]):
         assert fit.degree == event["basis_degree"]
         assert fit.solver == event["solver"]
         assert fit.count == event["num_cond_true_paths"]
@@ -133,7 +134,8 @@ def test_shifted_replicas_match_individual_native_prices(dal, aad):
         lsmc_pricing_seed=29,
     )
     engine = prepare(Product_New(*rows), TODAY, model=model).engine(model, settings)
-    ours = engine.value(256)
+    evaluated = engine.evaluate(256)
+    ours = evaluated.as_dict()
     product = dal.Product_New([_native_date(dal, day) for day in rows[0]], rows[1])
     nmodel = dal.BSModelData_New(model.spot, model.vol, model.rate, model.div)
     valuation = dal.ScriptValuationSettings_(evaluation_date=_native_date(dal, TODAY))
@@ -151,7 +153,7 @@ def test_shifted_replicas_match_individual_native_prices(dal, aad):
     )
     if not aad:
         np.testing.assert_allclose(
-            engine.replicate_means, diagnostics["uncertainty"]["replicate_means"], atol=1e-12
+            evaluated.replicate_means, diagnostics["uncertainty"]["replicate_means"], atol=1e-12
         )
 
 
@@ -227,7 +229,8 @@ def test_multivariate_training_coefficients_and_risks(dal, features):
         lsmc_validation_paths=128,
     )
     engine = prepare(data, TODAY, model=model).engine(model, settings)
-    ours = engine.value(257)
+    evaluated = engine.evaluate(257)
+    ours = evaluated.as_dict()
     nproduct = dal.Product_New(
         [_native_date(dal, d) for d in rows[0]],
         events,
@@ -256,7 +259,7 @@ def test_multivariate_training_coefficients_and_risks(dal, features):
         valuation=nv,
         simulation=_settings(dal, replace(settings, enable_aad=False)),
     )
-    for fit, event in zip(engine.regressions, diagnostic["exercise_events"]):
+    for fit, event in zip(evaluated.training.regressions, diagnostic["exercise_events"]):
         np.testing.assert_allclose(fit.coefficients, event["coefficients"], rtol=1e-8, atol=1e-10)
 
 
@@ -267,7 +270,8 @@ def test_high_degree_native_regression_and_rank_fallback(dal, degree):
         parallel="none", lsmc_training_paths=4096, lsmc_basis_degree=degree
     )
     engine = prepare(Product_New(*rows), TODAY, model=model).engine(model, settings)
-    ours = engine.value(257)
+    evaluated = engine.evaluate(257)
+    ours = evaluated.as_dict()
     nproduct = dal.Product_New([_native_date(dal, d) for d in rows[0]], rows[1])
     nmodel = dal.BSModelData_New(model.spot, model.vol, model.rate, model.div)
     nv = dal.ScriptValuationSettings_(evaluation_date=_native_date(dal, TODAY))
@@ -278,7 +282,7 @@ def test_high_degree_native_regression_and_rank_fallback(dal, degree):
         nproduct, nmodel, 257, valuation=nv, simulation=_settings(dal, settings)
     )
     np.testing.assert_allclose(ours["PV"], theirs["PV"], rtol=1e-6, atol=1e-10)
-    for fit, event in zip(engine.regressions, diagnostic["exercise_events"]):
+    for fit, event in zip(evaluated.training.regressions, diagnostic["exercise_events"]):
         assert fit.solver == event["solver"]
         np.testing.assert_allclose(fit.coefficients, event["coefficients"], rtol=1e-8, atol=1e-10)
 

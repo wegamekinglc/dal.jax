@@ -1,10 +1,4 @@
-"""Parity with dal-python on identical Sobol points (issue #1, P0 acceptance).
-
-DAL builds products from event tables; the timelines below are taken from
-``ScriptValuation_Explain`` so the hand-written JAX payoffs see exactly DAL's
-sample times.  Tolerances follow the issue: PV relative error <= 1e-10, Greeks
-<= 1e-8 (absolute for Greeks near zero).
-"""
+"""Parity with dal-python on identical Sobol points."""
 
 import json
 import math
@@ -143,12 +137,7 @@ def test_barrier_greeks_match_dal_reference(dal, dal_barrier, cpu_devices):
 
 @pytest.mark.parametrize("rsg", ["mrg32", "irn"])
 def test_pseudo_random_streams_agree_statistically(dal, dal_european, cpu_devices, rsg):
-    """Pseudo-random streams are not bit-compatible, so compare within 3 standard errors.
-
-    The reference is DAL's converged Sobol price: DAL's own mrg32 / irn results
-    drift by several standard errors even at 2**20 paths (irn ~5.28 against a
-    converged 5.2018), so they make a poor statistical yardstick.
-    """
+    """Pseudo-random streams are not bit-compatible, so compare within 3 standard errors."""
     product, model = dal_european
     reference = dict(dal.MonteCarlo_Value(product, model, 2**20, "sobol", False, False))["PV"]
     n = 2**16

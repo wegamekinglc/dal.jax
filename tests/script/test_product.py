@@ -165,9 +165,6 @@ def test_reserved_definitions_and_duplicate_exercise_rows():
         product([(d, "EXERCISE 1"), (d, "EXERCISE 2")])
 
 
-# --- dumps ------------------------------------------------------------------------------------
-
-
 def debugged(text):
     return debug_node(Parser().parse(text)[0])
 

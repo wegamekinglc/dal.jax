@@ -1,15 +1,8 @@
-"""dal-python compatible functions, so event-table scripts move over unchanged.
-
-Dates may be :class:`dal_jax.dates.Date` or :class:`datetime.date`; strings are
-definitions or schedules exactly as in DAL (a date *string* is a definition
-name, not an event date).  ``Product_Describe`` returns the parsed JSON object
-like dal-python; the other dumps return strings.
-"""
+"""dal-python compatible functions, so event-table scripts move over unchanged."""
 
 import datetime as _dt
 import json
 import numbers
-import threading
 import warnings
 from collections.abc import Mapping, Sequence
 from typing import NamedTuple
@@ -34,27 +27,30 @@ from dal_jax.models.hybrid import (
     assemble_correlation,
 )
 from dal_jax.script import diagnostics
-from dal_jax.script.fixings import FixingSnapshot, TodayFixingPolicy, ValuationSettings
+from dal_jax.script.fixings import (
+    FixingSnapshot,
+    TodayFixingPolicy,
+    ValuationSettings,
+    legacy_context,
+    resolve_valuation,
+    set_legacy_date,
+)
 from dal_jax.script.preparation import prepare
 from dal_jax.script.product import ScriptProductData, ScriptProductSettings
 
-_lock = threading.Lock()
-_evaluation_date: Date | None = None
-
 
 def EvaluationDate_Set(date: Date | _dt.date) -> None:  # noqa: N802 - dal-python name
-    global _evaluation_date
-    with _lock:
-        _evaluation_date = _to_date(date)
+    set_legacy_date(_to_date(date))
 
 
 def EvaluationDate_Get() -> Date:  # noqa: N802
-    """The global evaluation date; like DAL, the first read without a set fixes it to today."""
-    global _evaluation_date
-    with _lock:
-        if _evaluation_date is None:
-            _evaluation_date = Date.from_python(_dt.date.today())
-        return _evaluation_date
+    """Legacy session date; without an explicit date, resolve today on each call."""
+    warnings.warn(
+        "EvaluationDate_Get is deprecated; use ValuationSession.snapshot",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return legacy_context().evaluation_date
 
 
 def _to_date(value: Date | _dt.date) -> Date:
@@ -91,16 +87,24 @@ def Product_Describe(product: ScriptProductData) -> dict:  # noqa: N802
     return json.loads(diagnostics.describe(product))
 
 
-def Product_DebugJson(product: ScriptProductData) -> str:  # noqa: N802
-    return diagnostics.debug_json(product, EvaluationDate_Get())
+def Product_DebugJson(product: ScriptProductData, *, valuation=None) -> str:  # noqa: N802
+    return diagnostics.debug_json(
+        product, resolve_valuation(valuation or ValuationSettings()).evaluation_date
+    )
 
 
-def Product_DebugTree(product: ScriptProductData, ascii: bool = False, width: int = 125) -> str:  # noqa: N802
-    return diagnostics.debug_tree(product, EvaluationDate_Get(), ascii, width)
+def Product_DebugTree(
+    product: ScriptProductData, ascii: bool = False, width: int = 125, *, valuation=None
+) -> str:  # noqa: N802
+    return diagnostics.debug_tree(
+        product, resolve_valuation(valuation or ValuationSettings()).evaluation_date, ascii, width
+    )
 
 
-def Product_Debug(product: ScriptProductData) -> str:  # noqa: N802
-    return diagnostics.debug_text(product, EvaluationDate_Get())
+def Product_Debug(product: ScriptProductData, *, valuation=None) -> str:  # noqa: N802
+    return diagnostics.debug_text(
+        product, resolve_valuation(valuation or ValuationSettings()).evaluation_date
+    )
 
 
 def BSModelData_New(spot: float, vol: float, rate: float = 0.0, div: float = 0.0) -> BlackScholes:  # noqa: N802
@@ -309,13 +313,7 @@ def MonteCarlo_Value(
     today_fixing_policy: TodayFixingPolicy | str | None = None,
     **execution_settings,
 ) -> dict[str, float]:
-    """Value prepared scripts, returning PV and, with AAD, all ``d_<label>`` risks.
-
-    ``method`` aliases ``rsg`` for dal-python callers.  Execution options such
-    as ``block_size``, ``parallel`` and ``devices`` go to MonteCarloSettings.
-    Historical SPOT values may be supplied by event date.  AAD evaluates
-    future events in fuzzy mode; historical assignments always use hard IF.
-    """
+    """Value prepared scripts, returning PV and, with AAD, all ``d_<label>`` risks."""
     _path_count(n_paths)
     rsg = _random_sequence(rsg, method)
     _compiled_option(compiled)
@@ -398,7 +396,7 @@ def _compiled_option(compiled: bool | None) -> None:
     )
 
 
-__all__ = [
+__all__ = (
     "BSModelData_New",
     "EvaluationDate_Get",
     "EvaluationDate_Set",
@@ -415,8 +413,8 @@ __all__ = [
     "CorrelatedBSModelData_New",
     "LocalVolSurfaceData_New",
     "BSLocalVolModelData_New",
-]
-__all__ += [
+)
+__all__ += (
     "GSRCurveData_New",
     "GSRVolData_New",
     "MultiFactorGSRVolData_New",
@@ -436,6 +434,6 @@ __all__ += [
     "HybridCorrelation_Assemble",
     "HybridModelData_New",
     "MonteCarloSettings_",
-]
-__all__ += ["ScriptValuation_Explain", "ScriptSimulation_Explain"]
-__all__ += ["HybridFactorLink_"]
+)
+__all__ += ("ScriptValuation_Explain", "ScriptSimulation_Explain")
+__all__ += ("HybridFactorLink_",)

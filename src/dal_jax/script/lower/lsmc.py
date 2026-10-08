@@ -5,6 +5,7 @@ from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
+from jax import Array
 
 from dal_jax.script import ast as A
 from dal_jax.script.lower.events import EventSample
@@ -15,12 +16,12 @@ from dal_jax.script.passes.eventgroup import group_events
 
 
 class Records(NamedTuple):
-    payments: object  # [events]
-    exercise_values: object  # [events], zero on non-exercise days
-    conditions: object  # [events]
-    features: object  # [events, features]
-    numeraires: object  # [events]
-    errors: object
+    payments: Array  # [events]
+    exercise_values: Array  # [events], zero on non-exercise days
+    conditions: Array  # [events]
+    features: Array  # [events, features]
+    numeraires: Array  # [events]
+    errors: Array | None
 
 
 # The mixin obtains evaluator methods from _Lowerer/_FuzzyLowerer through MRO.

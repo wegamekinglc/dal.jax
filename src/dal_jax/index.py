@@ -1,11 +1,7 @@
-"""Index names used by ``FIX(...)`` (``dal/indice``): parsing and canonical names.
-
-``parse_index("EQ[Aapl]@2026-12-31")`` returns an index whose ``name`` is
-DAL's canonical ``Index_::Name()``.  Parsers are chosen by the text before the
-first ``:`` or ``[`` (case-insensitive), as DAL's parser registry does.
-"""
+"""Index names used by ``FIX(...)`` (``dal/indice``): parsing and canonical names."""
 
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from dal_jax.dates.date import Date
 from dal_jax.dates.increment import parse_increment
@@ -65,9 +61,6 @@ class Index:
     name: str
 
 
-# --- equity -----------------------------------------------------------------------------
-
-
 def _equity_parts(name: str) -> tuple[str, str]:
     """The name inside ``EQ[...]`` and the text after the bracket."""
     stop = name.find("]")
@@ -112,9 +105,6 @@ def _equity(name: str) -> Index:
         raise _IndexParseError(f"InvalidIndex: {name}; {error}") from error
 
 
-# --- FX -----------------------------------------------------------------------------------
-
-
 def _fx(name: str) -> Index:
     start, stop, sep = name.find("["), name.find("]"), name.find("/")
     brackets = (
@@ -129,9 +119,6 @@ def _fx(name: str) -> Index:
     )
     foreign, domestic = currency(name[start + 1 : sep]), currency(name[sep + 1 : stop])
     return Index("FX", f"FX[{foreign}/{domestic}]")
-
-
-# --- IR -------------------------------------------------------------------------------------
 
 
 def _parts(body: str) -> list[str]:
@@ -206,7 +193,7 @@ def _ir(name: str) -> Index:
     return _bracketed(_parts(name[3:-1]))
 
 
-_PARSERS = {ci_key("EQ"): _equity, ci_key("FX"): _fx, ci_key("IR"): _ir}
+_PARSERS = MappingProxyType({ci_key("EQ"): _equity, ci_key("FX"): _fx, ci_key("IR"): _ir})
 
 
 def parse_index(name: str) -> Index:

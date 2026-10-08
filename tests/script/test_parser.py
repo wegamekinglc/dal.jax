@@ -252,9 +252,6 @@ def test_fix_nodes():
     )
 
 
-# --- EXERCISE -------------------------------------------------------------------------------
-
-
 def exercise_of(event):
     assert isinstance(event[0], A.Exercise)
     return event[0]

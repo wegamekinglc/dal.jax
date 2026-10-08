@@ -25,7 +25,7 @@ def main():
         record = compare(f"Deterministic, {len(selected)} devices", engine, rows, args)
         deterministic.append(record["jax"]["result"])
         comparisons.append(record)
-    assert deterministic[0] == deterministic[1]  # nosec B101: executable numerical validation
+    assert deterministic[0] == deterministic[1]  # nosec B101
     engine = product.engine(model(), settings(args, dtype="float32"))
     comparisons.append(compare("float32 paths, float64 block accumulation", engine, rows, args))
     bucketed = product.engine(model(), settings(args, block_size=1024, block_bucketing=True))

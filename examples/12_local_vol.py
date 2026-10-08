@@ -5,6 +5,7 @@ import jax
 import numpy as np
 from _common import (
     TODAY,
+    VALUATION,
     arguments,
     compare,
     finish,
@@ -39,7 +40,7 @@ def main():
         native = dal.BSLocalVolModelData_New(
             "local_vol", "EQ[A]", "USD", "W_EQ", oracle_model(), native_surf, 0.25
         )
-        product = dj.prepare(Product_New(*rows), TODAY, model=bs)
+        product = dj.prepare(Product_New(*rows), valuation=VALUATION, model=bs)
         engine = product.engine(bs, settings(args))
         comparisons.append(compare(label, engine, rows, args, bs=native))
     params = engine.default_params()

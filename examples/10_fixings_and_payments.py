@@ -1,7 +1,7 @@
 """Immutable fixing snapshots, today's policy, dated FIX and delayed PAYS ON."""
 
 import dal
-from _common import TODAY, arguments, compare, finish, model, require_p5_oracle, settings
+from _common import TODAY, VALUATION, arguments, compare, finish, model, require_p5_oracle, settings
 
 import dal_jax as dj
 from dal_jax.api import Product_New
@@ -17,7 +17,7 @@ def main():
     rows = ([TODAY], ["pay PAYS FIX(EQ[A])"])
     comparisons = []
     for policy in ("Model", "RequireHistorical"):
-        valuation = dj.ValuationSettings(
+        valuation = dj.ValuationContext(
             evaluation_date=TODAY, fixings=snapshot, today_fixing_policy=policy
         )
         product = dj.prepare(Product_New(*rows), model=model(), valuation=valuation)
@@ -29,7 +29,7 @@ def main():
     observation = TODAY.add_days(180)
     payment = TODAY.add_days(730)
     rows = (["K", end], ["100", f"pay PAYS MAX(FIX(EQ[A],{observation})-K,0) ON {payment}"])
-    product = dj.prepare(Product_New(*rows), TODAY, model=model())
+    product = dj.prepare(Product_New(*rows), valuation=VALUATION, model=model())
     engine = product.engine(model(), settings(args))
     comparisons.append(compare("Dated equity FIX and two-year payment", engine, rows, args))
     print(f"\nObservation/sample timeline: {product.timeline}")

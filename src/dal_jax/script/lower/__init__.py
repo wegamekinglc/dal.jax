@@ -9,7 +9,7 @@ from dal_jax.script.lower.smoothing import (
     smoothstep_cspr_bounds,
 )
 
-__all__ = [
+__all__ = (
     "bfly",
     "bfly_bounds",
     "cspr",
@@ -18,4 +18,4 @@ __all__ = [
     "smoothstep_bfly_bounds",
     "smoothstep_cspr",
     "smoothstep_cspr_bounds",
-]
+)

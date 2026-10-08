@@ -1,10 +1,4 @@
-"""Event-table products, a port of DAL's ``ScriptProduct_`` / ``ScriptProductData_`` front end.
-
-``ScriptProductData`` is the immutable input (dates/definitions column, event
-texts, settings).  ``ScriptProduct`` parses it: preprocessing, one parsed event
-per date, then optionally the partition into past and future events at an
-evaluation date and variable numbering.
-"""
+"""Event-table products, a port of DAL's ``ScriptProduct_`` / ``ScriptProductData_`` front end."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field

@@ -1,16 +1,4 @@
-"""Block-based Monte Carlo engine.
-
-Per block of ``block_size`` global path ids the engine generates normals
-(Sobol point ``id + 1`` or a ``fold_in(key, block_id)`` PRNG draw), optionally
-applies the Brownian bridge, ``vmap``-s ``model.generate`` and the payoff over
-the paths, masks paths beyond ``n_paths`` and sums.  Blocks are accumulated by
-a ``lax.scan`` per device and spread over devices by :mod:`dal_jax.mc.parallel`.
-
-``MonteCarloEngine.pricer(n_paths)`` returns a pure ``f(params) -> pv`` that
-composes with ``jit``, ``grad``, ``jacrev``, ``jacfwd``, ``hessian`` and
-``vmap``.  Parameters are a pytree ``{"model": {...}, "script": {...}}``; every
-leaf is differentiable and gradients are reported as ``d_<label>`` like DAL.
-"""
+"""Block-based Monte Carlo engine."""
 
 import math
 from collections.abc import Callable, Mapping
@@ -61,17 +49,7 @@ type PathPayoff = Callable[..., ArrayLike]
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PathProduct:
-    """A product as the engine sees it: a timeline and a single-path payoff.
-
-    ``payoff(params, scenario, ctx)`` returns one numeraire-deflated value per
-    name in ``payoff_names``.  ``script_params`` are the differentiable product
-    constants (DAL's ``STRIKE``-style event-table constants), exposed as
-    ``params["script"]``.  ``sample_defs`` defaults to a numeraire on every date.
-    With ``initial_state(params)``, the engine computes shared product state
-    outside the path loop and passes it as a fourth argument to ``payoff``.
-    Standard reduction also hoists it outside the block loop; deterministic
-    reduction replays it per block to preserve independent block Jacobians.
-    """
+    """Timeline and single-path payoff; initial_state adds a shared fourth payoff argument."""
 
     timeline: tuple[float, ...]
     payoff: PathPayoff
@@ -184,8 +162,6 @@ class MonteCarloEngine:
             object.__setattr__(self, name, value)
         object.__setattr__(self, "_normals", self._make_normals())
 
-    # --- metadata ---------------------------------------------------------------
-
     @property
     def payoff_names(self) -> tuple[str, ...]:
         return self.product.payoff_names
@@ -231,8 +207,6 @@ class MonteCarloEngine:
             )
         return BlockLayout(block_size, n_blocks, n_devices)
 
-    # --- random numbers ---------------------------------------------------------
-
     def _make_normals(self) -> Callable[[Array, Array], Array]:
         """``(block_id, path_ids[B]) -> float64[B, sim_dim]``, bridged if ``use_bb``."""
         settings, dim = self.settings, self.sim_dim
@@ -265,8 +239,6 @@ class MonteCarloEngine:
         plan = bridge.bridge_plan(dim // n_factors)
         one_bridge = partial(bridge.apply_factors, plan, n_factors=n_factors)
         return lambda block_id, path_ids: jax.vmap(one_bridge)(draw(block_id, path_ids))
-
-    # --- block evaluation -------------------------------------------------------
 
     def _cast(self, tree):
         """Float leaves to the path dtype (a no-op in the default float64 mode)."""
@@ -423,8 +395,6 @@ class MonteCarloEngine:
         pv.defvjp(pv_fwd, pv_bwd)
         return pv
 
-    # --- public API -------------------------------------------------------------
-
     def pricer(self, n_paths: int, *, fuzzy: bool | None = None) -> Callable[[Params], Array]:
         """Pure ``f(params) -> pv[n_payoffs]`` over ``n_paths`` paths.
 
@@ -479,6 +449,40 @@ class MonteCarloEngine:
                 jnp.any(values[:, len(self.payoff_names) :] > 0, axis=1)[:, None], jnp.nan, prices
             )
         return ids, prices
+
+    def path_collector(self, n_paths: int) -> Callable[[Params], Array]:
+        """Collect exact path outputs and error flags in global path order."""
+        if n_paths not in self._record_functions:
+            layout = self.layout(n_paths)
+
+            def local(params, block_ids, count, axis_name):
+                state = self._simulation_state(params)
+                context = replace(self._context(False), axis_name=axis_name)
+                return jax.lax.map(
+                    lambda block: self._block_paths(
+                        params, state, block, layout.block_size, context
+                    )[1],
+                    block_ids,
+                )
+
+            def collect(params):
+                values = parallel.gather_blocks(
+                    local,
+                    params,
+                    jnp.asarray(n_paths),
+                    strategy=self.settings.parallel,
+                    devices=self.devices,
+                    n_blocks=layout.n_blocks,
+                )
+                return values.reshape((-1, self._output_count))[:n_paths]
+
+            self._record_functions[n_paths] = jax.jit(collect)
+        return self._record_functions[n_paths]
+
+    def clear_cache(self) -> None:
+        """Release this engine's references to compiled pricing and collection functions."""
+        self._compiled.clear()
+        self._record_functions.clear()
 
     def value(
         self, n_paths: int, params: Params | None = None, *, payoff: str | None = None

@@ -10,7 +10,7 @@ config.enable_x64()
 
 from dal_jax.errors import DalError  # noqa: E402
 from dal_jax.mc import EvalContext, MonteCarloEngine, MonteCarloSettings, PathProduct  # noqa: E402
-from dal_jax.mc.lsmc import LsmcEngine, Policy  # noqa: E402
+from dal_jax.mc.lsmc import LsmcEngine, LsmcResult, Policy, TrainingResult  # noqa: E402
 from dal_jax.models import (  # noqa: E402
     BlackScholes,
     CorrelatedBlackScholes,
@@ -25,6 +25,8 @@ from dal_jax.models.hybrid import Hybrid  # noqa: E402
 from dal_jax.script.fixings import (  # noqa: E402
     FixingSnapshot,
     TodayFixingPolicy,
+    ValuationContext,
+    ValuationSession,
     ValuationSettings,
     set_global_fixings,
 )
@@ -32,7 +34,7 @@ from dal_jax.script.preparation import PreparedProduct, prepare  # noqa: E402
 
 __version__ = "0.1.0a1"
 
-__all__ = [
+__all__ = (
     "BlackScholes",
     "CorrelatedBlackScholes",
     "LocalVol",
@@ -46,12 +48,16 @@ __all__ = [
     "GSRLeverage",
     "Hybrid",
     "LsmcEngine",
+    "LsmcResult",
+    "TrainingResult",
     "Policy",
     "DalError",
     "EvalContext",
     "FixingSnapshot",
     "TodayFixingPolicy",
     "ValuationSettings",
+    "ValuationContext",
+    "ValuationSession",
     "set_global_fixings",
     "MonteCarloEngine",
     "MonteCarloSettings",
@@ -61,4 +67,4 @@ __all__ = [
     "Scenario",
     "config",
     "prepare",
-]
+)

@@ -3,8 +3,10 @@
 import datetime as dt
 import math
 import threading
+import warnings
+from bisect import bisect_left
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 from dal_jax.dates import Date
@@ -55,6 +57,7 @@ class FixingSnapshot:
     """Copy an index -> timestamp -> value mapping; aliases share canonical identity."""
 
     entries: tuple[tuple[str, Date, int, float], ...]
+    _keys: tuple[tuple[str, Date, int], ...] = field(repr=False, compare=False)
 
     def __init__(self, values: Mapping[str, Mapping] = ()):
         records = {}
@@ -66,17 +69,23 @@ class FixingSnapshot:
         _validate_reciprocals(records)
         entries = tuple((*key, value) for key, value in sorted(records.items()))
         object.__setattr__(self, "entries", entries)
+        object.__setattr__(self, "_keys", tuple(row[:3] for row in entries))
 
     def find(self, index, timestamp):
         name = ci_key(parse_index(index).name)
         date, micros = fixing_time(timestamp)
-        values = {(n, d, t): v for n, d, t, v in self.entries}
-        direct = values.get((name, date, micros))
+        direct = self._find((name, date, micros))
         if direct is not None:
             return direct
         reverse = _reverse_fx(name)
-        value = values.get((reverse, date, micros))
+        value = None if reverse is None else self._find((reverse, date, micros))
         return None if value is None else 1.0 / value
+
+    def _find(self, key):
+        index = bisect_left(self._keys, key)
+        return (
+            self.entries[index][3] if index < len(self._keys) and self._keys[index] == key else None
+        )
 
 
 def _validate_reciprocals(records):
@@ -117,19 +126,95 @@ class ValuationSettings:
         )
 
 
-_global_lock = threading.Lock()
-_global_snapshot = FixingSnapshot()
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ValuationContext(ValuationSettings):
+    """Resolved valuation inputs, independent of session updates."""
+
+    evaluation_date: Date = field()
+    fixings: FixingSnapshot = field(default_factory=FixingSnapshot)
+
+    def __post_init__(self):
+        ValuationSettings.__post_init__(self)
+        if self.evaluation_date is None or self.fixings is None:
+            raise InvalidSetting(
+                "a valuation context requires an evaluation date and fixing snapshot"
+            )
+
+
+class ValuationSession:
+    """Own a replaceable valuation configuration and publish immutable snapshots."""
+
+    def __init__(self, settings: ValuationSettings | None = None):
+        if settings is not None and not isinstance(settings, ValuationSettings):
+            raise InvalidSetting("session settings must be ValuationSettings")
+        self._lock = threading.Lock()
+        self._settings = settings or ValuationSettings()
+
+    def snapshot(self) -> ValuationContext:
+        with self._lock:
+            settings = self._settings
+        return ValuationContext(
+            evaluation_date=settings.evaluation_date or Date.from_python(dt.date.today()),
+            fixings=settings.fixings if settings.fixings is not None else FixingSnapshot(),
+            today_fixing_policy=settings.today_fixing_policy,
+        )
+
+    def update(self, settings: ValuationSettings) -> None:
+        if not isinstance(settings, ValuationSettings):
+            raise InvalidSetting("session settings must be ValuationSettings")
+        with self._lock:
+            self._settings = settings
+
+    def _set_date(self, date):
+        with self._lock:
+            self._settings = replace(self._settings, evaluation_date=date)
+
+    def _set_fixings(self, snapshot):
+        with self._lock:
+            self._settings = replace(self._settings, fixings=snapshot)
+
+
+# The deprecated DAL compatibility interface alone owns shared business state.
+_LEGACY_SESSION = ValuationSession()
+
+
+def legacy_context() -> ValuationContext:
+    return _LEGACY_SESSION.snapshot()
+
+
+def set_legacy_date(date) -> None:
+    warnings.warn(
+        "EvaluationDate_Set is deprecated; pass a ValuationContext",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+    _LEGACY_SESSION._set_date(date)
+
+
+def resolve_valuation(settings: ValuationSettings) -> ValuationContext:
+    fallback = (
+        legacy_context()
+        if settings.evaluation_date is None or settings.fixings is None
+        else settings
+    )
+    return ValuationContext(
+        evaluation_date=settings.evaluation_date or fallback.evaluation_date,
+        fixings=fallback.fixings if settings.fixings is None else settings.fixings,
+        today_fixing_policy=settings.today_fixing_policy,
+    )
 
 
 def set_global_fixings(snapshot: FixingSnapshot):
-    """Replace the in-process fixing snapshot; preparation captures it once."""
+    """Deprecated DAL-compatible fixing setter."""
     if not isinstance(snapshot, FixingSnapshot):
         raise InvalidSetting("global fixings must be a FixingSnapshot")
-    global _global_snapshot
-    with _global_lock:
-        _global_snapshot = snapshot
+    warnings.warn(
+        "set_global_fixings is deprecated; pass a ValuationContext",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    _LEGACY_SESSION._set_fixings(snapshot)
 
 
 def global_fixings():
-    with _global_lock:
-        return _global_snapshot
+    return legacy_context().fixings

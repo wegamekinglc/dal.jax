@@ -1,7 +1,7 @@
 """Two-asset basket and worst-of, factor-aware Brownian bridge and default index."""
 
 import dal
-from _common import TODAY, arguments, compare, finish, require_p5_oracle, settings
+from _common import TODAY, VALUATION, arguments, compare, finish, require_p5_oracle, settings
 
 import dal_jax as dj
 from dal_jax.api import Product_New
@@ -30,12 +30,14 @@ def main():
         ("Worst-of with Brownian bridge", "MIN(FIX(EQ[A]),FIX(EQ[B]))", True),
     ]:
         rows = (["K", end], ["100", f"pay PAYS MAX({expression}-K,0)"])
-        product = dj.prepare(Product_New(*rows), TODAY, model=bs)
+        product = dj.prepare(Product_New(*rows), valuation=VALUATION, model=bs)
         engine = product.engine(bs, settings(args, use_bb=bridge))
         comparisons.append(compare(label, engine, rows, args, bs=native))
     rows = ([end], ["pay PAYS SPOT()+FIX(EQ[B])"])
     product = dj.prepare(
-        Product_New(*rows, settings=ScriptProductSettings(default_index="EQ[B]")), TODAY, model=bs
+        Product_New(*rows, settings=ScriptProductSettings(default_index="EQ[B]")),
+        valuation=VALUATION,
+        model=bs,
     )
     native_product = dal.Product_New(
         [dal.Date_(end.year, end.month, end.day)],

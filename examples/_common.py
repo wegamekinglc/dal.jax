@@ -7,18 +7,20 @@ import statistics
 import time
 from importlib.metadata import version
 from pathlib import Path
+from types import MappingProxyType
 
 import dal
 import jax
 import numpy as np
 
 import dal_jax as dj
-from dal_jax.api import EvaluationDate_Set, Product_New
+from dal_jax.api import Product_New
 from dal_jax.dates import Date
 
 TODAY = Date.ymd(2022, 9, 15)
+VALUATION = dj.ValuationContext(evaluation_date=TODAY)
 MATURITY = TODAY.add_days(1095)
-BS = {"spot": 100.0, "vol": 0.15, "rate": 0.05, "div": 0.03}
+BS = MappingProxyType({"spot": 100.0, "vol": 0.15, "rate": 0.05, "div": 0.03})
 
 
 def arguments(description):
@@ -33,7 +35,6 @@ def arguments(description):
         parser.error("paths, repeat and devices must be positive")
     dj.config.configure(num_cpu_devices=args.devices)
     dal.EvaluationDate_Set(dal.Date_(TODAY.year, TODAY.month, TODAY.day))
-    EvaluationDate_Set(TODAY)
     print(
         f"JAX {jax.__version__}; {args.platform}; {args.paths:,} paths; DAL {version('dal-python')}"
     )
@@ -67,7 +68,7 @@ def require_p5_oracle():
 
 
 def prepare(rows, *, model=None):
-    return dj.prepare(Product_New(*rows), TODAY, model=model)
+    return dj.prepare(Product_New(*rows), valuation=VALUATION, model=model)
 
 
 def european_rows():
@@ -211,7 +212,7 @@ def measure_dal(product, bs, args, mc, valuation=None):
 
 
 def check_results(ours, theirs, dtype="float64", *, exercise=False):
-    assert ours.keys() == theirs.keys()  # nosec B101: executable numerical validation
+    assert ours.keys() == theirs.keys()  # nosec B101
     tolerances = {"float64": (1e-10, 1e-8, 1e-10), "float32": (2e-5, 5e-3, 2e-4)}
     pv_rtol, risk_rtol, atol = tolerances[dtype]
     if exercise and dtype == "float64":

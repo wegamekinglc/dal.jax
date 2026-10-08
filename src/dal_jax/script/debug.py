@@ -1,12 +1,7 @@
-"""Debug renderings of script statements, a port of DAL's ``visitor/debugger.hpp``.
-
-A statement becomes a :class:`DebugNode` tree (one entry per AST node), which
-renders as DAL's machine-friendly JSON (pre-order ids ``n0``, ``n1``, ...), the
-human-friendly tree, or the legacy s-expression text.  JSON is written by hand
-so the output matches DAL byte for byte.
-"""
+"""Debug renderings of script statements, a port of DAL's ``visitor/debugger.hpp``."""
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 from dal_jax.dates.date import Date, datetime_string
 from dal_jax.errors import script_error
@@ -45,40 +40,46 @@ def _f(value: float) -> str:
     return f"{value:f}"
 
 
-_SIMPLE = {
-    A.Collect: ("COLLECT", "collect"),
-    A.UPlus: ("UPLUS", "uplus"),
-    A.UMinus: ("UMINUS", "neg"),
-    A.Add: ("ADD", "add"),
-    A.Sub: ("SUBTRACT", "sub"),
-    A.Mul: ("MULT", "mul"),
-    A.Div: ("DIV", "div"),
-    A.Pow: ("POW", "pow"),
-    A.Log: ("LOG", "log"),
-    A.Exp: ("EXP", "exp"),
-    A.Sqrt: ("SQRT", "sqrt"),
-    A.Max: ("MAX", "max"),
-    A.Min: ("MIN", "min"),
-    A.Not: ("NOT", "not"),
-    A.And: ("AND", "and"),
-    A.Or: ("OR", "or"),
-    A.Assign: ("ASSIGN", "assign"),
-    A.VectorAssign: ("VECTOR_ASSIGN", "vector_assign"),
-    A.Pays: ("PAYS", "pays"),
-    A.TrueNode: ("TRUE", "true"),
-    A.FalseNode: ("FALSE", "false"),
-}
-_COMPARISONS = {
-    A.Equal: ("EQUALZERO", "eq0"),
-    A.Sup: ("GTZERO", "gt0"),
-    A.SupEqual: ("GTEQUALZERO", "ge0"),
-}
-_REDUCE = {
-    "Sum": ("SUM", "vector_sum"),
-    "Average": ("AVERAGE", "vector_average"),
-    "Minimum": ("MIN", "vector_min"),
-    "Maximum": ("MAX", "vector_max"),
-}
+_SIMPLE = MappingProxyType(
+    {
+        A.Collect: ("COLLECT", "collect"),
+        A.UPlus: ("UPLUS", "uplus"),
+        A.UMinus: ("UMINUS", "neg"),
+        A.Add: ("ADD", "add"),
+        A.Sub: ("SUBTRACT", "sub"),
+        A.Mul: ("MULT", "mul"),
+        A.Div: ("DIV", "div"),
+        A.Pow: ("POW", "pow"),
+        A.Log: ("LOG", "log"),
+        A.Exp: ("EXP", "exp"),
+        A.Sqrt: ("SQRT", "sqrt"),
+        A.Max: ("MAX", "max"),
+        A.Min: ("MIN", "min"),
+        A.Not: ("NOT", "not"),
+        A.And: ("AND", "and"),
+        A.Or: ("OR", "or"),
+        A.Assign: ("ASSIGN", "assign"),
+        A.VectorAssign: ("VECTOR_ASSIGN", "vector_assign"),
+        A.Pays: ("PAYS", "pays"),
+        A.TrueNode: ("TRUE", "true"),
+        A.FalseNode: ("FALSE", "false"),
+    }
+)
+_COMPARISONS = MappingProxyType(
+    {
+        A.Equal: ("EQUALZERO", "eq0"),
+        A.Sup: ("GTZERO", "gt0"),
+        A.SupEqual: ("GTEQUALZERO", "ge0"),
+    }
+)
+_REDUCE = MappingProxyType(
+    {
+        "Sum": ("SUM", "vector_sum"),
+        "Average": ("AVERAGE", "vector_average"),
+        "Minimum": ("MIN", "vector_min"),
+        "Maximum": ("MAX", "vector_max"),
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,54 +143,56 @@ def _vector_reduce_node(node: A.VectorReduce, children: list[DebugNode], _descri
     )
 
 
-_BUILDERS = {
-    A.Equal: _comparison_node,
-    A.Sup: _comparison_node,
-    A.SupEqual: _comparison_node,
-    A.VectorAppend: lambda node, children, _: DebugNode(
-        f"VECTOR_APPEND[{node.name}]",
-        "vector_append",
-        name=node.name,
-        index=node.index,
-        children=children,
-    ),
-    A.VectorEntry: lambda node, children, _: DebugNode(
-        f"VECTOR_ENTRY[{node.name},{node.entry}]",
-        "vector_entry",
-        name=node.name,
-        index=node.index,
-        entry=node.entry,
-        children=children,
-    ),
-    A.VectorReduce: _vector_reduce_node,
-    A.Exercise: lambda node, children, _: DebugNode(
-        f"EXERCISE[CONT,EPS={_f(node.eps)}]", "exercise", number=node.eps, children=children
-    ),
-    A.Spot: _spot_node,
-    A.Fix: _fix_node,
-    A.If: lambda node, children, _: DebugNode(
-        f"IF[FIRSTELSE={node.first_else}]", "if", first_else=node.first_else, children=children
-    ),
-    A.Const: lambda node, children, _: DebugNode(
-        f"CONST[{_f(node.const_val)}]", "const", number=node.const_val, children=children
-    ),
-    A.Var: lambda node, children, _: DebugNode(
-        f"VAR[{node.name},{node.index},{_f(node.const_val)}]",
-        "var",
-        name=node.name,
-        index=node.index,
-        number=node.const_val,
-        children=children,
-    ),
-    A.ConstVar: lambda node, children, _: DebugNode(
-        f"CONST_VAR[{node.name},{node.index},{_f(node.const_val)}]",
-        "const_var",
-        name=node.name,
-        index=node.index,
-        number=node.const_val,
-        children=children,
-    ),
-}
+_BUILDERS = MappingProxyType(
+    {
+        A.Equal: _comparison_node,
+        A.Sup: _comparison_node,
+        A.SupEqual: _comparison_node,
+        A.VectorAppend: lambda node, children, _: DebugNode(
+            f"VECTOR_APPEND[{node.name}]",
+            "vector_append",
+            name=node.name,
+            index=node.index,
+            children=children,
+        ),
+        A.VectorEntry: lambda node, children, _: DebugNode(
+            f"VECTOR_ENTRY[{node.name},{node.entry}]",
+            "vector_entry",
+            name=node.name,
+            index=node.index,
+            entry=node.entry,
+            children=children,
+        ),
+        A.VectorReduce: _vector_reduce_node,
+        A.Exercise: lambda node, children, _: DebugNode(
+            f"EXERCISE[CONT,EPS={_f(node.eps)}]", "exercise", number=node.eps, children=children
+        ),
+        A.Spot: _spot_node,
+        A.Fix: _fix_node,
+        A.If: lambda node, children, _: DebugNode(
+            f"IF[FIRSTELSE={node.first_else}]", "if", first_else=node.first_else, children=children
+        ),
+        A.Const: lambda node, children, _: DebugNode(
+            f"CONST[{_f(node.const_val)}]", "const", number=node.const_val, children=children
+        ),
+        A.Var: lambda node, children, _: DebugNode(
+            f"VAR[{node.name},{node.index},{_f(node.const_val)}]",
+            "var",
+            name=node.name,
+            index=node.index,
+            number=node.const_val,
+            children=children,
+        ),
+        A.ConstVar: lambda node, children, _: DebugNode(
+            f"CONST_VAR[{node.name},{node.index},{_f(node.const_val)}]",
+            "const_var",
+            name=node.name,
+            index=node.index,
+            number=node.const_val,
+            children=children,
+        ),
+    }
+)
 
 
 def debug_node(node: A.Node, describe: DescribeContext | None = None) -> DebugNode:
@@ -200,16 +203,16 @@ def debug_node(node: A.Node, describe: DescribeContext | None = None) -> DebugNo
     return DebugNode(label, kind, children=children)
 
 
-# --- JSON -------------------------------------------------------------------------------
-
-
-_JSON_ESCAPES = {code: f"\\u00{code:02x}" for code in range(0x20)} | {
-    ord('"'): '\\"',
-    ord("\\"): "\\\\",
-    ord("\n"): "\\n",
-    ord("\r"): "\\r",
-    ord("\t"): "\\t",
-}
+_JSON_ESCAPES = MappingProxyType(
+    {code: f"\\u00{code:02x}" for code in range(0x20)}
+    | {
+        ord('"'): '\\"',
+        ord("\\"): "\\\\",
+        ord("\n"): "\\n",
+        ord("\r"): "\\r",
+        ord("\t"): "\\t",
+    }
+)
 
 
 def json_string(text: str) -> str:
@@ -331,9 +334,6 @@ def node_json(node: DebugNode, first_id: int = 0) -> tuple[str, int]:
     """JSON of one statement and the next free node id."""
     writer = _JsonWriter(first_id)
     return writer.node(node), writer.next_id
-
-
-# --- tree -----------------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -460,28 +460,30 @@ def display_width(text: str) -> int:
     return sum(2 if any(lo <= ord(c) <= hi for lo, hi in _WIDE) else 1 for c in text)
 
 
-_PRECEDENCE = {
-    "assign": 0,
-    "vector_assign": 0,
-    "vector_append": 0,
-    "pays": 0,
-    "if": 0,
-    "collect": 0,
-    "exercise": 0,
-    "or": 1,
-    "and": 2,
-    "eq0": 3,
-    "gt0": 3,
-    "ge0": 3,
-    "add": 4,
-    "sub": 4,
-    "mul": 5,
-    "div": 5,
-    "not": 6,
-    "neg": 6,
-    "uplus": 6,
-    "pow": 7,
-}
+_PRECEDENCE = MappingProxyType(
+    {
+        "assign": 0,
+        "vector_assign": 0,
+        "vector_append": 0,
+        "pays": 0,
+        "if": 0,
+        "collect": 0,
+        "exercise": 0,
+        "or": 1,
+        "and": 2,
+        "eq0": 3,
+        "gt0": 3,
+        "ge0": 3,
+        "add": 4,
+        "sub": 4,
+        "mul": 5,
+        "div": 5,
+        "not": 6,
+        "neg": 6,
+        "uplus": 6,
+        "pow": 7,
+    }
+)
 
 
 def _prec(kind: str) -> int:
@@ -513,12 +515,14 @@ def _compare_symbol(kind: str, st: TreeStyle) -> str:
     return st.eq if kind == "eq0" else st.gt if kind == "gt0" else st.ge
 
 
-_REDUCE_NAMES = {
-    "vector_sum": "SUM",
-    "vector_average": "AVERAGE",
-    "vector_min": "MIN",
-    "vector_max": "MAX",
-}
+_REDUCE_NAMES = MappingProxyType(
+    {
+        "vector_sum": "SUM",
+        "vector_average": "AVERAGE",
+        "vector_min": "MIN",
+        "vector_max": "MAX",
+    }
+)
 
 
 def _first_else(node: DebugNode) -> int:
@@ -573,42 +577,49 @@ def _inline_collect(node: DebugNode, st: TreeStyle) -> str:
     return "; ".join(tree_inline(child, st) for child in node.children)
 
 
-_INLINE = {
-    "const": lambda node, st: debug_number(node.number),
-    "var": lambda node, st: node.name,
-    "const_var": lambda node, st: node.name,
-    "vector_entry": lambda node, st: f"{node.name}[{node.entry}]",
-    **{kind: lambda node, st: f"{_REDUCE_NAMES[node.kind]}({node.name})" for kind in _REDUCE_NAMES},
-    "spot": lambda node, st: "spot()",
-    "fix": lambda node, st: node.label,
-    "true": lambda node, st: st.true,
-    "false": lambda node, st: st.false,
-    **{
-        kind: lambda node, st: (
-            f"{_function_symbol(node.kind, st)}({tree_inline(node.children[0], st)})"
-        )
-        for kind in ("log", "exp", "sqrt")
-    },
-    "uplus": lambda node, st: _paren(node.children[0], st, 6),
-    "neg": _inline_neg,
-    **{
-        kind: lambda node, st: (
-            f"{st.max if node.kind == 'max' else st.min}("
-            + ", ".join(tree_inline(c, st) for c in node.children)
-            + ")"
-        )
-        for kind in ("max", "min")
-    },
-    **{kind: _inline_binary for kind in ("add", "sub", "mul", "div", "pow")},
-    "not": lambda node, st: st.not_ + _paren(node.children[0], st, 7),
-    "and": _inline_logical,
-    "or": _inline_logical,
-    **{kind: _inline_comparison for kind in ("eq0", "gt0", "ge0")},
-    **{kind: _inline_target for kind in ("assign", "vector_assign", "pays")},
-    "vector_append": lambda node, st: f"APPEND({node.name}, {tree_inline(node.children[0], st)})",
-    "if": _inline_if,
-    "exercise": _inline_exercise,
-}
+_INLINE = MappingProxyType(
+    {
+        "const": lambda node, st: debug_number(node.number),
+        "var": lambda node, st: node.name,
+        "const_var": lambda node, st: node.name,
+        "vector_entry": lambda node, st: f"{node.name}[{node.entry}]",
+        **{
+            kind: lambda node, st: f"{_REDUCE_NAMES[node.kind]}({node.name})"
+            for kind in _REDUCE_NAMES
+        },
+        "spot": lambda node, st: "spot()",
+        "fix": lambda node, st: node.label,
+        "true": lambda node, st: st.true,
+        "false": lambda node, st: st.false,
+        **{
+            kind: lambda node, st: (
+                f"{_function_symbol(node.kind, st)}({tree_inline(node.children[0], st)})"
+            )
+            for kind in ("log", "exp", "sqrt")
+        },
+        "uplus": lambda node, st: _paren(node.children[0], st, 6),
+        "neg": _inline_neg,
+        **{
+            kind: lambda node, st: (
+                f"{st.max if node.kind == 'max' else st.min}("
+                + ", ".join(tree_inline(c, st) for c in node.children)
+                + ")"
+            )
+            for kind in ("max", "min")
+        },
+        **{kind: _inline_binary for kind in ("add", "sub", "mul", "div", "pow")},
+        "not": lambda node, st: st.not_ + _paren(node.children[0], st, 7),
+        "and": _inline_logical,
+        "or": _inline_logical,
+        **{kind: _inline_comparison for kind in ("eq0", "gt0", "ge0")},
+        **{kind: _inline_target for kind in ("assign", "vector_assign", "pays")},
+        "vector_append": lambda node, st: (
+            f"APPEND({node.name}, {tree_inline(node.children[0], st)})"
+        ),
+        "if": _inline_if,
+        "exercise": _inline_exercise,
+    }
+)
 
 
 def tree_inline(node: DebugNode, st: TreeStyle) -> str:
@@ -659,23 +670,25 @@ def _nary_branches(node: DebugNode, first: str, st: TreeStyle, _width: int) -> B
     ]
 
 
-_BRANCHES = {
-    **{kind: _target_branches for kind in ("assign", "vector_assign", "pays")},
-    "vector_append": lambda node, first, st, _: (
-        f"{first}APPEND({node.name})",
-        [(node.children[0], "", True)],
-    ),
-    "exercise": _exercise_branches,
-    "if": _if_branches,
-    **{
-        kind: lambda node, first, st, _: (
-            first + _compare_symbol(node.kind, st) + _fuzzy_suffix(node, st),
+_BRANCHES = MappingProxyType(
+    {
+        **{kind: _target_branches for kind in ("assign", "vector_assign", "pays")},
+        "vector_append": lambda node, first, st, _: (
+            f"{first}APPEND({node.name})",
             [(node.children[0], "", True)],
-        )
-        for kind in ("eq0", "gt0", "ge0")
-    },
-    **{kind: _unary_branches for kind in ("not", "neg", "uplus", "log", "exp", "sqrt")},
-}
+        ),
+        "exercise": _exercise_branches,
+        "if": _if_branches,
+        **{
+            kind: lambda node, first, st, _: (
+                first + _compare_symbol(node.kind, st) + _fuzzy_suffix(node, st),
+                [(node.children[0], "", True)],
+            )
+            for kind in ("eq0", "gt0", "ge0")
+        },
+        **{kind: _unary_branches for kind in ("not", "neg", "uplus", "log", "exp", "sqrt")},
+    }
+)
 
 
 def _branches(node: DebugNode, first: str, st: TreeStyle, width: int) -> Branches:
@@ -702,9 +715,6 @@ def debug_node_tree(
             else cont + " " * display_width(marker)
         )
         debug_node_tree(child, branch_first, branch_cont, st, width, out)
-
-
-# --- legacy text -------------------------------------------------------------------------------
 
 
 def debug_node_text(node: DebugNode, depth: int = 0) -> str:

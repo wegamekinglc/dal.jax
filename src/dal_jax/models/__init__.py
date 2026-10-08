@@ -6,7 +6,7 @@ from dal_jax.models.gsrslv import GSRSLV, GSRLeverage, GSRSLVSettings
 from dal_jax.models.hybrid import Hybrid
 from dal_jax.models.localvol import LocalVol, LocalVolSurface
 
-__all__ = [
+__all__ = (
     "BlackScholes",
     "CorrelatedBlackScholes",
     "LocalVol",
@@ -20,5 +20,5 @@ __all__ = [
     "SampleDef",
     "Scenario",
     "validate_timeline",
-]
-__all__ += ["GSRSLV", "GSRSLVSettings", "GSRLeverage", "Hybrid"]
+)
+__all__ += ("GSRSLV", "GSRSLVSettings", "GSRLeverage", "Hybrid")

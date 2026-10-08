@@ -1,11 +1,4 @@
-"""Port of DAL's ``InverseNCDF`` / ``NCDF`` (``dal/math/specialfunctions.cpp``).
-
-The default (``polish=False``) is Acklam's rational approximation only, which
-is what DAL's Sobol generator uses in Monte Carlo.  ``polish=True`` adds one
-Newton step against ``NCDF``: the cubic-spline approximation when
-``precise=False``, ``erfc`` when ``precise=True``.  The operation order follows
-the C++ code so Sobol normals agree with DAL to the last few ulps.
-"""
+"""Port of DAL's ``InverseNCDF`` / ``NCDF`` (``dal/math/specialfunctions.cpp``)."""
 
 import jax.numpy as jnp
 from jax import Array
@@ -68,8 +61,6 @@ def _acklam(x: Array) -> Array:
     )
     return jnp.where(low | high, tail, central)
 
-
-# --- DAL's NcdfBySpline: clamped cubic spline on [MIN_SPLINE_X, 0] -----------------
 
 _MIN_SPLINE_X = -3.734582185
 _MIN_SPLINE_F = 9.47235e-05
@@ -191,4 +182,4 @@ def inverse_ncdf_ndtri(x: Array) -> Array:
     return ndtri(jnp.asarray(x))
 
 
-__all__ = ["inverse_ncdf", "inverse_ncdf_ndtri", "ncdf", "M_SQRT_2", "M_SQRT_2_PI"]
+__all__ = ("inverse_ncdf", "inverse_ncdf_ndtri", "ncdf", "M_SQRT_2", "M_SQRT_2_PI")

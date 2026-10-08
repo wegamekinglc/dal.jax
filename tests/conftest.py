@@ -1,9 +1,4 @@
-"""Test session setup.
-
-Four virtual CPU devices are configured before any JAX operation so the
-parallel-consistency tests can compare one device against several.  Every
-other test pins its own device list where it matters.
-"""
+"""Test session setup."""
 
 import jax
 import pytest

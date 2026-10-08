@@ -1,13 +1,8 @@
-"""Holiday calendars and business-day adjustment (``dal/time/holidays.cpp``).
-
-Built-in centers mirror DAL's ``Calendars_::Init``: ``CN.SSE``, ``CN.IB``
-(SSE holidays without 2024-02-09, plus working weekends) and ``TARGET``
-(2000-2100).  ``Holidays("A B")`` combines centers; ``Holidays("")`` has none.
-"""
+"""Holiday calendars and business-day adjustment (``dal/time/holidays.cpp``)."""
 
 import bisect
-import functools
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from dal_jax.dates.calendar_data import CN_IB_WORK_WEEKENDS, CN_SSE_HOLIDAYS
 from dal_jax.dates.date import Date
@@ -47,8 +42,7 @@ def _target_holidays(start: int, end: int) -> tuple[Date, ...]:
     return tuple(sorted(days))
 
 
-@functools.cache
-def _centers() -> dict[str, tuple[tuple[Date, ...], tuple[Date, ...]]]:
+def _build_centers() -> dict[str, tuple[tuple[Date, ...], tuple[Date, ...]]]:
     sse = tuple(Date.ymd(*ymd) for ymd in CN_SSE_HOLIDAYS)
     ib = tuple(d for d in sse if d != Date.ymd(2024, 2, 9))
     return {
@@ -58,7 +52,10 @@ def _centers() -> dict[str, tuple[tuple[Date, ...], tuple[Date, ...]]]:
     }
 
 
-_CENTER_NAMES = {ci_key(name): name for name in ("CN.SSE", "CN.IB", "TARGET")}
+_CENTERS = MappingProxyType(_build_centers())
+
+
+_CENTER_NAMES = MappingProxyType({ci_key(name): name for name in ("CN.SSE", "CN.IB", "TARGET")})
 
 
 def _contains(sorted_dates: tuple[Date, ...], date: Date) -> bool:
@@ -75,12 +72,12 @@ class Holidays:
     def __post_init__(self) -> None:
         centers = sorted({ci_key(c): c for c in self.name.split(" ") if c}.items())
         for folded, original in centers:
-            if folded not in _centers():
+            if folded not in _CENTERS:
                 raise InvalidDate("Invalid holiday center")
         object.__setattr__(self, "name", " ".join(_CENTER_NAMES[folded] for folded, _ in centers))
 
     def _parts(self):
-        return [_centers()[ci_key(c)] for c in self.name.split(" ") if c]
+        return tuple(_CENTERS[ci_key(c)] for c in self.name.split(" ") if c)
 
     def is_holiday(self, date: Date) -> bool:
         return any(_contains(holidays, date) for holidays, _ in self._parts())
@@ -104,12 +101,14 @@ class Holidays:
 
 NO_HOLIDAYS = Holidays("")
 
-BIZ_DAY_CONVENTIONS = {
-    "UNADJUSTED": "Unadjusted",
-    "FOLLOWING": "Following",
-    "MODIFIEDFOLLOWING": "ModifiedFollowing",
-    "PRECEDING": "Preceding",
-}
+BIZ_DAY_CONVENTIONS = MappingProxyType(
+    {
+        "UNADJUSTED": "Unadjusted",
+        "FOLLOWING": "Following",
+        "MODIFIEDFOLLOWING": "ModifiedFollowing",
+        "PRECEDING": "Preceding",
+    }
+)
 
 
 def biz_day_convention(text: str) -> str:

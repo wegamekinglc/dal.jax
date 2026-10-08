@@ -1,15 +1,4 @@
-"""Spreading Monte Carlo blocks over devices.
-
-Every strategy hands each device a contiguous range of global block ids, so a
-block's paths (and its random numbers) never depend on the device count.
-
-* ``none``: one device, all blocks in a single ``scan``.
-* ``shard_map``: one mesh axis ``paths``; each device scans its blocks, then
-  ``psum``.  Block ids come from ``axis_index``, so no input has to be sharded.
-* ``auto``: ``jit`` + ``NamedSharding``; GSPMD partitions a ``vmap`` over
-  device rows of block ids.
-* ``pmap``: kept only as a reference point for comparisons.
-"""
+"""Spreading Monte Carlo blocks over devices."""
 
 from collections.abc import Callable, Sequence
 
@@ -34,12 +23,8 @@ def make_mesh(devices: Sequence[jax.Device]) -> jax.sharding.Mesh:
 
 
 def _varying(tree: object) -> object:
-    """Mark replicated inputs device-varying once, on entry to ``shard_map``.
-
-    Otherwise every use inside the block ``scan`` gets its own
-    invariant-to-varying cast, whose transpose is a ``psum``: one cross-device
-    all-reduce per block in the backward pass, which serialises the devices.
-    """
+    """Mark replicated parameters varying once at the shard_map boundary."""
+    # Recasting inside the block scan adds an all-reduce per block in reverse mode.
     return jax.tree.map(lambda x: jax.lax.pcast(x, (AXIS,), to="varying"), tree)
 
 

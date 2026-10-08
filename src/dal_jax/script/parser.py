@@ -1,23 +1,9 @@
-"""Recursive-descent parser, a port of DAL's ``script/parser.cpp``.
-
-Grammar (keywords are case-insensitive)::
-
-    statement := IF cond THEN statement* [ELSE statement*] END
-               | FOR(i, a, b) statement* END            -- unrolled for i in [a, b)
-               | APPEND(vector, expr)
-               | EXERCISE expr [IF cond]                -- top level, once per event
-               | var = expr | vector[k] = expr | var PAYS expr [ON yyyy-mm-dd]
-    cond      := cond2 (OR cond2)* ;  cond2 := elem (AND elem)* ;  elem := expr CMP expr [:eps]
-    expr      := term ((+|-) term)* ; term := power ((*|/) power)* ; power := unary (^ unary)*
-    unary     := (+|-) unary | ( expr ) | const | var | function | vector[k] | FIX(index[, date])
-
-Named constants become ``ConstVar`` nodes, loop indices and predefined vector
-entries fold to ``Const``, and ``DCF(basis, start, end)`` folds to a constant.
-"""
+"""Recursive-descent parser, a port of DAL's ``script/parser.cpp``."""
 
 import math
 import re
 from collections.abc import Callable, Sequence
+from types import MappingProxyType
 
 from dal_jax.dates.date import Date
 from dal_jax.dates.daybasis import DayBasis
@@ -57,15 +43,17 @@ _MAX_LOOP_ITERATIONS = 10000
 _MAX_EXPANDED_STATEMENTS = 100000
 _MAX_INDEX = 1000000.0
 #  name -> (min args, max args, node); SPOT and DCF are built specially
-_FUNCTIONS = {
-    "SPOT": (0, 0, A.Spot),
-    "LOG": (1, 1, A.Log),
-    "SQRT": (1, 1, A.Sqrt),
-    "EXP": (1, 1, A.Exp),
-    "MIN": (2, 1000, A.Min),
-    "MAX": (2, 1000, A.Max),
-    "DCF": (3, 3, None),
-}
+_FUNCTIONS = MappingProxyType(
+    {
+        "SPOT": (0, 0, A.Spot),
+        "LOG": (1, 1, A.Log),
+        "SQRT": (1, 1, A.Sqrt),
+        "EXP": (1, 1, A.Exp),
+        "MIN": (2, 1000, A.Min),
+        "MAX": (2, 1000, A.Max),
+        "DCF": (3, 3, None),
+    }
+)
 
 
 def _fail(message: str) -> ScriptError:
@@ -137,8 +125,6 @@ class Parser:
         self.tokens: list[Token] = []
         self.cur = 0
 
-    # --- token helpers ---------------------------------------------------------------
-
     def _tok(self, i: int | None = None) -> Token:
         return self.tokens[self.cur if i is None else i]
 
@@ -174,8 +160,6 @@ class Parser:
             self.cur = close + 1
             return tree
         return on_no_match(end)
-
-    # --- expressions -------------------------------------------------------------------
 
     def parse_expr(self, end: int) -> A.Node:
         lhs = self._parse_expr_l2(end)
@@ -531,8 +515,6 @@ class Parser:
             self.cur += 1
         return text, contiguous
 
-    # --- conditions --------------------------------------------------------------------
-
     def parse_cond(self, end: int) -> A.Node:
         lhs = self._parse_cond_l2(end)
         while self.cur != end and self._is("OR"):
@@ -586,8 +568,6 @@ class Parser:
             )
             self.cur += 1
         return eps
-
-    # --- statements ----------------------------------------------------------------------
 
     def _parse_if(self, end: int) -> A.Node:
         self.cur += 1

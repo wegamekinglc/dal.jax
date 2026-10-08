@@ -1,25 +1,21 @@
-"""Fixed-shape regression for vmapped LSMC policy bumps.
-
-The ordinary driver uses host small-system solves. Retraining multiple bumped
-inputs keeps the same moments/rank guards on device, including pivoted QR.
-All normalization and regression arithmetic uses float64.
-"""
+"""Fixed-shape regression for vmapped LSMC policy bumps."""
 
 from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
+from jax import Array
 from jax.scipy.linalg import solve_triangular
 
 from dal_jax.mc.regression import _design, basis_powers
 
 
 class Fit(NamedTuple):
-    coefficients: object
-    means: object
-    sigmas: object
-    degree: object
-    rank: object
+    coefficients: Array
+    means: Array
+    sigmas: Array
+    degree: Array
+    rank: Array
 
     def predict(self, x):
         constant = jnp.all(self.coefficients[1:] == 0.0)

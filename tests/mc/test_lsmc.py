@@ -73,9 +73,20 @@ def test_training_policy_does_not_change_with_pricing_budget():
         parallel="none", lsmc_training_paths=1024, lsmc_validation_paths=256
     )
     small, large = put_engine(settings), put_engine(settings)
-    small.train(128)
-    large.train(4096)
-    assert small.regressions == large.regressions
+    assert small.train_result(128).regressions == large.train_result(4096).regressions
+
+
+def test_results_survive_later_training_and_cache_clear():
+    engine = put_engine(MonteCarloSettings(parallel="none", lsmc_training_paths=256))
+    first = engine.evaluate(128)
+    before = first.as_dict()
+    params = engine.default_params()
+    bumped = params | {"model": params["model"] | {"spot": jnp.asarray(90.0)}}
+    second = engine.evaluate(128, bumped)
+    assert second.as_dict()["PV"] > before["PV"]
+    assert first.as_dict() == before
+    engine.clear_cache()
+    assert engine.value(128) == before
 
 
 @pytest.mark.parametrize("aad", [False, True])
@@ -169,10 +180,11 @@ def test_adaptive_degree_and_rqmc_replicas_are_repeatable():
         lsmc_pricing_seed=29,
     )
     first, second = put_engine(settings), put_engine(settings)
-    assert first.value(256) == second.value(256)
+    first, second = first.evaluate(256), second.evaluate(256)
+    assert first.as_dict() == second.as_dict()
     assert first.replicate_means == second.replicate_means
     assert len(set(first.replicate_means)) == 3
-    assert all(fit.validation_mse is not None for fit in first.regressions)
+    assert all(fit.validation_mse is not None for fit in first.training.regressions)
 
 
 def test_compatibility_api_routes_exercise_to_lsmc():

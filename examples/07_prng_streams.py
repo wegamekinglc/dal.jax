@@ -32,7 +32,7 @@ def main():
         standardized = []
         for name, se in errors.items():
             difference = abs(record["jax"]["result"][name] - record["dal"]["result"][name])
-            assert difference <= 3 * np.sqrt(2) * se + 1e-10, (impl, name, difference)  # nosec B101: executable numerical validation
+            assert difference <= 3 * np.sqrt(2) * se + 1e-10, (impl, name, difference)  # nosec B101
             standardized.append([name, difference, np.sqrt(2) * se])
         table(["quantity", "difference", "combined standard error"], standardized)
         parallel = product.engine(

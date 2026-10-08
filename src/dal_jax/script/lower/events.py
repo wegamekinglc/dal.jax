@@ -4,17 +4,18 @@ from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
+from jax import Array
 
 from dal_jax.script.lower import exact, fuzzy
 from dal_jax.script.passes.eventgroup import group_events
 
 
 class EventSample(NamedTuple):
-    spot: object
-    numeraire: object
-    observations: object
-    discounts: object
-    constants: object
+    spot: Array
+    numeraire: Array
+    observations: Array
+    discounts: Array
+    constants: Array
 
 
 def _scan_event(event, state, inputs, params, checkpoint):

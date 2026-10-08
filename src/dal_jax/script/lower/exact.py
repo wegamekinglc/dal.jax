@@ -1,17 +1,9 @@
-"""Lower scalar script events to single-path JAX functions.
-
-An event maps ``(state, sample, script_params)`` to a fresh variable array.
-IF branches start from the same state and merge only ``affected_vars``.
-The active-path mask reaches unsafe arithmetic before it is evaluated, so
-an unused branch cannot inject NaNs into a reverse-mode derivative.
-
-The NumPy backend executes hard branches on the host for historical replay;
-historical PAYS evaluates its expression and leaves the receiver unchanged.
-"""
+"""Lower scalar script events to single-path JAX functions."""
 
 import operator
 from collections.abc import Callable, Mapping
 from functools import reduce
+from types import MappingProxyType
 
 import jax.numpy as jnp
 import numpy as np
@@ -21,8 +13,8 @@ from dal_jax.script import ast as A
 from dal_jax.script.lower.state import initial_state, merge_vectors, scalars, write
 from dal_jax.script.lower.vectors import VectorLowering
 
-_BINARY = {A.Add: operator.add, A.Sub: operator.sub, A.Mul: operator.mul}
-_COMPARISONS = {A.Equal: operator.eq, A.Sup: operator.gt, A.SupEqual: operator.ge}
+_BINARY = MappingProxyType({A.Add: operator.add, A.Sub: operator.sub, A.Mul: operator.mul})
+_COMPARISONS = MappingProxyType({A.Equal: operator.eq, A.Sup: operator.gt, A.SupEqual: operator.ge})
 
 
 class _Lowerer(VectorLowering):
@@ -119,6 +111,7 @@ class _Lowerer(VectorLowering):
         operand = self.expression(node.args[0])
 
         def evaluate(state, sample, params, active):
+            # Mask operands before arithmetic so inactive adjoints stay finite.
             value = operand(state, sample, params, active)
             return op(value if safe is None else self.xp.where(active, value, safe))
 
