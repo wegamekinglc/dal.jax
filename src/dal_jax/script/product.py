@@ -26,6 +26,9 @@ class ScriptProductSettings:
     default_index: str = ""
     regression_features: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "regression_features", tuple(self.regression_features))
+
 
 @dataclass(frozen=True, slots=True)
 class ScriptProductData:

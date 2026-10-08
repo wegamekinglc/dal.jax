@@ -1,4 +1,5 @@
 import math
+from dataclasses import FrozenInstanceError, replace
 
 import jax
 import jax.numpy as jnp
@@ -28,6 +29,25 @@ from dal_jax.errors import (
     ReservedIdentifier,
     UnsupportedBrownianBridge,
 )
+
+
+def test_compiled_engine_configuration_is_frozen(one_cpu):
+    from dal_jax.api import Product_New
+    from dal_jax.dates import Date
+    from dal_jax.script.preparation import prepare
+
+    today = Date.ymd(2026, 1, 1)
+    product = prepare(Product_New([today.add_days(365)], ["IF SPOT()>105 THEN pay PAYS 1 ELSE pay PAYS 0 END"]), today)
+    model = BlackScholes(spot=100., vol=.2)
+    settings = MonteCarloSettings(devices=one_cpu, block_size=256, enable_aad=True)
+    original = product.engine(model, settings)
+    before = original.value(1024)
+    for field, value in (("settings", replace(settings, smooth=60.)), ("model", model), ("product", product.path_product())):
+        with pytest.raises(FrozenInstanceError):
+            setattr(original, field, value)
+    changed = product.engine(model, replace(settings, smooth=60.)).value(1024)
+    assert original.value(1024) == before
+    assert abs(changed["PV"]-before["PV"]) > .01
 
 
 @pytest.fixture

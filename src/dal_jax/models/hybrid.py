@@ -167,7 +167,10 @@ class HybridLogDfRate:
 class HybridGSRRate:
     name: str
     model: GSR
-    factors: tuple
+    factors: tuple[str, ...]
+
+    def __post_init__(self):
+        object.__setattr__(self, "factors", tuple(self.factors))
 
     @property
     def currency(self):

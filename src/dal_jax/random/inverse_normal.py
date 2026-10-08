@@ -65,7 +65,7 @@ _SPLINE_LHS_SLOPE = 0.000373538
 _SPLINE_RHS_SLOPE = 0.39898679
 
 
-def _clamped_spline_fpp(x: tuple[float, ...], f: tuple[float, ...], lhs: float, rhs: float) -> np.ndarray:
+def _clamped_spline_fpp(x: tuple[float, ...], f: tuple[float, ...], lhs: float, rhs: float) -> tuple[float, ...]:
     """Second derivatives exactly as ``Cubic1_`` builds them with first-order boundaries."""
     n = len(x)
     fpp = [0.0] * n
@@ -86,7 +86,7 @@ def _clamped_spline_fpp(x: tuple[float, ...], f: tuple[float, ...], lhs: float, 
     fpp[n - 1] = (2.0 * un - fpp[n - 2]) / (2.0 + u[n - 2])
     for k in range(n - 2, -1, -1):
         fpp[k] += u[k] * fpp[k + 1]
-    return np.asarray(fpp)
+    return tuple(fpp)
 
 
 _SPLINE_FPP = _clamped_spline_fpp(_SPLINE_X, _SPLINE_F, _SPLINE_LHS_SLOPE, _SPLINE_RHS_SLOPE)

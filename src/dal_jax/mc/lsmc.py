@@ -96,8 +96,6 @@ def _collect_raw(engine, params, n_paths):
         state = engine._simulation_state(p)
         ctx = replace(engine._context(False), axis_name=axis_name)
         return jax.lax.map(lambda b: engine._block_paths(p, state, b, layout.block_size, ctx)[1], block_ids)
-    if not hasattr(engine,"_record_functions"):
-        engine._record_functions = {}
     if n_paths not in engine._record_functions:
         gather = lambda p: parallel.gather_blocks(local, p, jnp.asarray(n_paths), strategy=engine.settings.parallel,
                                                 devices=engine.devices, n_blocks=layout.n_blocks)

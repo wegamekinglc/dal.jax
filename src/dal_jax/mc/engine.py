@@ -81,6 +81,7 @@ class PathProduct:
         defs = tuple(SampleDef() for _ in timeline) if self.sample_defs is None else tuple(self.sample_defs)
         object.__setattr__(self, "sample_defs", defs)
         object.__setattr__(self, "script_params", _script_params(self.script_params))
+        object.__setattr__(self, "error_messages", tuple(self.error_messages))
         names = tuple(self.payoff_names)
         if not names or len(set(names)) != len(names):
             raise InvalidSetting("payoff_names must be non-empty and unique")
@@ -120,24 +121,41 @@ def _next_pow2(n: int) -> int:
     return 1 << (n - 1).bit_length()
 
 
+@dataclass(frozen=True, init=False, eq=False)
 class MonteCarloEngine:
+    product: PathProduct
+    model: Model
+    settings: MonteCarloSettings
+    expired: bool
+    plan: object
+    sim_dim: int
+    devices: tuple[jax.Device, ...]
+    dtype: np.dtype
+    block_size: int
+    _replicated: NamedSharding
+    _normals: Callable
+    _compiled: dict[tuple, Callable]
+    _record_functions: dict[int, Callable]
+
     def __init__(self, product: PathProduct, model: Model, settings: MonteCarloSettings | None = None) -> None:
-        self.product = product
-        self.model = model
-        self.settings = settings = settings or MonteCarloSettings()
+        settings = settings or MonteCarloSettings()
         _check_risk_labels(product, model)
-        self.expired = not product.timeline
-        self.plan = None if self.expired else model.allocate(product.timeline, product.sample_defs)
-        self.sim_dim = 0 if self.expired else model.sim_dim(self.plan)
+        expired = not product.timeline
+        plan = None if expired else model.allocate(product.timeline, product.sample_defs)
+        sim_dim = 0 if expired else model.sim_dim(plan)
         if settings.use_bb and not model.supports_bb:
             raise UnsupportedBrownianBridge("model does not support a factor-aware bridge")
         devices = settings.resolved_devices()
-        self.devices = devices[:1] if settings.parallel == "none" else devices
-        self.dtype = jnp.dtype(tuning.resolve_dtype(settings.dtype, self.devices))
-        self.block_size = tuning.resolve_block_size(settings, product, self.sim_dim, self.devices, self.dtype)
-        self._replicated = NamedSharding(parallel.make_mesh(self.devices), P())
-        self._normals = self._make_normals()
-        self._compiled: dict[tuple, Callable] = {}
+        devices = devices[:1] if settings.parallel == "none" else devices
+        dtype = jnp.dtype(tuning.resolve_dtype(settings.dtype, devices))
+        values = dict(product=product, model=model, settings=settings, expired=expired, plan=plan,
+                      sim_dim=sim_dim, devices=devices, dtype=dtype,
+                      block_size=tuning.resolve_block_size(settings, product, sim_dim, devices, dtype),
+                      _replicated=NamedSharding(parallel.make_mesh(devices), P()),
+                      _compiled={}, _record_functions={})
+        for name, value in values.items():
+            object.__setattr__(self, name, value)
+        object.__setattr__(self, "_normals", self._make_normals())
 
     # --- metadata ---------------------------------------------------------------
 

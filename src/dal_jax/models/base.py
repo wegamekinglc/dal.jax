@@ -34,6 +34,10 @@ class SampleDef:
     index_names: tuple[str, ...] = ()
     discount_mats: tuple[float, ...] = ()
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "index_names", tuple(self.index_names))
+        object.__setattr__(self, "discount_mats", tuple(float(value) for value in self.discount_mats))
+
 
 class Sample(NamedTuple):
     """DAL's ``Sample_``: the model outputs on one product date."""

@@ -43,8 +43,11 @@ def _leverage_axis(label,values):
 class GSRSLVSettings:
     kappa: float = 1.
     vol_of_vol: float = .5
-    variance_correlations: tuple = ()
+    variance_correlations: tuple[float, ...] = ()
     max_step: float = 1./52.
+
+    def __post_init__(self):
+        object.__setattr__(self, "variance_correlations", tuple(float(value) for value in self.variance_correlations))
 
 
 def integration_grid(anchors, max_step, *, dated=False):
