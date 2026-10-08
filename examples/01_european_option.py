@@ -1,4 +1,4 @@
-"""European call: native payoff, all Greeks, closed form and timed DAL comparison."""
+"""European call script: all Greeks, closed form and timed DAL comparison."""
 
 from copy import copy
 
@@ -6,12 +6,7 @@ import jax
 import jax.numpy as jnp
 from jax.scipy.stats import norm
 
-import dal_jax as dj
-from _common import BS, arguments, compare, european_rows, finish, model, settings, table
-
-
-def call(params, scenario, _ctx):
-    return jnp.maximum(scenario.spot[-1]-params["script"]["STRIKE"], 0.) / scenario.numeraire[-1]
+from _common import BS, arguments, compare, european_rows, finish, model, prepare, settings, table
 
 
 def closed_call(spot, vol, rate, div, strike):
@@ -34,7 +29,7 @@ def convergence(product, args):
         local = copy(args)
         local.paths = n
         for rsg in ("sobol", "mrg32"):
-            engine = dj.MonteCarloEngine(product, model(), settings(args, rsg=rsg, enable_aad=False))
+            engine = product.engine(model(), settings(args, rsg=rsg, enable_aad=False))
             comparisons.append(compare(f"Convergence: {rsg}, {n} paths", engine, european_rows(), local, check=rsg == "sobol"))
     print("MRG32 names use different JAX/DAL streams; their convergence comparison is statistical.")
     return comparisons
@@ -42,10 +37,10 @@ def convergence(product, args):
 
 def main():
     args = arguments(__doc__)
-    product = dj.PathProduct(timeline=(3.,), payoff=call, script_params={"STRIKE": 120.})
+    product = prepare(european_rows())
     comparisons = []
     for aad in (False, True):
-        engine = dj.MonteCarloEngine(product, model(), settings(args, enable_aad=aad))
+        engine = product.engine(model(), settings(args, enable_aad=aad))
         comparisons.append(compare(f"European: enable_aad={aad}", engine, european_rows(), args))
     analytic = closed_form()
     table(["quantity", "Monte Carlo", "closed form", "quadrature difference"],

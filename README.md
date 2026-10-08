@@ -23,17 +23,18 @@ uv sync                                         # + dev tools: pytest, scipy, da
 ## Quick start
 
 ```python
-import jax.numpy as jnp
 import dal_jax as dj   # enables jax_enable_x64
+from dal_jax.api import Product_New
+from dal_jax.dates import Date
 
-def call(params, scenario, ctx):                      # one path; the engine vmaps it
-    payoff = jnp.maximum(scenario.spot[-1] - params["script"]["STRIKE"], 0.0)
-    return payoff / scenario.numeraire[-1]            # numeraire-deflated, like DAL's PAYS
-
-product = dj.PathProduct(timeline=(3.0,), payoff=call, script_params={"STRIKE": 120.0})
+today = Date.ymd(2022, 9, 15)
+product = Product_New(
+    ["STRIKE", today.add_days(1095)],
+    ["120", "call PAYS MAX(SPOT()-STRIKE,0)"],
+)
 model = dj.BlackScholes(spot=100.0, vol=0.15, rate=0.05, div=0.03)
-
-engine = dj.MonteCarloEngine(product, model, dj.MonteCarloSettings(enable_aad=True))
+prepared = dj.prepare(product, today, model=model)
+engine = prepared.engine(model, dj.MonteCarloSettings(enable_aad=True))
 engine.value(2**20)
 # {'PV': 5.201768833210826, 'd_spot': 0.33503144936845, 'd_vol': 59.5850327569119,
 #  'd_rate': 84.9041283109051, 'd_div': -100.509434810537, 'd_STRIKE': -0.235844800863624}
@@ -47,6 +48,7 @@ DAL's `MonteCarlo_Value(product, BSModelData_New(100, .15, .05, .03), 2**20, "so
 
 ```python
 import jax
+import jax.numpy as jnp
 
 f = engine.pricer(2**18)
 params = engine.default_params()               # {"model": {spot, vol, rate, div}, "script": {STRIKE}}
@@ -54,7 +56,7 @@ pv, grads = jax.value_and_grad(lambda p: f(p)[0])(params)
 ladder = jax.vmap(lambda s: f({**params, "model": params["model"] | {"spot": s}})[0])(jnp.linspace(80, 120, 9))
 ```
 
-In fuzzy mode (`enable_aad=True`, or `pricer(..., fuzzy=True)`) hand-written payoffs should smooth their discontinuities with DAL's kernels in `dal_jax.script.lower` (`cspr`, `bfly`). If they don't, `jax.grad` misses the barrier term. Script products apply smoothing automatically. `tests/support.py` and `examples/02_barrier_option.py` have an up-and-out call that matches DAL's fuzzy `d_BARRIER` and `d_vol`.
+In fuzzy mode (`enable_aad=True`, or `pricer(..., fuzzy=True)`) script products apply DAL's smoothing kernels automatically, so `jax.grad` includes barrier sensitivities. `examples/02_barrier_option.py` prices an up-and-out call script that matches DAL's fuzzy `d_BARRIER` and `d_vol`.
 
 ### Script products
 
@@ -103,11 +105,11 @@ The API accepts `method` as an alias for `rsg`, an explicit `evaluation_date`, a
 For repeated pricing or JAX transforms, prepare once and keep the engine:
 
 ```python
-from dal_jax import MonteCarloEngine, prepare
+from dal_jax import prepare
 from dal_jax.api import EvaluationDate_Get
 
-prepared = prepare(product, EvaluationDate_Get())  # immutable, hashable event and observation plan
-engine = MonteCarloEngine(prepared.path_product(), model)
+prepared = prepare(product, EvaluationDate_Get(), model=model)  # immutable event and observation plan
+engine = prepared.engine(model)
 price = engine.value(2**16)
 f = engine.pricer(2**16)                          # exact scalar script payoff
 ```
@@ -128,7 +130,7 @@ Valuation supports mutable vectors, expanded `FOR`, reductions, dated `FIX` and 
 
 ## Examples
 
-[`examples/`](examples/README.md) has sixteen ordinary Python scripts covering European and barrier pricing, JAX transforms, parallel execution, historical scripts and discounts, event scans and C1 smoothing, PRNG streams, CPU/GPU precision, vectors, fixing policies, correlated assets, local volatility, Bermudan exercise, RQMC, rates and hybrids. Every example prints numerical and synchronized performance comparisons with dal-python. Run `uv sync --group examples`, then `uv run --group examples python examples/01_european_option.py`. Saved numerical and timing reports are in `examples/results/`. Examples 09–16 need the pinned source-built dal-python oracle; installation commands are in the examples README.
+[`examples/`](examples/README.md) has sixteen ordinary Python scripts covering European and barrier pricing, JAX transforms, parallel execution, historical scripts and discounts, event scans and C1 smoothing, PRNG streams, CPU/GPU precision, vectors, fixing policies, correlated assets, local volatility, Bermudan exercise, RQMC, rates and hybrids. All example contracts use the script engine through `prepare(...).engine(...)`; handwritten payoff callbacks are prohibited. Every example prints numerical and synchronized performance comparisons with dal-python. Run `uv sync --group examples`, then `uv run --group examples python examples/01_european_option.py`. Saved numerical and timing reports are in `examples/results/`. Examples 09–16 need the pinned source-built dal-python oracle; installation commands are in the examples README.
 
 ## Settings
 
@@ -161,7 +163,7 @@ For NVIDIA GPUs, install the matching JAX extra (`.[cuda12]` or `.[cuda13]`), th
 
 ```python
 settings = dj.MonteCarloSettings(platform="gpu", dtype="float64", enable_aad=True)
-engine = dj.MonteCarloEngine(prepared.path_product(), model, settings)
+engine = prepared.engine(model, settings)
 result = engine.value(2**20)
 ```
 

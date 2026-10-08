@@ -3,7 +3,6 @@
 import jax
 import numpy as np
 
-import dal_jax as dj
 from _common import arguments, barrier_rows, compare, finish, model, prepare, settings, table
 
 
@@ -25,13 +24,13 @@ def gradient_diagnostics(engine, args):
 def main():
     args = arguments(__doc__)
     rows = barrier_rows()
-    product = prepare(rows).path_product()
+    product = prepare(rows)
     comparisons = []
     for bridge in (False, True):
         for aad in (False, True):
-            engine = dj.MonteCarloEngine(product, model(), settings(args, use_bb=bridge, enable_aad=aad))
+            engine = product.engine(model(), settings(args, use_bb=bridge, enable_aad=aad))
             comparisons.append(compare(f"Monthly barrier: bridge={bridge}, aad={aad}", engine, rows, args))
-    engine = dj.MonteCarloEngine(product, model(), settings(args))
+    engine = product.engine(model(), settings(args))
     finish(args, comparisons, **gradient_diagnostics(engine, args))
 
 
