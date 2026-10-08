@@ -1,9 +1,4 @@
-"""DAL's ``Date_``: a day in [1970-01-01, 2149-06-05], stored as an Excel serial.
-
-Arithmetic follows ``dal/time/date.cpp``: differences are in days, adding days
-outside the range raises, ``AddMonths`` clamps to the month end (optionally
-preserving an end-of-month date), and ``DayOfWeek`` is 0 for Sunday.
-"""
+"""DAL's ``Date_``: a day in [1970-01-01, 2149-06-05], stored as an Excel serial."""
 
 import datetime as _dt
 import re

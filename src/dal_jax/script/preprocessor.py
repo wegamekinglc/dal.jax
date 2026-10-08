@@ -1,12 +1,4 @@
-"""Event-table front end, a port of DAL's ``script/preprocessor.cpp`` and ``event/schedule.cpp``.
-
-Rows whose date column is a :class:`~dal_jax.dates.Date` are events.  Other
-rows are definitions: a ``START: ... END: ... FREQ: ...`` schedule (expanded
-into one event per period, with ``PeriodBegin`` / ``PeriodEnd`` replaced), a
-numeric vector ``[a, b, ...]``, a numeric constant, or otherwise a textual
-macro.  Macro names are replaced case-insensitively outside index literals;
-events on the same date are joined with newlines and remember their origins.
-"""
+"""Event-table front end, a port of DAL's ``script/preprocessor.cpp`` and ``event/schedule.cpp``."""
 
 import math
 import re
@@ -36,9 +28,6 @@ class PreprocessedEvents:
     sources: dict[Date, list[SourceOrigin]] = field(default_factory=dict)
 
 
-# --- macro replacement --------------------------------------------------------------
-
-
 def _replace_literal(text: str, pattern: str, replacement: str) -> str:
     out, start = [], 0
     while (found := ci_find(text, pattern, start)) != -1:
@@ -53,7 +42,11 @@ def _ecma_group(replacement: str, i: int, match: re.Match) -> tuple[str, int]:
     """``$n`` / ``$nn`` at ``i``: the text and the characters consumed; two digits only when they name a group."""
     groups = match.re.groups or 0
     digits = replacement[i + 1]
-    if i + 2 < len(replacement) and replacement[i + 2].isdigit() and int(digits + replacement[i + 2]) <= groups:
+    if (
+        i + 2 < len(replacement)
+        and replacement[i + 2].isdigit()
+        and int(digits + replacement[i + 2]) <= groups
+    ):
         digits += replacement[i + 2]
     n = int(digits)
     return ((match.group(n) or "") if 0 < n <= groups else "$" + digits), 1 + len(digits)
@@ -92,7 +85,9 @@ def replace_outside_indices(statement: str, pattern: str, replacement: str) -> s
         replace = lambda text: _replace_literal(text, pattern, replacement)  # noqa: E731
     else:
         expression = re.compile(pattern, re.IGNORECASE)
-        replace = lambda text: expression.sub(lambda m: _ecma_replacement(replacement, m, text), text)  # noqa: E731
+        replace = lambda text: expression.sub(
+            lambda m: _ecma_replacement(replacement, m, text), text
+        )  # noqa: E731
     out, start = [], 0
     for begin, end in index_literal_ranges(statement):
         out.append(replace(statement[start:begin]))
@@ -100,9 +95,6 @@ def replace_outside_indices(statement: str, pattern: str, replacement: str) -> s
         start = end
     out.append(replace(statement[start:]))
     return "".join(out)
-
-
-# --- definitions -----------------------------------------------------------------------
 
 
 def _vector_value(token: str, row: int) -> float:
@@ -171,7 +163,14 @@ def parse_schedule(tokens: Sequence[str]) -> list[tuple[Date, Date, Date]]:
     Like DAL, ``FIXING: BEGIN|END`` does not advance past its value, so it must
     be the last parameter.
     """
-    settings = {"start": None, "end": None, "tenor": None, "holidays": NO_HOLIDAYS, "convention": "Unadjusted", "fix_at_end": True}
+    settings = {
+        "start": None,
+        "end": None,
+        "tenor": None,
+        "holidays": NO_HOLIDAYS,
+        "convention": "Unadjusted",
+        "fix_at_end": True,
+    }
     i = 0
     while i < len(tokens) - 2:
         if tokens[i + 1] != ":":
@@ -181,9 +180,19 @@ def parse_schedule(tokens: Sequence[str]) -> list[tuple[Date, Date, Date]]:
         i += consumed
     if any(settings[key] is None for key in ("start", "end", "tenor")):
         raise script_error("InvalidScript: a schedule requires START, END and FREQ")
-    dates = make_schedule(settings["start"], settings["end"], settings["holidays"], settings["tenor"], "Forward", settings["convention"])
+    dates = make_schedule(
+        settings["start"],
+        settings["end"],
+        settings["holidays"],
+        settings["tenor"],
+        "Forward",
+        settings["convention"],
+    )
     fix_at_end = settings["fix_at_end"]
-    return [(dates[k - 1], dates[k], dates[k] if fix_at_end else dates[k - 1]) for k in range(1, len(dates))]
+    return [
+        (dates[k - 1], dates[k], dates[k] if fix_at_end else dates[k - 1])
+        for k in range(1, len(dates))
+    ]
 
 
 _RESERVED_DEFINITIONS = (
@@ -224,7 +233,9 @@ class Preprocessor:
                 schedule = parse_schedule(tokenize(cell))
                 expanded = _with_source(lambda: self.expand_macros(text, macros), row, None)
                 for begin, end, fixing in schedule:
-                    final = _with_source(lambda: self.expand_schedule_placeholders(expanded, begin, end), row, fixing)
+                    final = _with_source(
+                        lambda: self.expand_schedule_placeholders(expanded, begin, end), row, fixing
+                    )
                     self._append(result, events, fixing, final, row)
             else:
                 self._define(result, macros, events, cell, text, row)
@@ -233,20 +244,35 @@ class Preprocessor:
         return result
 
     @staticmethod
-    def _check_definition(result: PreprocessedEvents, macros: CIMap, events: dict, name: str, row: int) -> None:
+    def _check_definition(
+        result: PreprocessedEvents, macros: CIMap, events: dict, name: str, row: int
+    ) -> None:
         for reserved, message in _RESERVED_DEFINITIONS:
             if ci_eq(name, reserved):
                 raise script_error(message.format(row=row))
         if any(ci_eq(name, keyword) for keyword in ("FOR", "APPEND", "SUM", "AVERAGE")):
-            raise script_error(f"ReservedIdentifier: vector/loop keyword cannot name a definition; row={row}")
-        for registry, message in ((macros, "macro name has already registered"), (result.const_variables, "const macro name has already registered"),
-                                  (result.numeric_vectors, "vector name has already registered")):
+            raise script_error(
+                f"ReservedIdentifier: vector/loop keyword cannot name a definition; row={row}"
+            )
+        for registry, message in (
+            (macros, "macro name has already registered"),
+            (result.const_variables, "const macro name has already registered"),
+            (result.numeric_vectors, "vector name has already registered"),
+        ):
             if name in registry:
                 raise script_error(message)
         if events:
             raise script_error("macros should always at the front")
 
-    def _define(self, result: PreprocessedEvents, macros: CIMap, events: dict, name: str, text: str, row: int) -> None:
+    def _define(
+        self,
+        result: PreprocessedEvents,
+        macros: CIMap,
+        events: dict,
+        name: str,
+        text: str,
+        row: int,
+    ) -> None:
         self._check_definition(result, macros, events, name, row)
         definition = text.strip(_TRIM)
         if definition.startswith("["):
@@ -257,10 +283,19 @@ class Preprocessor:
             macros[name] = text
 
     @staticmethod
-    def _append(result: PreprocessedEvents, events: dict[Date, str], date: Date, statement: str, row: int) -> None:
+    def _append(
+        result: PreprocessedEvents, events: dict[Date, str], date: Date, statement: str, row: int
+    ) -> None:
         offset = 0 if date not in events else len(events[date]) + 1
         result.sources.setdefault(date, []).append(SourceOrigin(offset, row, date))
         events[date] = statement if date not in events else events[date] + "\n" + statement
 
 
-__all__ = ["Cell", "EventRow", "PreprocessedEvents", "Preprocessor", "parse_schedule", "replace_outside_indices"]
+__all__ = (
+    "Cell",
+    "EventRow",
+    "PreprocessedEvents",
+    "Preprocessor",
+    "parse_schedule",
+    "replace_outside_indices",
+)

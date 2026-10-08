@@ -1,6 +1,7 @@
 """Day-count fractions (``dal/time/daybasis.cpp``)."""
 
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from dal_jax.dates.date import Date, days_in_month, is_leap_year
 from dal_jax.errors import InvalidDate
@@ -8,12 +9,27 @@ from dal_jax.strings import equivalent
 
 #  Condensed aliases of DAL's DayBasis enum, in declaration order.
 _ALIASES = (
-    ("ACT365F", "ACT_365F"), ("ACT/365F", "ACT_365F"), ("ACT365FIXED", "ACT_365F"), ("ACT/365FIXED", "ACT_365F"),
-    ("ACT365L", "ACT_365L"), ("ACT/365L", "ACT_365L"), ("ISMAYEAR", "ACT_365L"),
-    ("ACT360", "ACT_360"), ("ACT/360", "ACT_360"), ("MONEY", "ACT_360"), ("ACTUAL/360", "ACT_360"),
-    ("ACTACT", "ACT_ACT"), ("ACT/ACT", "ACT_ACT"), ("ACTUAL/ACTUAL", "ACT_ACT"),
-    ("BOND", "BOND"), ("30360", "BOND"), ("30/360", "BOND"), ("BONDBASIS", "BOND"),
-    ("THIRTY360US", "THIRTY_360_US"), ("30360US", "THIRTY_360_US"), ("30U/360", "THIRTY_360_US"),
+    ("ACT365F", "ACT_365F"),
+    ("ACT/365F", "ACT_365F"),
+    ("ACT365FIXED", "ACT_365F"),
+    ("ACT/365FIXED", "ACT_365F"),
+    ("ACT365L", "ACT_365L"),
+    ("ACT/365L", "ACT_365L"),
+    ("ISMAYEAR", "ACT_365L"),
+    ("ACT360", "ACT_360"),
+    ("ACT/360", "ACT_360"),
+    ("MONEY", "ACT_360"),
+    ("ACTUAL/360", "ACT_360"),
+    ("ACTACT", "ACT_ACT"),
+    ("ACT/ACT", "ACT_ACT"),
+    ("ACTUAL/ACTUAL", "ACT_ACT"),
+    ("BOND", "BOND"),
+    ("30360", "BOND"),
+    ("30/360", "BOND"),
+    ("BONDBASIS", "BOND"),
+    ("THIRTY360US", "THIRTY_360_US"),
+    ("30360US", "THIRTY_360_US"),
+    ("30U/360", "THIRTY_360_US"),
 )
 
 
@@ -83,14 +99,16 @@ def _act_365l(start: Date, end: Date, context: Context | None) -> float:
     return (end - start) / _days_in_year(context.nominal_end.year)
 
 
-_FRACTIONS = {
-    "ACT_360": lambda start, end, _: (end - start) / 360.0,
-    "ACT_365F": lambda start, end, _: (end - start) / 365.0,
-    "ACT_ACT": lambda start, end, _: _act_act_isda(start, end),
-    "ACT_365L": _act_365l,
-    "BOND": lambda start, end, _: _bond_basis(start, end),
-    "THIRTY_360_US": lambda start, end, _: _thirty_360_us(start, end),
-}
+_FRACTIONS = MappingProxyType(
+    {
+        "ACT_360": lambda start, end, _: (end - start) / 360.0,
+        "ACT_365F": lambda start, end, _: (end - start) / 365.0,
+        "ACT_ACT": lambda start, end, _: _act_act_isda(start, end),
+        "ACT_365L": _act_365l,
+        "BOND": lambda start, end, _: _bond_basis(start, end),
+        "THIRTY_360_US": lambda start, end, _: _thirty_360_us(start, end),
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,8 +6,8 @@ import pytest
 
 from dal_jax.dates import Date
 from dal_jax.errors import InvalidVectorDefinition, ReservedIdentifier, ScriptError
-from dal_jax.script.preprocessor import Preprocessor, parse_schedule
 from dal_jax.script.lexer import tokenize
+from dal_jax.script.preprocessor import Preprocessor, parse_schedule
 
 D = Date.ymd(2023, 12, 1)
 
@@ -22,7 +22,9 @@ def test_const_variable_definition():
 
 
 def test_numeric_vector_definition():
-    result = process([("STRIKES", "[100, 120, 150]"), (Date.ymd(2026, 10, 1), "pay PAYS STRIKES[1]")])
+    result = process(
+        [("STRIKES", "[100, 120, 150]"), (Date.ymd(2026, 10, 1), "pay PAYS STRIKES[1]")]
+    )
     assert result.numeric_vectors["STRIKES"] == (100.0, 120.0, 150.0)
     assert result.events[Date.ymd(2026, 10, 1)] == "pay PAYS STRIKES[1]"
     assert process([("E", "[]")]).numeric_vectors["E"] == ()
@@ -63,15 +65,37 @@ def test_definitions_must_come_first_and_be_unique():
 
 
 def test_schedule_expansion_and_placeholders():
-    result = process([("START: 2022-05-07 END: 2023-05-07 FREQ: 1m CALENDAR: CN.SSE", "acc = DCF(ACT365F, PeriodBegin, PeriodEnd)")])
+    result = process(
+        [
+            (
+                "START: 2022-05-07 END: 2023-05-07 FREQ: 1m CALENDAR: CN.SSE",
+                "acc = DCF(ACT365F, PeriodBegin, PeriodEnd)",
+            )
+        ]
+    )
     assert len(result.events) == 12
-    assert all("PeriodBegin" not in text and "PeriodEnd" not in text for text in result.events.values())
+    assert all(
+        "PeriodBegin" not in text and "PeriodEnd" not in text for text in result.events.values()
+    )
 
 
 def test_schedule_placeholders_are_case_insensitive_and_skip_index_literals():
-    result = process([("START: 2023-01-02 END: 2023-03-02 FREQ: 1M", "acc = DCF(ACT365F, periodbegin, PERIODEND) + EQ[PeriodBegin]")])
-    assert result.events[Date.ymd(2023, 2, 2)] == "acc = DCF(ACT365F, 2023-01-02, 2023-02-02) + EQ[PeriodBegin]"
-    assert result.events[Date.ymd(2023, 3, 2)] == "acc = DCF(ACT365F, 2023-02-02, 2023-03-02) + EQ[PeriodBegin]"
+    result = process(
+        [
+            (
+                "START: 2023-01-02 END: 2023-03-02 FREQ: 1M",
+                "acc = DCF(ACT365F, periodbegin, PERIODEND) + EQ[PeriodBegin]",
+            )
+        ]
+    )
+    assert (
+        result.events[Date.ymd(2023, 2, 2)]
+        == "acc = DCF(ACT365F, 2023-01-02, 2023-02-02) + EQ[PeriodBegin]"
+    )
+    assert (
+        result.events[Date.ymd(2023, 3, 2)]
+        == "acc = DCF(ACT365F, 2023-02-02, 2023-03-02) + EQ[PeriodBegin]"
+    )
 
 
 def test_extensibility_via_override():
@@ -86,14 +110,19 @@ def test_extensibility_via_override():
 
 def _regex_replacement(text: str, pattern: str, replacement: str) -> str:
     """Python twin of std::regex_replace(icase) for the patterns used below."""
-    return re.sub(pattern, replacement.replace("$&", r"\g<0>").replace("$$", "$"), text, flags=re.IGNORECASE)
+    return re.sub(
+        pattern, replacement.replace("$&", r"\g<0>").replace("$$", "$"), text, flags=re.IGNORECASE
+    )
 
 
 def test_macro_expansion_matches_regex_replacement_outside_indices():
     statement = "x PAYS PAYOFF + payoff+PAYOFFPAYOFF y = PayOff2 z = EQ[PAYOFF] w = FIX(EQ[PAYOFF]@2023-11-30)"
     expanded = process([("PAYOFF", "MAX(spot() - 100, 0)"), (D, statement)]).events[D]
     index = statement.find("z = EQ[")
-    expected = _regex_replacement(statement[:index], "PAYOFF", "MAX(spot() - 100, 0)") + "z = EQ[PAYOFF] w = FIX(EQ[PAYOFF]@2023-11-30)"
+    expected = (
+        _regex_replacement(statement[:index], "PAYOFF", "MAX(spot() - 100, 0)")
+        + "z = EQ[PAYOFF] w = FIX(EQ[PAYOFF]@2023-11-30)"
+    )
     assert expanded == expected
 
 
@@ -111,11 +140,23 @@ def test_schedule_parameters():
     def dates(text):
         return [(str(b), str(e), str(f)) for b, e, f in parse_schedule(tokenize(text))]
 
-    assert dates("START: 2022-05-07 END: 2022-08-07 FREQ: 1M")[0] == ("2022-05-07", "2022-06-07", "2022-06-07")
-    assert dates("START: 2022-05-07 END: 2022-08-07 FREQ: 1M FIXING: BEGIN")[0] == ("2022-05-07", "2022-06-07", "2022-05-07")
+    assert dates("START: 2022-05-07 END: 2022-08-07 FREQ: 1M")[0] == (
+        "2022-05-07",
+        "2022-06-07",
+        "2022-06-07",
+    )
+    assert dates("START: 2022-05-07 END: 2022-08-07 FREQ: 1M FIXING: BEGIN")[0] == (
+        "2022-05-07",
+        "2022-06-07",
+        "2022-05-07",
+    )
     assert dates("START: 05/07/2022 END: 08/07/2022 FREQ: 1M")[-1][1] == "2022-08-07"
-    assert [d[2] for d in dates("START: 2022-01-29 END: 2022-04-30 FREQ: 1M CALENDAR: TARGET BizRule: Following")] == \
-        ["2022-02-28", "2022-03-28", "2022-04-28", "2022-05-02"]
+    assert [
+        d[2]
+        for d in dates(
+            "START: 2022-01-29 END: 2022-04-30 FREQ: 1M CALENDAR: TARGET BizRule: Following"
+        )
+    ] == ["2022-02-28", "2022-03-28", "2022-04-28", "2022-05-02"]
     with pytest.raises(ScriptError, match="not followed by `:`"):
         dates("START: 2022-05-07 END: 2022-08-07 FREQ: 1M FIXING: BEGIN CALENDAR: TARGET")
     with pytest.raises(ScriptError, match="unknown token"):

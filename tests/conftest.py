@@ -1,9 +1,4 @@
-"""Test session setup.
-
-Four virtual CPU devices are configured before any JAX operation so the
-parallel-consistency tests can compare one device against several.  Every
-other test pins its own device list where it matters.
-"""
+"""Test session setup."""
 
 import jax
 import pytest
@@ -16,13 +11,17 @@ dal_jax.config.configure(num_cpu_devices=N_TEST_DEVICES)
 
 
 def pytest_addoption(parser):
-    parser.addoption("--run-gpu", action="store_true", help="run optional tests requiring an actual GPU backend")
+    parser.addoption(
+        "--run-gpu", action="store_true", help="run optional tests requiring an actual GPU backend"
+    )
 
 
 def pytest_collection_modifyitems(config, items):
     if config.getoption("--run-gpu"):
         return
-    skip = pytest.mark.skip(reason="GPU validation is opt-in; pass --run-gpu with a CUDA/ROCm-enabled JAX")
+    skip = pytest.mark.skip(
+        reason="GPU validation is opt-in; pass --run-gpu with a CUDA/ROCm-enabled JAX"
+    )
     for item in items:
         if "gpu" in item.keywords:
             item.add_marker(skip)

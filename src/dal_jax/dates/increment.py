@@ -1,13 +1,7 @@
-"""Date increments (``dal/time/dateincrement.cpp``): ``"3M"``, ``"2BD;TARGET"``, ``"IMM"``, ``"1Y&EOM"``.
-
-``parse_increment`` returns an object with ``fwd_from`` / ``back_from``.  A
-multistep increment ``n<unit>[;centers]`` moves by years, months, weeks,
-calendar or business days and, with holidays, rolls onto a business day; a
-special day (IMM, IMM1, CDS, EOM) jumps to the next/previous such date;
-``a&b`` applies its parts in order.
-"""
+"""Date increments (``dal/time/dateincrement.cpp``): ``"3M"``, ``"2BD;TARGET"``, ``"IMM"``, ``"1Y&EOM"``."""
 
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from dal_jax.dates.date import Date
 from dal_jax.dates.holidays import NO_HOLIDAYS, Holidays
@@ -15,10 +9,38 @@ from dal_jax.errors import InvalidDate
 from dal_jax.strings import equivalent
 
 #  Condensed aliases of DAL's Machinist enums, in declaration order.
-_SPECIAL_DAYS = {"IMM": "IMM", "IMM3": "IMM", "IMMQUARTERLY": "IMM", "IMM1": "IMM1", "IMMMONTHLY": "IMM1",
-                 "CDS": "CDS", "CDS3": "CDS", "CDSQUARTERLY": "CDS", "EOM": "EOM"}
-_STEP_SIZES = {"Y": "Y", "YEAR": "Y", "YEARS": "Y", "M": "M", "MONTH": "M", "MONTHS": "M", "W": "W", "WEEK": "W", "WEEKS": "W",
-               "BD": "BD", "BUSDAY": "BD", "BUSINESSDAY": "BD", "CD": "CD", "CALDAY": "CD", "CALENDARDAY": "CD"}
+_SPECIAL_DAYS = MappingProxyType(
+    {
+        "IMM": "IMM",
+        "IMM3": "IMM",
+        "IMMQUARTERLY": "IMM",
+        "IMM1": "IMM1",
+        "IMMMONTHLY": "IMM1",
+        "CDS": "CDS",
+        "CDS3": "CDS",
+        "CDSQUARTERLY": "CDS",
+        "EOM": "EOM",
+    }
+)
+_STEP_SIZES = MappingProxyType(
+    {
+        "Y": "Y",
+        "YEAR": "Y",
+        "YEARS": "Y",
+        "M": "M",
+        "MONTH": "M",
+        "MONTHS": "M",
+        "W": "W",
+        "WEEK": "W",
+        "WEEKS": "W",
+        "BD": "BD",
+        "BUSDAY": "BD",
+        "BUSINESSDAY": "BD",
+        "CD": "CD",
+        "CALDAY": "CD",
+        "CALENDARDAY": "CD",
+    }
+)
 
 
 def _enum(text: str, aliases: dict[str, str], what: str) -> str:
@@ -75,7 +97,11 @@ class SpecialDay:
             case "IMM1":
                 return _to_imm(date, forward, 1)
             case _:
-                return date.end_of_month() if forward else Date.ymd(date.year, date.month, 1).add_days(-1)
+                return (
+                    date.end_of_month()
+                    if forward
+                    else Date.ymd(date.year, date.month, 1).add_days(-1)
+                )
 
     def fwd_from(self, date: Date) -> Date:
         return self._step(date, True)
@@ -84,12 +110,14 @@ class SpecialDay:
         return self._step(date, False)
 
 
-_CALENDAR_STEPS = {
-    "Y": lambda date, n: date.add_months(12 * n),
-    "M": lambda date, n: date.add_months(n),
-    "W": lambda date, n: date.add_days(7 * n),
-    "CD": lambda date, n: date.add_days(n),
-}
+_CALENDAR_STEPS = MappingProxyType(
+    {
+        "Y": lambda date, n: date.add_months(12 * n),
+        "M": lambda date, n: date.add_months(n),
+        "W": lambda date, n: date.add_days(7 * n),
+        "CD": lambda date, n: date.add_days(n),
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +128,11 @@ class Multistep:
 
     def _business_days(self, date: Date, forward: bool) -> Date:
         for _ in range(self.n):
-            date = self.holidays.next_bus(date.add_days(1)) if forward else self.holidays.prev_bus(date.add_days(-1))
+            date = (
+                self.holidays.next_bus(date.add_days(1))
+                if forward
+                else self.holidays.prev_bus(date.add_days(-1))
+            )
         return date
 
     def _step(self, date: Date, forward: bool) -> Date:

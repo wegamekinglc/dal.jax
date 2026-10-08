@@ -3,13 +3,14 @@
 from typing import NamedTuple
 
 import numpy as np
+from jax import Array
 
 
 class ScriptState(NamedTuple):
-    values: object
-    vectors: tuple
-    lengths: object
-    errors: object
+    values: Array | np.ndarray
+    vectors: tuple[Array | np.ndarray, ...]
+    lengths: Array | np.ndarray
+    errors: Array | np.ndarray
 
     @property
     def dtype(self):
@@ -34,8 +35,12 @@ def initial_state(n_vars, capacities, xp):
     values = xp.zeros(n_vars, dtype=xp.float64)
     if not capacities:
         return values
-    return ScriptState(values, tuple(xp.zeros(cap, dtype=xp.float64) for cap in capacities),
-                       xp.zeros(len(capacities), dtype=xp.int32), xp.zeros(2*len(capacities), dtype=bool))
+    return ScriptState(
+        values,
+        tuple(xp.zeros(cap, dtype=xp.float64) for cap in capacities),
+        xp.zeros(len(capacities), dtype=xp.int32),
+        xp.zeros(2 * len(capacities), dtype=bool),
+    )
 
 
 def merge_vectors(state, left, right, affected, choose, xp, *, blend=None):
@@ -46,11 +51,20 @@ def merge_vectors(state, left, right, affected, choose, xp, *, blend=None):
     lengths = state.lengths
     for index in affected:
         positions = xp.arange(vectors[index].shape[0])
-        a = xp.where(positions < left.lengths[index], left.vectors[index], 0.)
-        b = xp.where(positions < right.lengths[index], right.vectors[index], 0.)
+        a = xp.where(positions < left.lengths[index], left.vectors[index], 0.0)
+        b = xp.where(positions < right.lengths[index], right.vectors[index], 0.0)
         value = choose(a, b) if blend is None else choose(a, b, blend(a, b))
-        length = choose(left.lengths[index], right.lengths[index]) if blend is None else choose(
-            left.lengths[index], right.lengths[index], xp.maximum(left.lengths[index], right.lengths[index]))
+        length = (
+            choose(left.lengths[index], right.lengths[index])
+            if blend is None
+            else choose(
+                left.lengths[index],
+                right.lengths[index],
+                xp.maximum(left.lengths[index], right.lengths[index]),
+            )
+        )
         vectors[index] = value
         lengths = lengths.at[index].set(length)
-    return state._replace(vectors=tuple(vectors), lengths=lengths, errors=left.errors | right.errors)
+    return state._replace(
+        vectors=tuple(vectors), lengths=lengths, errors=left.errors | right.errors
+    )

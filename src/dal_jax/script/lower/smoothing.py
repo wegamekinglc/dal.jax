@@ -1,10 +1,4 @@
-"""Smoothed condition kernels, a port of DAL's ``script/visitor/smoothing.hpp``.
-
-Fuzzy evaluation replaces a hard ``x > 0`` / ``x >= 0`` by the call-spread
-``CSpr`` and ``x = 0`` by the butterfly ``BFly``; that keeps the pathwise
-derivative of a discontinuous payoff (e.g. with respect to a barrier level).
-The two-argument forms take explicit ``lb`` / ``rb`` bounds.
-"""
+"""Smoothed condition kernels, a port of DAL's ``script/visitor/smoothing.hpp``."""
 
 import jax.numpy as jnp
 from jax import Array

@@ -1,23 +1,9 @@
-"""Recursive-descent parser, a port of DAL's ``script/parser.cpp``.
-
-Grammar (keywords are case-insensitive)::
-
-    statement := IF cond THEN statement* [ELSE statement*] END
-               | FOR(i, a, b) statement* END            -- unrolled for i in [a, b)
-               | APPEND(vector, expr)
-               | EXERCISE expr [IF cond]                -- top level, once per event
-               | var = expr | vector[k] = expr | var PAYS expr [ON yyyy-mm-dd]
-    cond      := cond2 (OR cond2)* ;  cond2 := elem (AND elem)* ;  elem := expr CMP expr [:eps]
-    expr      := term ((+|-) term)* ; term := power ((*|/) power)* ; power := unary (^ unary)*
-    unary     := (+|-) unary | ( expr ) | const | var | function | vector[k] | FIX(index[, date])
-
-Named constants become ``ConstVar`` nodes, loop indices and predefined vector
-entries fold to ``Const``, and ``DCF(basis, start, end)`` folds to a constant.
-"""
+"""Recursive-descent parser, a port of DAL's ``script/parser.cpp``."""
 
 import math
 import re
 from collections.abc import Callable, Sequence
+from types import MappingProxyType
 
 from dal_jax.dates.date import Date
 from dal_jax.dates.daybasis import DayBasis
@@ -27,8 +13,29 @@ from dal_jax.script import ast as A
 from dal_jax.script.lexer import SourceLocation, SourceOrigin, Token, lex
 from dal_jax.strings import CIMap, ci_eq, ci_in, is_number, stod, stod_error
 
-RESERVED_KEY_WORDS = ("IF", "END", "THEN", "ELSE", "DCF", "PAYS", "AND", "OR", "SPOT", "MAX", "MIN", "LOG", "SQRT", "EXP", "FIX",
-                      "EXERCISE", "FOR", "APPEND", "SUM", "AVERAGE", "ON")
+RESERVED_KEY_WORDS = (
+    "IF",
+    "END",
+    "THEN",
+    "ELSE",
+    "DCF",
+    "PAYS",
+    "AND",
+    "OR",
+    "SPOT",
+    "MAX",
+    "MIN",
+    "LOG",
+    "SQRT",
+    "EXP",
+    "FIX",
+    "EXERCISE",
+    "FOR",
+    "APPEND",
+    "SUM",
+    "AVERAGE",
+    "ON",
+)
 _LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 _NAME_CHARS = _LETTERS + "0123456789_."
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -36,8 +43,17 @@ _MAX_LOOP_ITERATIONS = 10000
 _MAX_EXPANDED_STATEMENTS = 100000
 _MAX_INDEX = 1000000.0
 #  name -> (min args, max args, node); SPOT and DCF are built specially
-_FUNCTIONS = {"SPOT": (0, 0, A.Spot), "LOG": (1, 1, A.Log), "SQRT": (1, 1, A.Sqrt), "EXP": (1, 1, A.Exp), "MIN": (2, 1000, A.Min),
-              "MAX": (2, 1000, A.Max), "DCF": (3, 3, None)}
+_FUNCTIONS = MappingProxyType(
+    {
+        "SPOT": (0, 0, A.Spot),
+        "LOG": (1, 1, A.Log),
+        "SQRT": (1, 1, A.Sqrt),
+        "EXP": (1, 1, A.Exp),
+        "MIN": (2, 1000, A.Min),
+        "MAX": (2, 1000, A.Max),
+        "DCF": (3, 3, None),
+    }
+)
 
 
 def _fail(message: str) -> ScriptError:
@@ -94,7 +110,9 @@ def reduce_vector_values(values: Sequence[float], kind: A.ReduceKind, context: s
 class Parser:
     """Parses one event text at a time; ``const_variables`` / ``numeric_vectors`` come from the preprocessor."""
 
-    def __init__(self, const_variables: CIMap | None = None, numeric_vectors: CIMap | None = None) -> None:
+    def __init__(
+        self, const_variables: CIMap | None = None, numeric_vectors: CIMap | None = None
+    ) -> None:
         self.const_variables = const_variables if const_variables is not None else CIMap()
         self.numeric_vectors = numeric_vectors if numeric_vectors is not None else CIMap()
         self.loop_indices = CIMap()
@@ -106,8 +124,6 @@ class Parser:
         self.expanded_statements = 0
         self.tokens: list[Token] = []
         self.cur = 0
-
-    # --- token helpers ---------------------------------------------------------------
 
     def _tok(self, i: int | None = None) -> Token:
         return self.tokens[self.cur if i is None else i]
@@ -132,7 +148,9 @@ class Parser:
             raise _fail("opening ( has no matching closing )")
         return cur - 1
 
-    def _parentheses(self, on_match: Callable[[int], A.Node], on_no_match: Callable[[int], A.Node], end: int) -> A.Node:
+    def _parentheses(
+        self, on_match: Callable[[int], A.Node], on_no_match: Callable[[int], A.Node], end: int
+    ) -> A.Node:
         _require(self.cur != end, "unexpected end of expression")
         if self._text() == "(":
             close = self._find_match(self.cur, end)
@@ -142,8 +160,6 @@ class Parser:
             self.cur = close + 1
             return tree
         return on_no_match(end)
-
-    # --- expressions -------------------------------------------------------------------
 
     def parse_expr(self, end: int) -> A.Node:
         lhs = self._parse_expr_l2(end)
@@ -226,12 +242,26 @@ class Parser:
         if self._tok().is_index:
             return self._parse_vector_entry()
         token = self._tok()
-        _require(not ci_eq(token.text, "FIX"), "ReservedIdentifier: FIX is a function; rename the variable; " + token.source.describe())
-        _require(not ci_eq(token.text, "EXERCISE"), "ReservedIdentifier: EXERCISE is a statement; rename the variable; " + token.source.describe())
+        _require(
+            not ci_eq(token.text, "FIX"),
+            "ReservedIdentifier: FIX is a function; rename the variable; "
+            + token.source.describe(),
+        )
+        _require(
+            not ci_eq(token.text, "EXERCISE"),
+            "ReservedIdentifier: EXERCISE is a statement; rename the variable; "
+            + token.source.describe(),
+        )
         _require(token.text[0] in _LETTERS, f"Variable name {token.text} is invalid")
-        _require(not _is_reserved(token.text), f"Variable name {token.text} is conflicted with an existing key word")
-        _require(token.text not in self.numeric_vectors,
-                 "ImmutableVector: predefined vector requires indexed access; " + token.source.describe())
+        _require(
+            not _is_reserved(token.text),
+            f"Variable name {token.text} is conflicted with an existing key word",
+        )
+        _require(
+            token.text not in self.numeric_vectors,
+            "ImmutableVector: predefined vector requires indexed access; "
+            + token.source.describe(),
+        )
         self.cur += 1
         if token.text in self.loop_indices:
             return A.Const(const_val=self.loop_indices[token.text])
@@ -240,11 +270,18 @@ class Parser:
         return A.Var(name=token.text)
 
     def _is_bare_name(self, token: Token) -> bool:
-        return not token.is_index and is_vector_identifier(token.text) and not _is_reserved(token.text)
+        return (
+            not token.is_index and is_vector_identifier(token.text) and not _is_reserved(token.text)
+        )
 
     def _is_fresh_loop_index(self, token: Token) -> bool:
         name = token.text
-        return self._is_bare_name(token) and name not in self.const_variables and name not in self.numeric_vectors and name not in self.loop_indices
+        return (
+            self._is_bare_name(token)
+            and name not in self.const_variables
+            and name not in self.numeric_vectors
+            and name not in self.loop_indices
+        )
 
     def _numeric_constant(self, key: str, error: str) -> float:
         if is_number(key):
@@ -257,45 +294,101 @@ class Parser:
 
     @staticmethod
     def _nonnegative_integer(value: float, error: str) -> int:
-        if not math.isfinite(value) or value < 0.0 or value > _MAX_INDEX or math.floor(value) != value:
+        if (
+            not math.isfinite(value)
+            or value < 0.0
+            or value > _MAX_INDEX
+            or math.floor(value) != value
+        ):
             raise _fail(error)
         return int(value)
 
     def _parse_vector_name(self, end: int, source: SourceLocation, operation: str) -> str:
-        _require(self.cur != end and self._is_bare_name(self._tok()), f"{operation}: expected a vector name; {source.describe()}")
+        _require(
+            self.cur != end and self._is_bare_name(self._tok()),
+            f"{operation}: expected a vector name; {source.describe()}",
+        )
         name = self._text()
-        _require(name not in self.loop_indices, "InvalidFor: loop index cannot name a vector; " + source.describe())
-        _require(name not in self.const_variables, f"{operation}: scalar constant is not a vector; {source.describe()}")
+        _require(
+            name not in self.loop_indices,
+            "InvalidFor: loop index cannot name a vector; " + source.describe(),
+        )
+        _require(
+            name not in self.const_variables,
+            f"{operation}: scalar constant is not a vector; {source.describe()}",
+        )
         self.cur += 1
         return name
 
     def _parse_vector_entry(self) -> A.Node:
         raw, source = self._text(), self._tok().source
         opening, closing = raw.find("["), raw.find("]")
-        _require(opening > 0 and closing == len(raw) - 1, "InvalidVectorEntry: expected name[constant-index]; " + source.describe())
+        _require(
+            opening > 0 and closing == len(raw) - 1,
+            "InvalidVectorEntry: expected name[constant-index]; " + source.describe(),
+        )
         name, key = raw[:opening], raw[opening + 1 : closing]
-        _require(is_vector_identifier(name), "InvalidVectorEntry: invalid vector name; " + source.describe())
-        _require(name not in self.loop_indices, "InvalidFor: loop index cannot name a vector; " + source.describe())
-        _require(not _is_reserved(name), "InvalidVectorEntry: reserved vector name; " + source.describe())
-        _require(name not in self.const_variables, "InvalidVectorEntry: scalar constant is not a vector; " + source.describe())
-        value = self._numeric_constant(key, "InvalidVectorEntry: index must be an integer constant; " + source.describe())
-        entry = self._nonnegative_integer(value, "InvalidVectorEntry: index must be a nonnegative integer at most 1000000; " + source.describe())
+        _require(
+            is_vector_identifier(name),
+            "InvalidVectorEntry: invalid vector name; " + source.describe(),
+        )
+        _require(
+            name not in self.loop_indices,
+            "InvalidFor: loop index cannot name a vector; " + source.describe(),
+        )
+        _require(
+            not _is_reserved(name), "InvalidVectorEntry: reserved vector name; " + source.describe()
+        )
+        _require(
+            name not in self.const_variables,
+            "InvalidVectorEntry: scalar constant is not a vector; " + source.describe(),
+        )
+        value = self._numeric_constant(
+            key, "InvalidVectorEntry: index must be an integer constant; " + source.describe()
+        )
+        entry = self._nonnegative_integer(
+            value,
+            "InvalidVectorEntry: index must be a nonnegative integer at most 1000000; "
+            + source.describe(),
+        )
         self.cur += 1
         if name in self.numeric_vectors:
-            return A.Const(const_val=read_vector_entry(self.numeric_vectors[name], entry, f"{name}; {source.describe()}"))
+            return A.Const(
+                const_val=read_vector_entry(
+                    self.numeric_vectors[name], entry, f"{name}; {source.describe()}"
+                )
+            )
         return A.VectorEntry(name=name, entry=entry, source=source)
 
     def _parse_vector_reduction(self, end: int) -> A.Node:
         function, source = self._text(), self._tok().source
         self.cur += 1
-        _require(self.cur != end and self._text() == "(", "InvalidVectorReduction: expected '('; " + source.describe())
+        _require(
+            self.cur != end and self._text() == "(",
+            "InvalidVectorReduction: expected '('; " + source.describe(),
+        )
         self.cur += 1
         name = self._parse_vector_name(end, source, "InvalidVectorReduction")
-        _require(self.cur != end and self._text() == ")", "InvalidVectorReduction: expected ')'; " + source.describe())
+        _require(
+            self.cur != end and self._text() == ")",
+            "InvalidVectorReduction: expected ')'; " + source.describe(),
+        )
         self.cur += 1
-        kind = "Sum" if ci_eq(function, "SUM") else "Average" if ci_eq(function, "AVERAGE") else "Minimum" if ci_eq(function, "MIN") else "Maximum"
+        kind = (
+            "Sum"
+            if ci_eq(function, "SUM")
+            else "Average"
+            if ci_eq(function, "AVERAGE")
+            else "Minimum"
+            if ci_eq(function, "MIN")
+            else "Maximum"
+        )
         if name in self.numeric_vectors:
-            return A.Const(const_val=reduce_vector_values(self.numeric_vectors[name], kind, f"{name}; {source.describe()}"))
+            return A.Const(
+                const_val=reduce_vector_values(
+                    self.numeric_vectors[name], kind, f"{name}; {source.describe()}"
+                )
+            )
         return A.VectorReduce(name=name, kind=kind, source=source)
 
     def _parse_func_args(self, end: int) -> list[A.Node]:
@@ -339,17 +432,25 @@ class Parser:
         _require(self.cur == close, "too many arguments for `DCF`")
         self.cur = close + 1
         try:
-            return DayBasis.parse(basis).year_fraction(Date.from_string(start), Date.from_string(stop))
+            return DayBasis.parse(basis).year_fraction(
+                Date.from_string(start), Date.from_string(stop)
+            )
         except DalError as error:
             raise _fail(error.detail) from error
 
     def _parse_fix(self, end: int) -> A.Node:
         function_source = self._tok().source
         self.cur += 1
-        _require(self.cur != end and self._text() == "(",
-                 "ReservedIdentifier: FIX is a function; use FIX(index[,date]) or rename the variable; " + function_source.describe())
+        _require(
+            self.cur != end and self._text() == "(",
+            "ReservedIdentifier: FIX is a function; use FIX(index[,date]) or rename the variable; "
+            + function_source.describe(),
+        )
         self.cur += 1
-        _require(self.cur != end and self._tok().is_index, "InvalidIndex: FIX requires an unquoted index literal; " + function_source.describe())
+        _require(
+            self.cur != end and self._tok().is_index,
+            "InvalidIndex: FIX requires an unquoted index literal; " + function_source.describe(),
+        )
         literal, source = self._text(), self._tok().source
         try:
             index = parse_index(literal)
@@ -359,26 +460,49 @@ class Parser:
         fixing_date = None
         if self.cur != end and self._text() == ",":
             self.cur += 1
-            fixing_date = self._parse_date_literal(end, source, "InvalidFixingDate", "FIX requires a strict YYYY-MM-DD date literal",
-                                                   lambda token: token.text != ")", stop_on_gap=False)
-        _require(self.cur != end and self._text() == ")", "InvalidIndex: FIX requires one index and an optional date; " + function_source.describe())
+            fixing_date = self._parse_date_literal(
+                end,
+                source,
+                "InvalidFixingDate",
+                "FIX requires a strict YYYY-MM-DD date literal",
+                lambda token: token.text != ")",
+                stop_on_gap=False,
+            )
+        _require(
+            self.cur != end and self._text() == ")",
+            "InvalidIndex: FIX requires one index and an optional date; "
+            + function_source.describe(),
+        )
         self.cur += 1
         node = A.Fix(literal=literal, canonical=index.name, fixing_date=fixing_date, source=source)
         if not self.preparation_error:
             self.preparation_error = node.preparation_error()
         return node
 
-    def _parse_date_literal(self, end: int, fallback: SourceLocation, code: str, expectation: str, accept, stop_on_gap: bool) -> Date:
+    def _parse_date_literal(
+        self,
+        end: int,
+        fallback: SourceLocation,
+        code: str,
+        expectation: str,
+        accept,
+        stop_on_gap: bool,
+    ) -> Date:
         """Contiguous tokens forming ``yyyy-mm-dd``; ``stop_on_gap`` ends the literal at whitespace (``ON``)."""
         date_source = fallback if self.cur == end else self._tok().source
         text, contiguous = self._adjacent_tokens(end, date_source.offset, accept, stop_on_gap)
-        _require(contiguous and bool(_ISO_DATE.fullmatch(text)), f"{code}: {expectation}; input={text}; {date_source.describe()}")
+        _require(
+            contiguous and bool(_ISO_DATE.fullmatch(text)),
+            f"{code}: {expectation}; input={text}; {date_source.describe()}",
+        )
         try:
             return Date.from_string(text)
         except DalError as error:
             raise _fail(f"{code}: {text}; {date_source.describe()}; {error.detail}") from error
 
-    def _adjacent_tokens(self, end: int, offset: int, accept, stop_on_gap: bool) -> tuple[str, bool]:
+    def _adjacent_tokens(
+        self, end: int, offset: int, accept, stop_on_gap: bool
+    ) -> tuple[str, bool]:
         """Concatenated accepted tokens and whether they touched without gaps."""
         text, contiguous = "", True
         while self.cur != end and accept(self._tok()):
@@ -390,8 +514,6 @@ class Parser:
             offset = token.source.offset + len(token.text)
             self.cur += 1
         return text, contiguous
-
-    # --- conditions --------------------------------------------------------------------
 
     def parse_cond(self, end: int) -> A.Node:
         lhs = self._parse_cond_l2(end)
@@ -440,12 +562,12 @@ class Parser:
             self.cur += 1
             _require(self.cur != end, "unexpected end of statement")
             eps = _to_double(self._text())
-            _require(math.isfinite(eps) and eps > 0.0,
-                     f"InvalidSmoothing: the ;eps option expects a finite positive width, got '{self._text()}'; {self._tok().source.describe()}")
+            _require(
+                math.isfinite(eps) and eps > 0.0,
+                f"InvalidSmoothing: the ;eps option expects a finite positive width, got '{self._text()}'; {self._tok().source.describe()}",
+            )
             self.cur += 1
         return eps
-
-    # --- statements ----------------------------------------------------------------------
 
     def _parse_if(self, end: int) -> A.Node:
         self.cur += 1
@@ -463,7 +585,11 @@ class Parser:
             self.cur += 1
             else_statements = self._parse_block(end)
             _require(self.cur != end, "`if/then/else` is not followed by `end`")
-            _require(not self._is("ELSE"), "DuplicateElse: `if/then/else` admits a single `else` clause; " + self._tok().source.describe())
+            _require(
+                not self._is("ELSE"),
+                "DuplicateElse: `if/then/else` admits a single `else` clause; "
+                + self._tok().source.describe(),
+            )
             first_else = len(then_statements) + 1
         self.if_level -= 1
         self.cur += 1
@@ -483,34 +609,55 @@ class Parser:
             sign = -1 if self._text() == "-" else 1
             self.cur += 1
         _require(self.cur != end, "InvalidFor: missing loop bound" + context)
-        value = sign * self._numeric_constant(self._text(), "InvalidFor: bound must be an integer constant" + context)
+        value = sign * self._numeric_constant(
+            self._text(), "InvalidFor: bound must be an integer constant" + context
+        )
         self.cur += 1
-        return self._nonnegative_integer(value, "InvalidFor: bound must be a nonnegative integer at most 1000000" + context)
+        return self._nonnegative_integer(
+            value, "InvalidFor: bound must be a nonnegative integer at most 1000000" + context
+        )
 
     def _parse_for_header(self, end: int, context: str) -> tuple[str, int, int]:
         self.cur += 1
         _require(self.cur != end and self._text() == "(", "InvalidFor: expected '('" + context)
         self.cur += 1
-        _require(self.cur != end and self._is_fresh_loop_index(self._tok()), "InvalidFor: expected a fresh loop index" + context)
+        _require(
+            self.cur != end and self._is_fresh_loop_index(self._tok()),
+            "InvalidFor: expected a fresh loop index" + context,
+        )
         index_name = self._text()
         self.cur += 1
-        _require(self.cur != end and self._text() == ",", "InvalidFor: expected ',' after loop index" + context)
+        _require(
+            self.cur != end and self._text() == ",",
+            "InvalidFor: expected ',' after loop index" + context,
+        )
         self.cur += 1
         first = self._parse_for_bound(end, context)
-        _require(self.cur != end and self._text() == ",", "InvalidFor: expected ',' between bounds" + context)
+        _require(
+            self.cur != end and self._text() == ",",
+            "InvalidFor: expected ',' between bounds" + context,
+        )
         self.cur += 1
         last = self._parse_for_bound(end, context)
         _require(self.cur != end and self._text() == ")", "InvalidFor: expected ')'" + context)
-        _require(last >= first and last - first <= _MAX_LOOP_ITERATIONS, "InvalidFor: range must contain at most 10000 iterations" + context)
+        _require(
+            last >= first and last - first <= _MAX_LOOP_ITERATIONS,
+            "InvalidFor: range must contain at most 10000 iterations" + context,
+        )
         self.cur += 1
         return index_name, first, last
 
-    def _parse_for_iteration(self, body: int, end: int, emit: bool, collected: list, context: str) -> int:
+    def _parse_for_iteration(
+        self, body: int, end: int, emit: bool, collected: list, context: str
+    ) -> int:
         self.cur = body
         while self.cur != end and not self._is("END"):
             statement = self.parse_statement(end)
             if emit:
-                _require(self.expanded_statements < _MAX_EXPANDED_STATEMENTS, "InvalidFor: expanded program exceeds 100000 statements" + context)
+                _require(
+                    self.expanded_statements < _MAX_EXPANDED_STATEMENTS,
+                    "InvalidFor: expanded program exceeds 100000 statements" + context,
+                )
                 self.expanded_statements += 1
                 collected.append(statement)
         _require(self.cur != end, "InvalidFor: missing END" + context)
@@ -533,23 +680,37 @@ class Parser:
         self.for_level -= 1
         del self.loop_indices[index_name]
         if first == last:
-            self.has_pays, self.has_exercise, self.preparation_error, self.expanded_statements = saved
+            self.has_pays, self.has_exercise, self.preparation_error, self.expanded_statements = (
+                saved
+            )
         self.cur = body_end + 1
         return A.Collect(args=tuple(collected))
 
     def _parse_vector_append(self, end: int) -> A.Node:
         source = self._tok().source
         self.cur += 1
-        _require(self.cur != end and self._text() == "(", "InvalidVectorAppend: expected '('; " + source.describe())
+        _require(
+            self.cur != end and self._text() == "(",
+            "InvalidVectorAppend: expected '('; " + source.describe(),
+        )
         close = self._find_match(self.cur, end)
         self.cur += 1
         name = self._parse_vector_name(close, source, "InvalidVectorAppend")
-        _require(name not in self.numeric_vectors, "ImmutableVector: APPEND cannot modify a predefined vector; " + source.describe())
-        _require(self.cur != close and self._text() == ",", "InvalidVectorAppend: expected ','; " + source.describe())
+        _require(
+            name not in self.numeric_vectors,
+            "ImmutableVector: APPEND cannot modify a predefined vector; " + source.describe(),
+        )
+        _require(
+            self.cur != close and self._text() == ",",
+            "InvalidVectorAppend: expected ','; " + source.describe(),
+        )
         self.cur += 1
         _require(self.cur != close, "InvalidVectorAppend: expected a value; " + source.describe())
         value = self.parse_expr(close)
-        _require(self.cur == close, "InvalidVectorAppend: unexpected tokens after value; " + source.describe())
+        _require(
+            self.cur == close,
+            "InvalidVectorAppend: unexpected tokens after value; " + source.describe(),
+        )
         self.cur = close + 1
         return A.VectorAppend(args=(value,), name=name, source=source)
 
@@ -558,8 +719,15 @@ class Parser:
         self.has_exercise = True
         self.cur += 1
         if self.cur != end and (self._text() == "=" or self._is("PAYS")):
-            raise _fail("ReservedIdentifier: EXERCISE is a statement; rename the variable; " + source.describe())
-        _require(self.cur != end, "unexpected end of statement; EXERCISE requires a value expression; " + source.describe())
+            raise _fail(
+                "ReservedIdentifier: EXERCISE is a statement; rename the variable; "
+                + source.describe()
+            )
+        _require(
+            self.cur != end,
+            "unexpected end of statement; EXERCISE requires a value expression; "
+            + source.describe(),
+        )
         value = self.parse_expr(end)
         if self.cur != end and self._is("IF"):
             return self._parse_exercise_condition(end, source, value)
@@ -568,13 +736,23 @@ class Parser:
     def _parse_exercise_condition(self, end: int, source: SourceLocation, value: A.Node) -> A.Node:
         """``EXERCISE value IF cond``; the exercise shares the eps of the condition's first comparison."""
         self.cur += 1
-        _require(self.cur != end, "unexpected end of statement; EXERCISE requires a condition after IF; " + source.describe())
+        _require(
+            self.cur != end,
+            "unexpected end of statement; EXERCISE requires a condition after IF; "
+            + source.describe(),
+        )
         cond = self.parse_cond(end)
         if self.cur != end and _is_reserved(self._text()):
-            raise _fail(f"InvalidExerciseCondition: EXERCISE condition ends on the statement keyword '{self._text()}'; "
-                        + self._tok().source.describe())
+            raise _fail(
+                f"InvalidExerciseCondition: EXERCISE condition ends on the statement keyword '{self._text()}'; "
+                + self._tok().source.describe()
+            )
         comparison = A.find_node(cond, lambda n: isinstance(n, A.Comparison))
-        return A.Exercise(args=(value, cond), source=source, eps=comparison.eps if comparison is not None else -1.0)
+        return A.Exercise(
+            args=(value, cond),
+            source=source,
+            eps=comparison.eps if comparison is not None else -1.0,
+        )
 
     def _parse_assignment(self, end: int, lhs: A.Node, kind) -> A.Node:
         self.cur += 1
@@ -591,9 +769,19 @@ class Parser:
         if self.cur != end and self._is("ON"):
             on_source = self._tok().source
             self.cur += 1
-            _require(self.cur != end, "InvalidPaymentDate: PAYS expects a YYYY-MM-DD date literal after ON; " + on_source.describe())
-            payment_date = self._parse_date_literal(end, on_source, "InvalidPaymentDate", "PAYS expects a strict YYYY-MM-DD date literal after ON",
-                                                    lambda token: bool(token.text) and all(c in "0123456789-" for c in token.text), stop_on_gap=True)
+            _require(
+                self.cur != end,
+                "InvalidPaymentDate: PAYS expects a YYYY-MM-DD date literal after ON; "
+                + on_source.describe(),
+            )
+            payment_date = self._parse_date_literal(
+                end,
+                on_source,
+                "InvalidPaymentDate",
+                "PAYS expects a strict YYYY-MM-DD date literal after ON",
+                lambda token: bool(token.text) and all(c in "0123456789-" for c in token.text),
+                stop_on_gap=True,
+            )
         return A.Pays(args=(lhs, rhs), source=source, payment_date=payment_date)
 
     def parse_statement(self, end: int) -> A.Node:
@@ -604,9 +792,16 @@ class Parser:
         if self._is("APPEND"):
             return self._parse_vector_append(end)
         if self._is("EXERCISE"):
-            _require(self.if_level == 0 and self.for_level == 0,
-                     "UnsupportedExerciseNesting: EXERCISE must be a top-level statement outside IF/FOR; " + self._tok().source.describe())
-            _require(not self.has_exercise, "DuplicateExercise: an event admits at most one EXERCISE statement; " + self._tok().source.describe())
+            _require(
+                self.if_level == 0 and self.for_level == 0,
+                "UnsupportedExerciseNesting: EXERCISE must be a top-level statement outside IF/FOR; "
+                + self._tok().source.describe(),
+            )
+            _require(
+                not self.has_exercise,
+                "DuplicateExercise: an event admits at most one EXERCISE statement; "
+                + self._tok().source.describe(),
+            )
             return self._parse_exercise(end)
         return self._parse_target_statement(end)
 
@@ -614,13 +809,21 @@ class Parser:
         """``target = value`` or ``target PAYS value``."""
         source = self._tok().source
         lhs = self._parse_var()
-        _require(isinstance(lhs, (A.Var, A.VectorEntry)),
-                 "InvalidAssignmentTarget: expected a mutable variable or vector entry; " + source.describe())
+        _require(
+            isinstance(lhs, (A.Var, A.VectorEntry)),
+            "InvalidAssignmentTarget: expected a mutable variable or vector entry; "
+            + source.describe(),
+        )
         _require(self.cur != end, "unexpected end of statement")
         if self._text() == "=":
-            return self._parse_assignment(end, lhs, A.VectorAssign if isinstance(lhs, A.VectorEntry) else A.Assign)
+            return self._parse_assignment(
+                end, lhs, A.VectorAssign if isinstance(lhs, A.VectorEntry) else A.Assign
+            )
         if self._is("PAYS"):
-            _require(isinstance(lhs, A.Var), "InvalidPaymentTarget: expected a scalar variable; " + source.describe())
+            _require(
+                isinstance(lhs, A.Var),
+                "InvalidPaymentTarget: expected a scalar variable; " + source.describe(),
+            )
             return self._parse_pays(end, lhs)
         raise _fail("statement without an instruction")
 

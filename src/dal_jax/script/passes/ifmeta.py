@@ -1,9 +1,4 @@
-"""IF metadata, a port of DAL's ``visitor/ifprocessor.hpp``.
-
-For every ``If`` it records the (sorted) indices of variables and vectors
-written in its branches, nested ``If``s included; fuzzy evaluation blends only
-those.  It also reports the deepest ``If`` nesting.
-"""
+"""IF metadata, a port of DAL's ``visitor/ifprocessor.hpp``."""
 
 from collections.abc import Sequence
 from dataclasses import replace
@@ -27,7 +22,11 @@ class _IfProcessor:
 
     def visit(self, node: A.Node) -> A.Node:
         handler = self._handlers.get(type(node))
-        return handler(node) if handler else node.with_args(tuple(self.visit(arg) for arg in node.args))
+        return (
+            handler(node)
+            if handler
+            else node.with_args(tuple(self.visit(arg) for arg in node.args))
+        )
 
     def _if(self, node: A.If) -> A.Node:
         self.var_stack.append(set())
@@ -38,7 +37,12 @@ class _IfProcessor:
         if self.var_stack:
             self.var_stack[-1] |= affected_vars
             self.vector_stack[-1] |= affected_vectors
-        return replace(node, args=args, affected_vars=tuple(sorted(affected_vars)), affected_vectors=tuple(sorted(affected_vectors)))
+        return replace(
+            node,
+            args=args,
+            affected_vars=tuple(sorted(affected_vars)),
+            affected_vectors=tuple(sorted(affected_vectors)),
+        )
 
     def _target(self, node: A.Node) -> A.Node:
         """Assignments and payments: only the written variable matters."""

@@ -1,12 +1,4 @@
-"""Script tokenizer, a port of DAL's ``script/lexer.cpp``.
-
-Words are ASCII letters, digits, ``_`` and ``.``; operators are single
-characters except ``!=``, ``<=`` and ``>=``.  An identifier immediately
-followed by ``[...]`` (plus an optional ``@date`` / ``>increment`` suffix) is
-one index-literal token, e.g. ``EQ[Aapl]@2026-12-31``.  Every token records its
-source position; ``origins`` map offsets of a merged event text back to the
-event-table row and date they came from.
-"""
+"""Script tokenizer, a port of DAL's ``script/lexer.cpp``."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -82,7 +74,7 @@ def _word_end(text: str, start: int) -> int:
 
 
 def _index_context(text: str, source: SourceLocation) -> str:
-    return f"; {source.describe()}; input={text[source.offset:]}"
+    return f"; {source.describe()}; input={text[source.offset :]}"
 
 
 def _index_body_end(text: str, start: int, source: SourceLocation) -> int:
@@ -123,7 +115,9 @@ def _script_token_end(text: str, pos: int, source: SourceLocation) -> int:
     if text[pos] in "!<>" and end < len(text) and text[end] == "=":
         return end + 1
     if text[pos] not in _OPERATORS:
-        raise script_error(f"InvalidScript: unexpected character '{text[pos]}'; {source.describe()}")
+        raise script_error(
+            f"InvalidScript: unexpected character '{text[pos]}'; {source.describe()}"
+        )
     return end
 
 

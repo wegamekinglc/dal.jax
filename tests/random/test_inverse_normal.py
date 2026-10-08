@@ -4,7 +4,13 @@ from scipy.special import ndtr, ndtri
 
 from dal_jax.random.inverse_normal import inverse_ncdf, inverse_ncdf_ndtri, ncdf
 
-GRID = np.concatenate([np.geomspace(1e-12, 0.02425, 200), np.linspace(0.02425, 0.97575, 401), 1.0 - np.geomspace(1e-12, 0.02425, 200)])
+GRID = np.concatenate(
+    [
+        np.geomspace(1e-12, 0.02425, 200),
+        np.linspace(0.02425, 0.97575, 401),
+        1.0 - np.geomspace(1e-12, 0.02425, 200),
+    ]
+)
 
 
 def test_acklam_accuracy_matches_its_published_bound():
@@ -16,7 +22,9 @@ def test_acklam_accuracy_matches_its_published_bound():
 def test_polish_with_erfc_reaches_double_precision():
     #  DAL caps the Newton step's exp(z^2 / 2) at exp(8), so the polish only fully applies for |z| <= 4.
     x = GRID[(GRID > 1e-4) & (GRID < 1 - 1e-4)]
-    np.testing.assert_allclose(np.asarray(inverse_ncdf(x, precise=True, polish=True)), ndtri(x), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(
+        np.asarray(inverse_ncdf(x, precise=True, polish=True)), ndtri(x), rtol=1e-12, atol=1e-12
+    )
 
 
 def test_spline_ncdf_is_a_coarse_but_continuous_approximation():

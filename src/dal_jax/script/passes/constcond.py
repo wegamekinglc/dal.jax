@@ -1,10 +1,4 @@
-"""Constant-condition folding, a port of DAL's ``visitor/constcondprocessor.hpp``.
-
-Replaces conditions the domain processor proved always true/false by
-``TrueNode`` / ``FalseNode`` and such ``If`` statements by a ``Collect`` of the
-branch that runs.  Conditions containing ``AND`` / ``OR`` are kept (their
-operands are evaluated eagerly in DAL) and only their children are folded.
-"""
+"""Constant-condition folding, a port of DAL's ``visitor/constcondprocessor.hpp``."""
 
 from collections.abc import Sequence
 

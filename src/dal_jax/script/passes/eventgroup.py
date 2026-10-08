@@ -1,7 +1,6 @@
 """Normalize event literals and group adjacent equal templates for lax.scan."""
 
 from dataclasses import dataclass, replace
-from functools import lru_cache
 
 from dal_jax.script import ast as A
 from dal_jax.script.lexer import SourceLocation
@@ -11,12 +10,7 @@ _LIVE_LEAVES = (A.Var, A.ConstVar, A.Spot)
 
 
 def normalize_event(event: A.Event) -> tuple[A.Event, tuple[float, ...]]:
-    """Remove source/observation identities and put folded literals into slots.
-
-    Named script constants remain live parameter reads.  Folded expressions
-    can depend on earlier literal assignments (e.g. a schedule counter), so
-    their per-date values must also become slots rather than template keys.
-    """
+    """Normalize event identities; folded literals become per-date slots."""
     constants = []
 
     def normalize(node):
@@ -68,7 +62,6 @@ class EventGroup:
         return self.stop - self.start
 
 
-@lru_cache(maxsize=128)
 def group_events(events: tuple[A.Event, ...], threshold: int = 4) -> tuple[EventGroup, ...]:
     """Group runs of equal templates; ``threshold=0`` disables scanning."""
     normalized = tuple(normalize_event(event) for event in events)
@@ -80,6 +73,10 @@ def group_events(events: tuple[A.Event, ...], threshold: int = 4) -> tuple[Event
         while stop < len(events) and normalized[stop][0] == template:
             stop += 1
         constants = tuple(row for _, row in normalized[start:stop])
-        groups.append(EventGroup(start, stop, template, constants, threshold > 0 and stop - start >= threshold))
+        groups.append(
+            EventGroup(
+                start, stop, template, constants, threshold > 0 and stop - start >= threshold
+            )
+        )
         start = stop
     return tuple(groups)

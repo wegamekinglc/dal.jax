@@ -3,9 +3,9 @@
 from copy import copy
 
 import jax
+from _common import arguments, compare, european_rows, finish, model, prepare, settings, table
 
 import dal_jax as dj
-from _common import arguments, compare, european_rows, finish, model, prepare, settings, table
 
 
 def main():
@@ -19,20 +19,30 @@ def main():
     deterministic = []
     devices = dj.config.devices(args.platform)
     for selected in (devices[:1], devices):
-        engine = product.engine(model(), settings(args, devices=selected, block_size=1024, deterministic_reduction=True))
+        engine = product.engine(
+            model(), settings(args, devices=selected, block_size=1024, deterministic_reduction=True)
+        )
         record = compare(f"Deterministic, {len(selected)} devices", engine, rows, args)
         deterministic.append(record["jax"]["result"])
         comparisons.append(record)
-    assert deterministic[0] == deterministic[1]  # nosec B101: executable numerical validation
+    assert deterministic[0] == deterministic[1]  # nosec B101
     engine = product.engine(model(), settings(args, dtype="float32"))
     comparisons.append(compare("float32 paths, float64 block accumulation", engine, rows, args))
     bucketed = product.engine(model(), settings(args, block_size=1024, block_bucketing=True))
-    for n in (args.paths+1, args.paths+2):
+    for n in (args.paths + 1, args.paths + 2):
         local = copy(args)
         local.paths = n
         comparisons.append(compare(f"Bucketed tail, {n} paths", bucketed, rows, local))
-    table(["deterministic PV hex", "delta hex", "bitwise equal"],
-          [[deterministic[0]["PV"].hex(), deterministic[0]["d_spot"].hex(), deterministic[0] == deterministic[1]]])
+    table(
+        ["deterministic PV hex", "delta hex", "bitwise equal"],
+        [
+            [
+                deterministic[0]["PV"].hex(),
+                deterministic[0]["d_spot"].hex(),
+                deterministic[0] == deterministic[1],
+            ]
+        ],
+    )
     print("Selected devices:", jax.tree.map(str, list(devices)))
     finish(args, comparisons, deterministic_bitwise_equal=True)
 

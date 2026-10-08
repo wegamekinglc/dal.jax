@@ -1,9 +1,4 @@
-"""Black-Scholes model, a port of DAL's ``BlackScholes_``.
-
-Log-spot is accumulated from per-step drifts ``(r - q - vol^2 / 2) dt`` and
-standard deviations ``vol sqrt(dt)`` precomputed in ``init``; the numeraire is
-``exp(r t)`` and discount factors are ``exp(-r (T - t))``.
-"""
+"""Black-Scholes model, a port of DAL's ``BlackScholes_``."""
 
 import math
 from collections.abc import Mapping, Sequence
@@ -14,8 +9,8 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 
-from dal_jax.index import Index
 from dal_jax.errors import InvalidModelParameter
+from dal_jax.index import Index
 from dal_jax.models.base import ModelParams, SampleDef, Scenario, validate_timeline
 
 
@@ -83,7 +78,10 @@ class BlackScholes:
         return index.kind == "EQ" and index.name.endswith("]")
 
     def default_params(self) -> dict[str, Array]:
-        return {label: jnp.asarray(getattr(self, label), dtype=jnp.float64) for label in self.param_labels}
+        return {
+            label: jnp.asarray(getattr(self, label), dtype=jnp.float64)
+            for label in self.param_labels
+        }
 
     def validate_params(self, params: ModelParams) -> None:
         spot, vol, rate, div = (float(params[label]) for label in self.param_labels)
@@ -136,4 +134,9 @@ class BlackScholes:
             if plan.today_on_timeline:
                 spots = jnp.concatenate([state.spot[None], spots])
         observations = jnp.broadcast_to(spots[:, None], (len(plan.times), plan.max_observations))
-        return Scenario(spot=spots, numeraire=state.numeraires, observations=observations, discounts=state.discounts)
+        return Scenario(
+            spot=spots,
+            numeraire=state.numeraires,
+            observations=observations,
+            discounts=state.discounts,
+        )

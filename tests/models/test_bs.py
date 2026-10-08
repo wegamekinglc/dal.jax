@@ -22,7 +22,9 @@ def test_satisfies_protocol_and_labels():
     model = make()
     assert isinstance(model, Model)
     assert model.param_labels == ("spot", "vol", "rate", "div")
-    assert model.supports_bb and model.numeraire_is_deterministic and model.supports_discount_factors
+    assert (
+        model.supports_bb and model.numeraire_is_deterministic and model.supports_discount_factors
+    )
 
 
 def test_allocate_builds_steps_from_positive_times():
@@ -49,9 +51,17 @@ def test_generate_matches_dal_recurrence():
         log_spot += (0.03 - 0.01 - 0.5 * 0.2 * 0.2) * dt + 0.2 * math.sqrt(dt) * g
         spots.append(math.exp(log_spot))
     np.testing.assert_allclose(np.asarray(scenario.spot), spots, rtol=1e-15)
-    np.testing.assert_allclose(np.asarray(scenario.numeraire), [math.exp(0.03 * t) for t in times], rtol=1e-15)
-    np.testing.assert_allclose(np.asarray(scenario.discounts[:, 0]), [math.exp(-0.03 * (3.0 - t)) for t in times], rtol=1e-15)
-    np.testing.assert_array_equal(np.asarray(scenario.observations[:, 0]), np.asarray(scenario.spot))
+    np.testing.assert_allclose(
+        np.asarray(scenario.numeraire), [math.exp(0.03 * t) for t in times], rtol=1e-15
+    )
+    np.testing.assert_allclose(
+        np.asarray(scenario.discounts[:, 0]),
+        [math.exp(-0.03 * (3.0 - t)) for t in times],
+        rtol=1e-15,
+    )
+    np.testing.assert_array_equal(
+        np.asarray(scenario.observations[:, 0]), np.asarray(scenario.spot)
+    )
     samples = scenario.samples()
     assert len(samples) == 4 and float(samples[2].spot) == float(scenario.spot[2])
 
@@ -70,8 +80,12 @@ def test_padding_and_numeraire_flags():
 def test_deterministic_path_without_volatility():
     model = make(vol=0.0)
     plan = model.allocate([1.0, 2.0], defs(2))
-    scenario = model.generate(model.init(model.default_params(), plan), plan, jnp.asarray([5.0, -5.0]))
-    np.testing.assert_allclose(np.asarray(scenario.spot), [100.0 * math.exp(0.02), 100.0 * math.exp(0.04)], rtol=1e-14)
+    scenario = model.generate(
+        model.init(model.default_params(), plan), plan, jnp.asarray([5.0, -5.0])
+    )
+    np.testing.assert_allclose(
+        np.asarray(scenario.spot), [100.0 * math.exp(0.02), 100.0 * math.exp(0.04)], rtol=1e-14
+    )
 
 
 def test_today_only_timeline_has_no_random_dimension():
@@ -119,7 +133,16 @@ def test_observation_budget():
         make().allocate([1.0], (SampleDef(index_names=("A", "A")),))
 
 
-@pytest.mark.parametrize("kw", [{"spot": 0.0}, {"spot": float("inf")}, {"vol": -0.1}, {"rate": float("nan")}, {"div": float("inf")}])
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"spot": 0.0},
+        {"spot": float("inf")},
+        {"vol": -0.1},
+        {"rate": float("nan")},
+        {"div": float("inf")},
+    ],
+)
 def test_invalid_parameters(kw):
     with pytest.raises(InvalidModelParameter):
         make(**kw)

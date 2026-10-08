@@ -1,15 +1,9 @@
-"""DAL string semantics: case-insensitive ``String_`` and C ``stod`` number parsing.
-
-DAL's ``String_`` compares, searches and sorts case-insensitively through the
-``CI_ORDER`` table: ASCII letters fold to upper case, and ``{|}~`` plus DEL sort
-just after ``Z`` ... ``_``.  Script identifiers, keywords, macro names and the
-``std::map`` orderings that number constants all inherit these rules, so they
-are reproduced here exactly.
-"""
+"""DAL string semantics: case-insensitive ``String_`` and C ``stod`` number parsing."""
 
 import math
 import re
 from collections.abc import Iterator, Mapping
+from types import MappingProxyType
 from typing import Any
 
 
@@ -21,7 +15,9 @@ def _ci_char(code: int) -> int:
     return code
 
 
-_CI_TABLE = {code: _ci_char(code) for code in range(128) if _ci_char(code) != code}
+_CI_TABLE = MappingProxyType(
+    {code: _ci_char(code) for code in range(128) if _ci_char(code) != code}
+)
 
 
 def ci_key(text: str) -> str:
@@ -99,7 +95,9 @@ def _finite_value(match: re.Match, body: str) -> tuple[float, str]:
     if match.group("hex"):
         mantissa = match.group("hex")
         sign = "-" if body.startswith("-") else ""
-        value = float.fromhex(sign + (mantissa if re.search(r"[pP]", mantissa) else mantissa + "p0"))
+        value = float.fromhex(
+            sign + (mantissa if re.search(r"[pP]", mantissa) else mantissa + "p0")
+        )
         return value, re.split(r"[pP]", mantissa[2:])[0]
     return float(body.lstrip("+")), re.split(r"[eE]", match.group("dec"))[0]
 
@@ -126,11 +124,7 @@ def stod(text: str) -> float | None:
 
 
 def stod_error(text: str) -> str:
-    """The message DAL reports when ``String::ToDouble(text)`` fails.
-
-    ``std::stod`` itself throws (``what() == "stod"``) when nothing converts or
-    the value is out of range; a valid prefix followed by more text fails DAL's
-    own check instead."""
+    """Return the DAL-compatible conversion error for invalid numeric text."""
     body = text.lstrip(_C_SPACE)
     match = _STOD.match(body)
     if match is None or match.end() == len(body):

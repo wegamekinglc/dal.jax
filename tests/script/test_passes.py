@@ -26,14 +26,23 @@ def rhs(statement):
     return statement.args[1]
 
 
-# --- constant marking ----------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "text,value",
-    [("x = 2 + 3", 5.0), ("x = 7 - 4", 3.0), ("x = 3 * 4", 12.0), ("x = 6 / 2", 3.0), ("x = 2 ^ 3", 8.0), ("x = MAX(2, 3)", 3.0),
-     ("x = MIN(2, 3)", 2.0), ("x = SQRT(4)", 2.0), ("x = EXP(0)", 1.0), ("x = LOG(1)", 0.0), ("x = -5", -5.0), ("x = (2 + 3) * 4 - 1", 19.0),
-     ("x = MAX(1, 3, 2)", 3.0)],
+    [
+        ("x = 2 + 3", 5.0),
+        ("x = 7 - 4", 3.0),
+        ("x = 3 * 4", 12.0),
+        ("x = 6 / 2", 3.0),
+        ("x = 2 ^ 3", 8.0),
+        ("x = MAX(2, 3)", 3.0),
+        ("x = MIN(2, 3)", 2.0),
+        ("x = SQRT(4)", 2.0),
+        ("x = EXP(0)", 1.0),
+        ("x = LOG(1)", 0.0),
+        ("x = -5", -5.0),
+        ("x = (2 + 3) * 4 - 1", 19.0),
+        ("x = MAX(1, 3, 2)", 3.0),
+    ],
 )
 def test_literal_subtrees_fold(text, value):
     value_node = rhs(const_processed(text)[0])
@@ -43,7 +52,12 @@ def test_literal_subtrees_fold(text, value):
 def test_constant_variables_propagate():
     event = const_processed("y = 2\nx = y + 1")
     add = rhs(event[1])
-    assert add.is_const and add.const_val == 3.0 and add.args[0].is_const and add.args[0].const_val == 2.0
+    assert (
+        add.is_const
+        and add.const_val == 3.0
+        and add.args[0].is_const
+        and add.args[0].const_val == 2.0
+    )
 
 
 def test_non_constant_sources():
@@ -65,20 +79,16 @@ def test_named_constants_never_fold():
     assert not rhs(event[0]).is_const and not rhs(event[0]).args[0].is_const
 
 
-# --- IF metadata ---------------------------------------------------------------------------------
-
-
 def test_if_metadata_collects_nested_writes():
-    event, _ = indexed("a = 0 b = 0 c = 0 IF spot() > 1 THEN a = 1 IF spot() > 2 THEN b = 2 END ELSE p pays 1 END APPEND(v, 1)")
-    (annotated, ), depth = process_ifs([event])
+    event, _ = indexed(
+        "a = 0 b = 0 c = 0 IF spot() > 1 THEN a = 1 IF spot() > 2 THEN b = 2 END ELSE p pays 1 END APPEND(v, 1)"
+    )
+    (annotated,), depth = process_ifs([event])
     outer = annotated[3]
     inner = outer.args[2]
     assert depth == 2 and outer.affected_vars == (0, 1, 3) and inner.affected_vars == (1,)
     (vec_event,), _ = process_ifs([indexed("IF spot() > 1 THEN APPEND(v, 1) w[2] = 3 END")[0]])
     assert vec_event[0].affected_vectors == (0, 1)
-
-
-# --- domains ----------------------------------------------------------------------------------------
 
 
 def domain_processed(text, fuzzy=False):
@@ -99,9 +109,13 @@ def test_domain_flags_constant_conditions():
 
 
 def test_fuzzy_domain_sets_discrete_bounds():
-    equal = domain_processed("IF spot() > 1 THEN x = 1 ELSE x = 3 END IF x = 1 THEN y = 1 END", fuzzy=True)[1].args[0]
+    equal = domain_processed(
+        "IF spot() > 1 THEN x = 1 ELSE x = 3 END IF x = 1 THEN y = 1 END", fuzzy=True
+    )[1].args[0]
     assert equal.is_discrete and (equal.lb, equal.rb) == (-0.5, 2.0)
-    sup = domain_processed("IF spot() > 1 THEN x = 1 ELSE x = 3 END IF x > 2 THEN y = 1 END", fuzzy=True)[1].args[0]
+    sup = domain_processed(
+        "IF spot() > 1 THEN x = 1 ELSE x = 3 END IF x > 2 THEN y = 1 END", fuzzy=True
+    )[1].args[0]
     assert sup.is_discrete and (sup.lb, sup.rb) == (-1.0, 1.0)
     continuous = domain_processed("IF spot() > 1 THEN y = 1 END", fuzzy=True)[0].args[0]
     assert not continuous.is_discrete
@@ -113,9 +127,6 @@ def test_fuzzy_domain_sets_discrete_bounds():
 def test_domain_requires_prepared_fixings():
     with pytest.raises(Exception, match="PreparationRequired"):
         domain_processed("x = FIX(EQ[a])")
-
-
-# --- constant-condition folding -------------------------------------------------------------------
 
 
 def const_cond_processed(text):
@@ -155,7 +166,11 @@ def evaluate(event, n_vars=1):
 
 def test_always_true_if_becomes_collection():
     (collect,) = const_cond_processed("IF 2 >= 1 THEN x = 1 END")
-    assert isinstance(collect, A.Collect) and len(collect.args) == 1 and isinstance(collect.args[0], A.Assign)
+    assert (
+        isinstance(collect, A.Collect)
+        and len(collect.args) == 1
+        and isinstance(collect.args[0], A.Assign)
+    )
 
 
 def test_always_false_if_keeps_else_branch():
@@ -167,7 +182,11 @@ def test_always_false_if_keeps_else_branch():
 
 def test_eager_booleans_keep_the_if_and_fold_children():
     (node,) = const_cond_processed("IF (2 >= 1) AND spot() >= 0 THEN x = 1 END")
-    assert isinstance(node, A.If) and isinstance(node.args[0], A.And) and isinstance(node.args[0].args[0], A.TrueNode)
+    assert (
+        isinstance(node, A.If)
+        and isinstance(node.args[0], A.And)
+        and isinstance(node.args[0].args[0], A.TrueNode)
+    )
     (node,) = const_cond_processed("IF (2 < 1) OR spot() >= 0 THEN x = 1 END")
     assert isinstance(node.args[0], A.Or) and isinstance(node.args[0].args[0], A.FalseNode)
     assert isinstance(const_cond_processed("IF spot() >= 1 THEN x = 1 END")[0], A.If)
@@ -182,14 +201,24 @@ def test_nested_folding_preserves_statement_order():
             x = 10 * x + 4
         END
         x = 10 * x + 5""")
-    assert len(event) == 2 and isinstance(event[0], A.Collect) and len(event[0].args) == 3 and isinstance(event[0].args[1], A.Collect)
+    assert (
+        len(event) == 2
+        and isinstance(event[0], A.Collect)
+        and len(event[0].args) == 3
+        and isinstance(event[0].args[1], A.Collect)
+    )
     assert evaluate(event)[0] == 12345.0
     event = const_cond_processed("""
         x = 1
         IF 2 > 1 THEN x = 10 * x + 2 IF 3 < 2 THEN x = 80 x = 88 END x = 10 * x + 3 END
         IF 2 < 1 THEN x = 90 x = 99 END
         x = 10 * x + 4""")
-    assert len(event) == 4 and len(event[1].args) == 3 and isinstance(event[1].args[1], A.Collect) and not event[1].args[1].args
+    assert (
+        len(event) == 4
+        and len(event[1].args) == 3
+        and isinstance(event[1].args[1], A.Collect)
+        and not event[1].args[1].args
+    )
     assert evaluate(event)[0] == 1234.0
 
 

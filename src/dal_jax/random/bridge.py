@@ -1,13 +1,5 @@
-"""Port of DAL's ``BrownianBridgeTransform_`` and ``FactorBrownianBridge_``.
+"""Port of DAL's ``BrownianBridgeTransform_`` and ``FactorBrownianBridge_``."""
 
-DAL builds the bridge on unit steps ``t_i = i + 1`` (not the event times) and
-returns normalised increments, so the transform maps N(0, I) to N(0, I) while
-moving the first Sobol coordinates onto the coarsest path structure.  The
-construction tables are computed on the host; ``apply`` is a single-path
-function.
-"""
-
-import functools
 import math
 from dataclasses import dataclass
 
@@ -35,18 +27,21 @@ class BridgePlan:
     sqrt_dt: tuple[float, ...]
 
 
-def _interpolation(t: list[float], j: int, k: int, l: int) -> tuple[float, float, float]:
+def _interpolation(t: list[float], j: int, k: int, target: int) -> tuple[float, float, float]:
     """Weights and conditional std of W(t_l) given W(t_{j-1}) (W(0) = 0 when j == 0) and W(t_k)."""
     if j != 0:
         return (
-            (t[k] - t[l]) / (t[k] - t[j - 1]),
-            (t[l] - t[j - 1]) / (t[k] - t[j - 1]),
-            math.sqrt(((t[l] - t[j - 1]) * (t[k] - t[l])) / (t[k] - t[j - 1])),
+            (t[k] - t[target]) / (t[k] - t[j - 1]),
+            (t[target] - t[j - 1]) / (t[k] - t[j - 1]),
+            math.sqrt(((t[target] - t[j - 1]) * (t[k] - t[target])) / (t[k] - t[j - 1])),
         )
-    return (t[k] - t[l]) / t[k], t[l] / t[k], math.sqrt(t[l] * (t[k] - t[l]) / t[k])
+    return (
+        (t[k] - t[target]) / t[k],
+        t[target] / t[k],
+        math.sqrt(t[target] * (t[k] - t[target]) / t[k]),
+    )
 
 
-@functools.cache
 def bridge_plan(n: int) -> BridgePlan:
     """``BrownianBridgeTransform_::Initialize`` for ``n`` unit steps."""
     if n <= 0:
@@ -71,28 +66,40 @@ def bridge_plan(n: int) -> BridgePlan:
         k = j
         while used[k] == 0:
             k += 1
-        l = j + ((k - 1 - j) >> 1)
-        used[l] = i
-        bridge_index[i] = l
+        target = j + ((k - 1 - j) >> 1)
+        used[target] = i
+        bridge_index[i] = target
         left_index[i] = j
         right_index[i] = k
-        left_weight[i], right_weight[i], std_dev[i] = _interpolation(t, j, k, l)
+        left_weight[i], right_weight[i], std_dev[i] = _interpolation(t, j, k, target)
         j = k + 1
         if j >= n:
             j = 0
-    return BridgePlan(n, tuple(bridge_index), tuple(left_index), tuple(right_index),
-                      tuple(left_weight), tuple(right_weight), tuple(std_dev), tuple(sqrt_dt))
+    return BridgePlan(
+        n,
+        tuple(bridge_index),
+        tuple(left_index),
+        tuple(right_index),
+        tuple(left_weight),
+        tuple(right_weight),
+        tuple(std_dev),
+        tuple(sqrt_dt),
+    )
 
 
 def _path_unrolled(plan: BridgePlan, z: Array) -> Array:
     w: list[Array | None] = [None] * plan.n
     w[plan.n - 1] = plan.std_dev[0] * z[0]
     for i in range(1, plan.n):
-        j, k, l = plan.left_index[i], plan.right_index[i], plan.bridge_index[i]
+        j, k, target = plan.left_index[i], plan.right_index[i], plan.bridge_index[i]
         if j != 0:
-            w[l] = plan.left_weight[i] * w[j - 1] + plan.right_weight[i] * w[k] + plan.std_dev[i] * z[i]
+            w[target] = (
+                plan.left_weight[i] * w[j - 1]
+                + plan.right_weight[i] * w[k]
+                + plan.std_dev[i] * z[i]
+            )
         else:
-            w[l] = plan.right_weight[i] * w[k] + plan.std_dev[i] * z[i]
+            w[target] = plan.right_weight[i] * w[k] + plan.std_dev[i] * z[i]
     return jnp.stack(w)
 
 
@@ -111,9 +118,9 @@ def _path_scan(plan: BridgePlan, z: Array) -> Array:
     )
 
     def step(w, x):
-        l, jm1, has_left, k, lw, rw, sd, zi = x
+        target, jm1, has_left, k, lw, rw, sd, zi = x
         value = jnp.where(has_left, lw * w[jm1], 0.0) + rw * w[k] + sd * zi
-        return w.at[l].set(value), None
+        return w.at[target].set(value), None
 
     w, _ = jax.lax.scan(step, w0, xs)
     return w
@@ -123,7 +130,9 @@ def apply(plan: BridgePlan, z: Array) -> Array:
     """Map ``n`` independent normals to bridged, normalised increments (one path)."""
     z = jnp.asarray(z)
     if z.shape != (plan.n,):
-        raise InvalidBrownianBridge(f"input dimension mismatch: expected ({plan.n},), got {z.shape}")
+        raise InvalidBrownianBridge(
+            f"input dimension mismatch: expected ({plan.n},), got {z.shape}"
+        )
     w = _path_unrolled(plan, z) if plan.n <= UNROLL_MAX_STEPS else _path_scan(plan, z)
     previous = jnp.concatenate([jnp.zeros(1, dtype=w.dtype), w[:-1]])
     return (w - previous) / jnp.asarray(plan.sqrt_dt, dtype=w.dtype)

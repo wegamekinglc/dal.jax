@@ -18,6 +18,10 @@ jobs:
           cache-suffix: quality
       - name: Install
         run: uv sync
+      - name: Check Python style
+        run: |
+          uv run ruff format --check src tests examples benchmarks scripts
+          uv run ruff check src tests examples benchmarks scripts
       - name: Check complexity across source, tests and examples
         run: uvx lizard -C 8 -w src tests scripts examples benchmarks
       - name: Check Python errors

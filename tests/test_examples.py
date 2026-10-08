@@ -22,4 +22,6 @@ def _reference(node):
 def test_examples_do_not_construct_handwritten_payoffs(source):
     references = {_reference(node) for node in ast.walk(ast.parse(source.read_text()))}
     forbidden = references & {"PathProduct", "MonteCarloEngine"}
-    assert not forbidden, f"{source.name}: use prepare(...).engine(...) instead of {sorted(forbidden)}"
+    assert not forbidden, (
+        f"{source.name}: use prepare(...).engine(...) instead of {sorted(forbidden)}"
+    )

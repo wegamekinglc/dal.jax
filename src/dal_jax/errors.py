@@ -1,16 +1,7 @@
-"""Exceptions named after DAL's error codes.
-
-DAL reports failures as ``"<Code>: <detail>"`` messages.  Each code here is a
-subclass of :class:`DalError` carrying the same ``code`` so callers can catch a
-specific failure (``except InvalidSetting``) or any DAL error at once.
-
-Script failures (DAL's ``ScriptError_``) derive from :class:`ScriptError`;
-:func:`script_error` turns a DAL message into the matching subclass while
-keeping ``str(error)`` byte-identical to DAL, including messages that carry no
-code prefix (``"unexpected end of statement"``).
-"""
+"""Exceptions named after DAL's error codes."""
 
 import re
+from types import MappingProxyType
 
 
 class DalError(Exception):
@@ -27,9 +18,6 @@ class ScriptError(DalError):
     """Any failure DAL raises as ``ScriptError_``."""
 
     code = "ScriptError"
-
-
-# --- settings and execution ------------------------------------------------------
 
 
 class InvalidSetting(ScriptError):
@@ -54,9 +42,6 @@ class InvalidPayoff(ScriptError):
 
 class UnsupportedBrownianBridge(ScriptError):
     code = "UnsupportedBrownianBridge"
-
-
-# --- script front end ---------------------------------------------------------------
 
 
 class InvalidScript(ScriptError):
@@ -199,9 +184,6 @@ class DebugSchemaUnsupported(ScriptError):
     code = "DebugSchemaUnsupported"
 
 
-# --- models and random numbers ------------------------------------------------------
-
-
 class InvalidModelParameter(DalError):
     code = "InvalidModelParameter"
 
@@ -245,18 +227,55 @@ class InvalidDate(DalError):
 
 
 _CODE_PREFIX = re.compile(r"([A-Z][A-Za-z]+): ?")
-_SCRIPT_CODES = {
-    cls.code: cls
-    for cls in (
-        InvalidSetting, InvalidSmoothing, InvalidPathCount, UnsupportedExecutionMode, InvalidPayoff, UnsupportedBrownianBridge,
-        InvalidScript, InvalidScriptStructure, ReservedIdentifier, InvalidIndex, UnknownIndex, InvalidFixingDate, InvalidPaymentDate,
-        InvalidAssignmentTarget, InvalidPaymentTarget, DuplicateElse, InvalidFor, InvalidVectorDefinition, InvalidVectorEntry,
-        InvalidVectorReduction, InvalidVectorAppend, ImmutableVector, VectorNameConflict, VectorIndexOutOfRange, EmptyVectorReduction,
-        DuplicateExercise, UnsupportedExerciseNesting, InvalidExerciseCondition, UnsupportedExercisePayoff, PreparationRequired,
-        UnboundHistoricalSpot, LookAheadObservation, MissingFixing, MissingDefaultIndex, InvalidFixingSnapshot, InvalidFixing, MultipleModelIndices, UnsupportedHistoricalIndex,
-        UnsupportedDelayedPayment, UnsettledDelayedPayment, UnsupportedModelObservation, DebugSchemaUnsupported,
-    )
-}
+_SCRIPT_CODES = MappingProxyType(
+    {
+        cls.code: cls
+        for cls in (
+            InvalidSetting,
+            InvalidSmoothing,
+            InvalidPathCount,
+            UnsupportedExecutionMode,
+            InvalidPayoff,
+            UnsupportedBrownianBridge,
+            InvalidScript,
+            InvalidScriptStructure,
+            ReservedIdentifier,
+            InvalidIndex,
+            UnknownIndex,
+            InvalidFixingDate,
+            InvalidPaymentDate,
+            InvalidAssignmentTarget,
+            InvalidPaymentTarget,
+            DuplicateElse,
+            InvalidFor,
+            InvalidVectorDefinition,
+            InvalidVectorEntry,
+            InvalidVectorReduction,
+            InvalidVectorAppend,
+            ImmutableVector,
+            VectorNameConflict,
+            VectorIndexOutOfRange,
+            EmptyVectorReduction,
+            DuplicateExercise,
+            UnsupportedExerciseNesting,
+            InvalidExerciseCondition,
+            UnsupportedExercisePayoff,
+            PreparationRequired,
+            UnboundHistoricalSpot,
+            LookAheadObservation,
+            MissingFixing,
+            MissingDefaultIndex,
+            InvalidFixingSnapshot,
+            InvalidFixing,
+            MultipleModelIndices,
+            UnsupportedHistoricalIndex,
+            UnsupportedDelayedPayment,
+            UnsettledDelayedPayment,
+            UnsupportedModelObservation,
+            DebugSchemaUnsupported,
+        )
+    }
+)
 
 
 def script_error(message: str) -> ScriptError:
@@ -265,7 +284,7 @@ def script_error(message: str) -> ScriptError:
     cls = _SCRIPT_CODES.get(match.group(1), ScriptError) if match else ScriptError
     error = cls.__new__(cls)
     Exception.__init__(error, message)
-    error.detail = message[match.end():] if match and cls is not ScriptError else message
+    error.detail = message[match.end() :] if match and cls is not ScriptError else message
     if cls is ScriptError and match:
         error.code = match.group(1)
     return error

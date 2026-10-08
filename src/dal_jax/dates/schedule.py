@@ -14,7 +14,9 @@ def date_generation(text: str) -> str:
     raise InvalidDate(f"'{text}' is not a recognizable DateGeneration")
 
 
-def date_generate(start: Date, maturity: Date, tenor: Increment, method: str = "Forward") -> list[Date]:
+def date_generate(
+    start: Date, maturity: Date, tenor: Increment, method: str = "Forward"
+) -> list[Date]:
     """Pin dates chained from ``start`` (Forward) or ``maturity`` (Backward), both ends included."""
     if date_generation(method) == "Forward":
         dates = [start]
@@ -31,6 +33,15 @@ def date_generate(start: Date, maturity: Date, tenor: Increment, method: str = "
     return dates[::-1]
 
 
-def make_schedule(start: Date, maturity: Date, holidays: Holidays, tenor: Increment, method: str = "Forward", convention: str = "Unadjusted") -> list[Date]:
+def make_schedule(
+    start: Date,
+    maturity: Date,
+    holidays: Holidays,
+    tenor: Increment,
+    method: str = "Forward",
+    convention: str = "Unadjusted",
+) -> list[Date]:
     """Adjusted pin dates, sorted and deduplicated like DAL's ``Unique``."""
-    return sorted({adjust(holidays, pin, convention) for pin in date_generate(start, maturity, tenor, method)})
+    return sorted(
+        {adjust(holidays, pin, convention) for pin in date_generate(start, maturity, tenor, method)}
+    )

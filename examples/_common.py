@@ -7,18 +7,20 @@ import statistics
 import time
 from importlib.metadata import version
 from pathlib import Path
+from types import MappingProxyType
 
 import dal
 import jax
 import numpy as np
 
 import dal_jax as dj
-from dal_jax.api import Product_New, EvaluationDate_Set
+from dal_jax.api import Product_New
 from dal_jax.dates import Date
 
 TODAY = Date.ymd(2022, 9, 15)
+VALUATION = dj.ValuationContext(evaluation_date=TODAY)
 MATURITY = TODAY.add_days(1095)
-BS = {"spot": 100., "vol": .15, "rate": .05, "div": .03}
+BS = MappingProxyType({"spot": 100.0, "vol": 0.15, "rate": 0.05, "div": 0.03})
 
 
 def arguments(description):
@@ -33,8 +35,9 @@ def arguments(description):
         parser.error("paths, repeat and devices must be positive")
     dj.config.configure(num_cpu_devices=args.devices)
     dal.EvaluationDate_Set(dal.Date_(TODAY.year, TODAY.month, TODAY.day))
-    EvaluationDate_Set(TODAY)
-    print(f"JAX {jax.__version__}; {args.platform}; {args.paths:,} paths; DAL {version('dal-python')}")
+    print(
+        f"JAX {jax.__version__}; {args.platform}; {args.paths:,} paths; DAL {version('dal-python')}"
+    )
     return args
 
 
@@ -59,20 +62,25 @@ def oracle_product(rows):
 
 def require_p5_oracle():
     if not hasattr(dal, "CorrelatedBSModelData_New"):
-        raise RuntimeError("This example needs the pinned DAL source oracle. Run scripts/build_dal_oracle.sh as documented in examples/README.md.")
+        raise RuntimeError(
+            "This example needs the pinned DAL source oracle. Run scripts/build_dal_oracle.sh as documented in examples/README.md."
+        )
 
 
 def prepare(rows, *, model=None):
-    return dj.prepare(Product_New(*rows), TODAY, model=model)
+    return dj.prepare(Product_New(*rows), valuation=VALUATION, model=model)
 
 
 def european_rows():
     return ["STRIKE", MATURITY], ["120", "call PAYS MAX(SPOT()-STRIKE,0)"]
 
 
-def barrier_rows(width=.1):
+def barrier_rows(width=0.1):
     return ["STRIKE", "BARRIER", TODAY, f"START: {TODAY} END: {MATURITY} FREQ: 1M", MATURITY], [
-        "120", "150", "alive=1", f"IF SPOT()>=BARRIER:{width} THEN alive=0 END",
+        "120",
+        "150",
+        "alive=1",
+        f"IF SPOT()>=BARRIER:{width} THEN alive=0 END",
         f"IF SPOT()>=BARRIER:{width} THEN alive=0 END call PAYS alive*MAX(SPOT()-STRIKE,0)",
     ]
 
@@ -83,13 +91,21 @@ def _table_cell(value):
 
 def _table_alignment(column):
     numeric = (int, float, np.integer, np.floating)
-    return ">" if any(isinstance(value, numeric) and not isinstance(value, (bool, np.bool_))
-                      for value in column) else "<"
+    return (
+        ">"
+        if any(
+            isinstance(value, numeric) and not isinstance(value, (bool, np.bool_))
+            for value in column
+        )
+        else "<"
+    )
 
 
 def _table_row(row, widths, alignments):
-    return "  ".join(f"{value:{alignment}{width}}" for value, width, alignment
-                     in zip(row, widths, alignments, strict=True))
+    return "  ".join(
+        f"{value:{alignment}{width}}"
+        for value, width, alignment in zip(row, widths, alignments, strict=True)
+    )
 
 
 def table(headers, rows):
@@ -118,8 +134,12 @@ def timed(fn, repeat):
         start = time.perf_counter()
         output = jax.block_until_ready(fn())
         durations.append(time.perf_counter() - start)
-    return output, {"first_seconds": first, "warm_min_seconds": min(durations),
-                    "warm_median_seconds": statistics.median(durations), "warm_runs_seconds": durations}
+    return output, {
+        "first_seconds": first,
+        "warm_min_seconds": min(durations),
+        "warm_median_seconds": statistics.median(durations),
+        "warm_runs_seconds": durations,
+    }
 
 
 def scalar_results(output, greeks):
@@ -136,7 +156,7 @@ def measure_jax(engine, args, payoff_index=0):
     params = engine.default_params()
     start = time.perf_counter()
     price = engine.pricer(args.paths)
-    training = time.perf_counter()-start if isinstance(engine,dj.LsmcEngine) else None
+    training = time.perf_counter() - start if isinstance(engine, dj.LsmcEngine) else None
     greeks = engine.settings.enable_aad
     scalar = lambda p: price(p)[payoff_index]
     fn = jax.value_and_grad(scalar) if greeks else scalar
@@ -144,58 +164,129 @@ def measure_jax(engine, args, payoff_index=0):
     compiled = jax.jit(fn).lower(params).compile()
     compilation = time.perf_counter() - start
     output, timing = timed(lambda: compiled(params), args.repeat)
-    return timing | {"compile_seconds": compilation, "training_first_seconds":training, "result": scalar_results(output, greeks),
-                     "backend": engine.devices[0].platform, "devices": len(engine.devices),
-                     "dtype": str(engine.dtype), "block_size": engine.layout(args.paths).block_size}
+    return timing | {
+        "compile_seconds": compilation,
+        "training_first_seconds": training,
+        "result": scalar_results(output, greeks),
+        "backend": engine.devices[0].platform,
+        "devices": len(engine.devices),
+        "dtype": str(engine.dtype),
+        "block_size": engine.layout(args.paths).block_size,
+    }
 
 
 def measure_dal(product, bs, args, mc, valuation=None):
-    fields = ("lsmc_basis_degree","lsmc_training_paths","lsmc_validation_paths","lsmc_rqmc_replicates",
-              "lsmc_training_seed","lsmc_pricing_seed","lsmc_policy_risk_mode","lsmc_policy_bump_relative")
+    fields = (
+        "lsmc_basis_degree",
+        "lsmc_training_paths",
+        "lsmc_validation_paths",
+        "lsmc_rqmc_replicates",
+        "lsmc_training_seed",
+        "lsmc_pricing_seed",
+        "lsmc_policy_risk_mode",
+        "lsmc_policy_bump_relative",
+    )
     exercise = mc.lsmc_training_paths is not None or mc.lsmc_rqmc_replicates is not None
     if valuation is None and not exercise:
-        run = lambda: dict(dal.MonteCarlo_Value(product, bs, args.paths, mc.rsg, mc.use_bb, mc.enable_aad, mc.smooth))
+        run = lambda: dict(
+            dal.MonteCarlo_Value(
+                product, bs, args.paths, mc.rsg, mc.use_bb, mc.enable_aad, mc.smooth
+            )
+        )
     else:
-        extra = {name:getattr(mc,name) for name in fields if getattr(mc,name) is not None} if exercise else {}
-        simulation = dal.MonteCarloSettings_(method=mc.rsg, use_bb=mc.use_bb, enable_aad=mc.enable_aad, smooth=mc.smooth,**extra)
-        run = lambda: dict(dal.MonteCarlo_ValueWithSettings(product, bs, args.paths, valuation=valuation, simulation=simulation))
+        extra = (
+            {name: getattr(mc, name) for name in fields if getattr(mc, name) is not None}
+            if exercise
+            else {}
+        )
+        simulation = dal.MonteCarloSettings_(
+            method=mc.rsg, use_bb=mc.use_bb, enable_aad=mc.enable_aad, smooth=mc.smooth, **extra
+        )
+        run = lambda: dict(
+            dal.MonteCarlo_ValueWithSettings(
+                product, bs, args.paths, valuation=valuation, simulation=simulation
+            )
+        )
     output, timing = timed(run, args.repeat)
     return timing | {"result": output}
 
 
 def check_results(ours, theirs, dtype="float64", *, exercise=False):
-    assert ours.keys() == theirs.keys()  # nosec B101: executable numerical validation
+    assert ours.keys() == theirs.keys()  # nosec B101
     tolerances = {"float64": (1e-10, 1e-8, 1e-10), "float32": (2e-5, 5e-3, 2e-4)}
     pv_rtol, risk_rtol, atol = tolerances[dtype]
     if exercise and dtype == "float64":
         pv_rtol = 1e-6
     for name in ours:
-        np.testing.assert_allclose(ours[name], theirs[name], rtol=pv_rtol if name == "PV" else risk_rtol,
-                                   atol=atol, err_msg=name)
+        np.testing.assert_allclose(
+            ours[name],
+            theirs[name],
+            rtol=pv_rtol if name == "PV" else risk_rtol,
+            atol=atol,
+            err_msg=name,
+        )
 
 
-def compare(label, engine, rows, args, *, bs=None, check=True, payoff_index=0, valuation=None, product=None):
+def compare(
+    label, engine, rows, args, *, bs=None, check=True, payoff_index=0, valuation=None, product=None
+):
     ours = measure_jax(engine, args, payoff_index)
-    theirs = measure_dal(oracle_product(rows) if product is None else product, oracle_model() if bs is None else bs,
-                         args, engine.settings, valuation)
+    theirs = measure_dal(
+        oracle_product(rows) if product is None else product,
+        oracle_model() if bs is None else bs,
+        args,
+        engine.settings,
+        valuation,
+    )
     if check:
-        check_results(ours["result"], theirs["result"], ours["dtype"],exercise=isinstance(engine,dj.LsmcEngine))
+        check_results(
+            ours["result"],
+            theirs["result"],
+            ours["dtype"],
+            exercise=isinstance(engine, dj.LsmcEngine),
+        )
     print(f"\n{label}")
-    table(["quantity", "JAX", "DAL", "absolute difference"],
-          [[name, value, theirs["result"][name], abs(value-theirs["result"][name])] for name, value in ours["result"].items()])
-    table(["backend", "compile (ms)", "first (ms)", "warm min (ms)", "warm median (ms)"], [
-        [f"JAX {ours['backend']} {ours['devices']} devices / {ours['dtype']}", ours["compile_seconds"]*1000,
-         ours["first_seconds"]*1000, ours["warm_min_seconds"]*1000, ours["warm_median_seconds"]*1000],
-        ["DAL CPU", "precompiled C++", theirs["first_seconds"]*1000, theirs["warm_min_seconds"]*1000,
-         theirs["warm_median_seconds"]*1000],
-    ])
+    table(
+        ["quantity", "JAX", "DAL", "absolute difference"],
+        [
+            [name, value, theirs["result"][name], abs(value - theirs["result"][name])]
+            for name, value in ours["result"].items()
+        ],
+    )
+    table(
+        ["backend", "compile (ms)", "first (ms)", "warm min (ms)", "warm median (ms)"],
+        [
+            [
+                f"JAX {ours['backend']} {ours['devices']} devices / {ours['dtype']}",
+                ours["compile_seconds"] * 1000,
+                ours["first_seconds"] * 1000,
+                ours["warm_min_seconds"] * 1000,
+                ours["warm_median_seconds"] * 1000,
+            ],
+            [
+                "DAL CPU",
+                "precompiled C++",
+                theirs["first_seconds"] * 1000,
+                theirs["warm_min_seconds"] * 1000,
+                theirs["warm_median_seconds"] * 1000,
+            ],
+        ],
+    )
     return {"label": label, "paths": args.paths, "jax": ours, "dal": theirs}
 
 
 def finish(args, comparisons, **diagnostics):
-    report = {"environment": {"jax": jax.__version__, "dal_python": version("dal-python")},
-              "configuration": {"paths": args.paths, "repeat": args.repeat, "platform": args.platform,
-                                "devices": args.devices}, "comparisons": comparisons, "diagnostics": diagnostics}
+    report = {
+        "environment": {"jax": jax.__version__, "dal_python": version("dal-python")},
+        "configuration": {
+            "paths": args.paths,
+            "repeat": args.repeat,
+            "platform": args.platform,
+            "devices": args.devices,
+        },
+        "comparisons": comparisons,
+        "diagnostics": diagnostics,
+    }
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2) + "\n")

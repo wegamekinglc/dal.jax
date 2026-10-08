@@ -17,7 +17,9 @@ import numpy as np
 
 N_KNOWN = 21201
 N_BITS = 32
-DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "src" / "dal_jax" / "random" / "directions.npy"
+DEFAULT_OUTPUT = (
+    Path(__file__).resolve().parents[1] / "src" / "dal_jax" / "random" / "directions.npy"
+)
 
 
 def parse_directions(source: str) -> np.ndarray:

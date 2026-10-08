@@ -1,9 +1,4 @@
-"""Frozen LSMC regressions: device moments, host Cholesky and pivoted QR.
-
-Scalar fits use DAL's normalized monomials, relative ridge and rank guard.
-Two/three-feature fits use its ordered total-degree basis and scaled QR.
-Only the small system (or, on rank loss, its design rows) reaches the host.
-"""
+"""Frozen LSMC regressions: device moments, host Cholesky and pivoted QR."""
 
 from dataclasses import dataclass, replace
 from functools import partial
@@ -18,8 +13,8 @@ from dal_jax.errors import InvalidSetting, script_error
 @dataclass(frozen=True, slots=True)
 class Regression:
     coefficients: tuple[float, ...] = ()
-    means: tuple[float, ...] = (0.,)
-    sigmas: tuple[float, ...] = (1.,)
+    means: tuple[float, ...] = (0.0,)
+    sigmas: tuple[float, ...] = (1.0,)
     powers: tuple[tuple[int, ...], ...] = ()
     degree: int = 0
     count: int = 0
@@ -35,33 +30,40 @@ class Regression:
             return self._empty_prediction(x)
         if len(self.coefficients) == 1:
             return jnp.full(self._prediction_shape(x), self.coefficients[0])
-        z = (jnp.asarray(x)-jnp.asarray(self.means if len(self.means) > 1 else self.means[0])) / jnp.asarray(
-            self.sigmas if len(self.means) > 1 else self.sigmas[0])
+        z = (
+            jnp.asarray(x) - jnp.asarray(self.means if len(self.means) > 1 else self.means[0])
+        ) / jnp.asarray(self.sigmas if len(self.means) > 1 else self.sigmas[0])
         if self.powers:
             return _design(z, self.powers) @ jnp.asarray(self.coefficients)
         value = jnp.zeros_like(z)
         for coefficient in reversed(self.coefficients):
-            value = value*z+coefficient
+            value = value * z + coefficient
         return value
 
-    def _prediction_shape(self,x):
+    def _prediction_shape(self, x):
         return jnp.shape(x)[:-1] if len(self.means) > 1 else jnp.shape(x)
 
-    def _empty_prediction(self,x):
+    def _empty_prediction(self, x):
         return jnp.zeros(jnp.shape(x)[:-1]) if len(self.means) > 1 else jnp.zeros_like(x)
 
 
 def basis_powers(features: int, degree: int):
     if features == 1:
-        return tuple((i,) for i in range(degree+1))
+        return tuple((i,) for i in range(degree + 1))
     if features == 2:
-        return tuple((first, total-first) for total in range(degree+1) for first in range(total, -1, -1))
+        return tuple(
+            (first, total - first) for total in range(degree + 1) for first in range(total, -1, -1)
+        )
     return _three_feature_powers(degree)
 
 
 def _three_feature_powers(degree):
-    return tuple((first,second,total-first-second) for total in range(degree+1) for first in range(total,-1,-1)
-                 for second in range(total-first,-1,-1))
+    return tuple(
+        (first, second, total - first - second)
+        for total in range(degree + 1)
+        for first in range(total, -1, -1)
+        for second in range(total - first, -1, -1)
+    )
 
 
 def _design(z, powers):
@@ -72,8 +74,8 @@ def _design(z, powers):
         for i, exponent in enumerate(term):
             power = jnp.ones_like(value)
             for _ in range(exponent):
-                power = power*z[..., i]
-            value = value*power
+                power = power * z[..., i]
+            value = value * power
         terms.append(value)
     return jnp.stack(terms, axis=-1)
 
@@ -83,25 +85,33 @@ def scalar_moments(x, y, included, degree):
     x, y = jnp.asarray(x, jnp.float64), jnp.asarray(y, jnp.float64)
     count = jnp.sum(included)
     size = jnp.maximum(count, 1)
-    mean = jnp.sum(jnp.where(included, x, 0.))/size
-    deviations = jnp.where(included, x-mean, 0.)
-    sigma = jnp.sqrt(jnp.sum(deviations*deviations)/size)
-    floor = 1e-12*jnp.maximum(1., jnp.abs(mean))
-    z = jnp.where(included, (x-mean)/jnp.maximum(sigma, floor), 0.)
-    target = jnp.where(included, y, 0.)
+    mean = jnp.sum(jnp.where(included, x, 0.0)) / size
+    deviations = jnp.where(included, x - mean, 0.0)
+    sigma = jnp.sqrt(jnp.sum(deviations * deviations) / size)
+    floor = 1e-12 * jnp.maximum(1.0, jnp.abs(mean))
+    z = jnp.where(included, (x - mean) / jnp.maximum(sigma, floor), 0.0)
+    target = jnp.where(included, y, 0.0)
     power = included.astype(jnp.float64)
     moments, rhs = [], []
-    for i in range(2*degree+1):
+    for i in range(2 * degree + 1):
         moments.append(jnp.sum(power))
         if i <= degree:
-            rhs.append(jnp.sum(power*target))
-        power = power*z
-    return count, mean, sigma, floor, jnp.sum(target)/size, jnp.stack(moments), jnp.stack(rhs)
+            rhs.append(jnp.sum(power * target))
+        power = power * z
+    return count, mean, sigma, floor, jnp.sum(target) / size, jnp.stack(moments), jnp.stack(rhs)
 
 
 def _constant(fit, value, reason):
-    return replace(fit, coefficients=(float(value),), powers=(), degree=0, rank=int(fit.count > 0),
-                   solver="Constant", reason=reason, fallback_reason=reason)
+    return replace(
+        fit,
+        coefficients=(float(value),),
+        powers=(),
+        degree=0,
+        rank=int(fit.count > 0),
+        solver="Constant",
+        reason=reason,
+        fallback_reason=reason,
+    )
 
 
 def _qr_fit(design, targets):
@@ -109,16 +119,16 @@ def _qr_fit(design, targets):
     columns = np.array(design, dtype=np.float64, copy=True)
     n_basis = columns.shape[1]
     scales = np.linalg.norm(columns, axis=0)
-    scales = np.where(scales == 0., 1., scales)
+    scales = np.where(scales == 0.0, 1.0, scales)
     columns /= scales
     permutation = np.arange(n_basis)
     upper = np.zeros((n_basis, n_basis))
     projection = np.zeros(n_basis)
     rank = 0
     for step in range(n_basis):
-        norms = np.sum(columns[:, step:]**2, axis=0)
-        pivot = step+int(np.argmax(norms))
-        best = norms[pivot-step]
+        norms = np.sum(columns[:, step:] ** 2, axis=0)
+        pivot = step + int(np.argmax(norms))
+        best = norms[pivot - step]
         if not np.isfinite(best) or best < 1e-20:
             break
         columns[:, [step, pivot]] = columns[:, [pivot, step]]
@@ -128,16 +138,16 @@ def _qr_fit(design, targets):
         upper[step, step] = np.sqrt(best)
         columns[:, step] /= upper[step, step]
         projection[step] = columns[:, step] @ targets
-        for term in range(step+1, n_basis):
+        for term in range(step + 1, n_basis):
             for _ in range(2):
                 dot = columns[:, step] @ columns[:, term]
                 upper[step, term] += dot
-                columns[:, term] -= dot*columns[:, step]
+                columns[:, term] -= dot * columns[:, step]
         rank += 1
     coefficients = np.zeros(n_basis)
     if rank:
         solved = np.linalg.solve(upper[:rank, :rank], projection[:rank])
-        coefficients[permutation[:rank]] = solved/scales[:rank]
+        coefficients[permutation[:rank]] = solved / scales[:rank]
     return coefficients, rank
 
 
@@ -146,116 +156,193 @@ def _gram_reason(gram):
     if np.any(diagonal <= 0) or not np.all(np.isfinite(diagonal)):
         return "GramRankLoss"
     scale = np.sqrt(diagonal)
-    scaled = gram/scale[:, None]/scale[None, :]
+    scaled = gram / scale[:, None] / scale[None, :]
     try:
         lower = np.linalg.cholesky(scaled)
     except np.linalg.LinAlgError:
         return "GramRankLoss"
-    if np.any(np.diag(lower)**2 <= 1e-12):
+    if np.any(np.diag(lower) ** 2 <= 1e-12):
         return "GramRankLoss"
-    return "GramScale" if np.max(diagonal)/np.min(diagonal) > 1e12 else ""
+    return "GramScale" if np.max(diagonal) / np.min(diagonal) > 1e12 else ""
 
 
 def _scalar_fit(x, y, included, degree):
-    count, mean, sigma, floor, constant, moments, rhs = jax.device_get(scalar_moments(x, y, included, degree))
+    count, mean, sigma, floor, constant, moments, rhs = jax.device_get(
+        scalar_moments(x, y, included, degree)
+    )
     fit = Regression(means=(float(mean),), sigmas=(float(max(sigma, floor)),), count=int(count))
-    fallback = _scalar_guard(fit,constant,sigma,floor,degree)
+    fallback = _scalar_guard(fit, constant, sigma, floor, degree)
     if fallback is not None:
         return fallback
-    indices = np.arange(degree+1)
-    gram = moments[indices[:, None]+indices]
+    indices = np.arange(degree + 1)
+    gram = moments[indices[:, None] + indices]
     reason = _gram_reason(gram)
     if not reason:
-        regularized = gram+np.diag(np.diag(gram)*1e-12)
+        regularized = gram + np.diag(np.diag(gram) * 1e-12)
         lower = np.linalg.cholesky(regularized)
         coefficients = np.linalg.solve(lower.T, np.linalg.solve(lower, rhs))
-        return replace(fit, coefficients=tuple(coefficients), degree=degree, rank=degree+1, solver="MomentsCholesky")
+        return replace(
+            fit,
+            coefficients=tuple(coefficients),
+            degree=degree,
+            rank=degree + 1,
+            solver="MomentsCholesky",
+        )
     x_host, y_host, mask = jax.device_get((x, y, included))
-    z = (np.asarray(x_host)[mask]-mean)/fit.sigmas[0]
-    effective_rank = degree+1
+    z = (np.asarray(x_host)[mask] - mean) / fit.sigmas[0]
+    effective_rank = degree + 1
     for candidate in range(degree, 0, -1):
-        coefficients, rank = _qr_fit(np.vander(z, candidate+1, increasing=True), np.asarray(y_host)[mask])
+        coefficients, rank = _qr_fit(
+            np.vander(z, candidate + 1, increasing=True), np.asarray(y_host)[mask]
+        )
         effective_rank = min(effective_rank, rank)
-        if rank == candidate+1:
-            return replace(fit, coefficients=tuple(coefficients), degree=candidate, rank=effective_rank,
-                           solver="PivotedQR", fallback_reason=reason if candidate == degree else "RankDeficient")
+        if rank == candidate + 1:
+            return replace(
+                fit,
+                coefficients=tuple(coefficients),
+                degree=candidate,
+                rank=effective_rank,
+                solver="PivotedQR",
+                fallback_reason=reason if candidate == degree else "RankDeficient",
+            )
     return _constant(fit, constant, "IllConditioned")
 
 
-def _scalar_guard(fit,constant,sigma,floor,degree):
+def _scalar_guard(fit, constant, sigma, floor, degree):
     if fit.count == 0:
-        return _constant(fit,constant,"ConditionPathsBelowMin")
-    if not all(np.isfinite(v) for v in (*fit.means,sigma,constant)):
+        return _constant(fit, constant, "ConditionPathsBelowMin")
+    if not all(np.isfinite(v) for v in (*fit.means, sigma, constant)):
         raise script_error("InvalidRegressionInput: non-finite included regressor or target")
     if sigma < floor:
-        return _constant(fit,constant,"SigmaFloor")
-    if fit.count < 10*(degree+1):
-        return _constant(fit,constant,"ConditionPathsBelowMin")
+        return _constant(fit, constant, "SigmaFloor")
+    if fit.count < 10 * (degree + 1):
+        return _constant(fit, constant, "ConditionPathsBelowMin")
     return None
 
 
+@jax.jit
+def ordered_moments(x, y, included):
+    """Masked Welford moments in the original path order."""
+
+    def step(carry, row):
+        count, means, m2, target = carry
+        values, value, valid = row
+        count = count + valid.astype(jnp.int32)
+        denominator = jnp.maximum(count, 1)
+        delta = jnp.where(valid, values, means) - means
+        updated = means + delta / denominator
+        target = target + (jnp.where(valid, value, target) - target) / denominator
+        return (
+            count,
+            updated,
+            m2 + delta * (jnp.where(valid, values, updated) - updated),
+            target,
+        ), None
+
+    initial = (
+        jnp.asarray(0, jnp.int32),
+        jnp.zeros(x.shape[1], x.dtype),
+        jnp.zeros(x.shape[1], x.dtype),
+        jnp.asarray(0.0, y.dtype),
+    )
+    return jax.lax.scan(step, initial, (x, y, included))[0]
+
+
 def _multi_fit(x, y, included, degree):
+    moments = _cpu_moments(x, y, included)
     x, y, mask = jax.device_get((x, y, included))
     x, y = np.asarray(x)[mask], np.asarray(y)[mask]
     count, features = x.shape
-    fit = Regression(means=(0.,)*features, sigmas=(1.,)*features, count=count)
+    fit = Regression(means=(0.0,) * features, sigmas=(1.0,) * features, count=count)
     if count == 0:
-        return _constant(fit, 0., "ConditionPathsBelowMin")
+        return _constant(fit, 0.0, "ConditionPathsBelowMin")
     if not np.all(np.isfinite(x)) or not np.all(np.isfinite(y)):
         raise script_error("InvalidRegressionInput: non-finite included feature or target")
-    fit,constant,below = _multi_normalization(fit,x,y)
-    for candidate in range(degree,0,-1):
-        powers = basis_powers(features,candidate)
-        if count < 10*len(powers):
+    fit, constant, below = _multi_normalization(fit, moments, x, y)
+    for candidate in range(degree, 0, -1):
+        powers = basis_powers(features, candidate)
+        if count < 10 * len(powers):
             continue
-        design = np.asarray(_design(jnp.asarray((x-fit.means)/fit.sigmas),powers))
-        coefficients,rank = _qr_fit(design,y)
+        design = np.asarray(_design(jnp.asarray((x - fit.means) / fit.sigmas), powers))
+        coefficients, rank = _qr_fit(design, y)
         if rank > 1:
-            return _multi_candidate(fit,coefficients,powers,rank,candidate,degree,below)
-    return _multi_constant(fit,constant,below)
+            return _multi_candidate(fit, coefficients, powers, rank, candidate, degree, below)
+    return _multi_constant(fit, constant, below)
 
 
-def _multi_normalization(fit,x,y):
+def _cpu_moments(x, y, included):
+    if all(device.platform == "cpu" for device in x.devices()):
+        return ordered_moments(x, y, included)
+    return None
+
+
+def _host_moments(x, y):
+    # Per-path GPU scans are slower; host QR already requires these rows.
+    means, m2, target = np.zeros(x.shape[1]), np.zeros(x.shape[1]), 0.0
+    for count, (row, value) in enumerate(zip(x, y, strict=True), 1):
+        target += (value - target) / count
+        delta = row - means
+        means += delta / count
+        m2 += delta * (row - means)
+    return len(x), means, m2, target
+
+
+def _multi_normalization(fit, moments, x, y):
     # Native multivariate normalization uses Welford's path-order moments.
-    count,features = x.shape
-    means, m2, constant = np.zeros(features), np.zeros(features), 0.
-    for i, (row, target) in enumerate(zip(x, y), 1):
-        constant += (target-constant)/i
-        delta = row-means
-        means += delta/i
-        m2 += delta*(row-means)
-    sigma = np.sqrt(np.maximum(m2/count, 0.))
-    below = sigma < 1e-10*np.maximum(1., np.abs(means))
-    sigma = np.where(below, 1., sigma)
+    count, means, m2, constant = _host_moments(x, y) if moments is None else jax.device_get(moments)
+    sigma = np.sqrt(np.maximum(m2 / count, 0.0))
+    below = sigma < 1e-10 * np.maximum(1.0, np.abs(means))
+    sigma = np.where(below, 1.0, sigma)
     fit = replace(fit, means=tuple(means), sigmas=tuple(sigma))
-    return fit,constant,below
+    return fit, float(constant), below
 
 
-def _multi_candidate(fit,coefficients,powers,rank,candidate,degree,below):
+def _multi_candidate(fit, coefficients, powers, rank, candidate, degree, below):
     reason = "SigmaFloor" if np.any(below) else "RankDeficient"
-    fallback = reason if rank < len(powers) else ("ConditionPathsBelowMin" if candidate < degree else "")
-    return replace(fit,coefficients=tuple(coefficients),powers=powers,degree=candidate,rank=rank,
-                   solver="PivotedQR",fallback_reason=fallback)
+    fallback = (
+        reason if rank < len(powers) else ("ConditionPathsBelowMin" if candidate < degree else "")
+    )
+    return replace(
+        fit,
+        coefficients=tuple(coefficients),
+        powers=powers,
+        degree=candidate,
+        rank=rank,
+        solver="PivotedQR",
+        fallback_reason=fallback,
+    )
 
 
-def _multi_constant(fit,constant,below):
-    reason = "ConditionPathsBelowMin" if fit.count < 10*(len(fit.means)+1) else ("SigmaFloor" if np.any(below) else "IllConditioned")
+def _multi_constant(fit, constant, below):
+    reason = (
+        "ConditionPathsBelowMin"
+        if fit.count < 10 * (len(fit.means) + 1)
+        else ("SigmaFloor" if np.any(below) else "IllConditioned")
+    )
     return _constant(fit, constant, reason)
 
 
 def solve_regression(x, targets, included, degree=3):
     """Fit an immutable scalar or total-degree multivariate policy."""
-    x, targets, included = jnp.asarray(x, jnp.float64), jnp.asarray(targets, jnp.float64), jnp.asarray(included, bool)
+    x, targets, included = (
+        jnp.asarray(x, jnp.float64),
+        jnp.asarray(targets, jnp.float64),
+        jnp.asarray(included, bool),
+    )
     features = 1 if x.ndim == 1 else x.shape[-1]
     if not 1 <= degree <= (8 if features == 1 else 3):
         raise InvalidSetting("LSMC basis degree must be 1..8 (1..3 for multiple features)")
-    _validate_regression_vectors(x,targets,included)
+    _validate_regression_vectors(x, targets, included)
     if features not in (1, 2, 3):
         raise script_error("InvalidLsmcFeatureBudget: expected one to three features")
-    return _scalar_fit(x.reshape(-1), targets, included, degree) if features == 1 else _multi_fit(x, targets, included, degree)
+    return (
+        _scalar_fit(x.reshape(-1), targets, included, degree)
+        if features == 1
+        else _multi_fit(x, targets, included, degree)
+    )
 
 
-def _validate_regression_vectors(x,targets,included):
+def _validate_regression_vectors(x, targets, included):
     if targets.ndim != 1 or included.shape != targets.shape or x.shape[0] != targets.shape[0]:
         raise script_error("InvalidRegressionInput: mismatched regression vectors")
 
@@ -264,15 +351,15 @@ def select_regression(x, targets, included, degree, validation=None):
     """Select the smallest candidate within one standard error of the best loss."""
     if validation is None or not np.any(np.asarray(validation[2])):
         return solve_regression(x, targets, included, degree)
-    fits = tuple(solve_regression(x, targets, included, d) for d in range(1, degree+1))
+    fits = tuple(solve_regression(x, targets, included, d) for d in range(1, degree + 1))
     vx, vy, mask = validation
-    predictions = jax.vmap(lambda i: jnp.stack(tuple(fit.predict(vx) for fit in fits))[i])(jnp.arange(degree))
-    losses = jnp.where(jnp.asarray(mask)[None, :], (predictions-vy)**2, 0.)
+    predictions = jnp.stack(tuple(fit.predict(vx) for fit in fits))
+    losses = jnp.where(jnp.asarray(mask)[None, :], (predictions - vy) ** 2, 0.0)
     count = jnp.sum(mask)
-    mse = jnp.sum(losses, axis=1)/count
-    se = jnp.sqrt(jnp.maximum(0., jnp.sum(losses**2, axis=1)/count-mse**2)/count)
+    mse = jnp.sum(losses, axis=1) / count
+    se = jnp.sqrt(jnp.maximum(0.0, jnp.sum(losses**2, axis=1) / count - mse**2) / count)
     mse, se = jax.device_get((mse, se))
     best = int(np.argmin(mse))
-    threshold = mse[best]+se[best]+1e-10*max(1., mse[best])
+    threshold = mse[best] + se[best] + 1e-10 * max(1.0, mse[best])
     chosen = next((i for i, loss in enumerate(mse) if np.isfinite(loss) and loss <= threshold), 0)
     return replace(fits[chosen], validation_mse=float(mse[chosen]))

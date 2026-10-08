@@ -2,7 +2,6 @@
 
 import jax
 import numpy as np
-
 from _common import MATURITY, TODAY, arguments, compare, finish, model, prepare, settings, table
 
 
@@ -14,30 +13,46 @@ def delayed_comparison(args):
     bs = model()
     engine = prepare(rows, model=bs).engine(bs, settings(args))
     reference = (["STRIKE", MATURITY, payment], ["120", "x=MAX(SPOT()-STRIKE,0)", "pay PAYS x"])
-    return compare("Delayed PAYS ON script vs DAL stored payoff paid later", engine, reference, args)
+    return compare(
+        "Delayed PAYS ON script vs DAL stored payoff paid later", engine, reference, args
+    )
 
 
 def main():
     args = arguments(__doc__)
-    historical = (["SCALE", TODAY.add_days(-10), MATURITY],
-                  ["2", "x=SCALE x PAYS 100", "pay PAYS x*SPOT()/100"])
+    historical = (
+        ["SCALE", TODAY.add_days(-10), MATURITY],
+        ["2", "x=SCALE x PAYS 100", "pay PAYS x*SPOT()/100"],
+    )
     monthly = f"START: {TODAY} END: {MATURITY} FREQ: 1M"
-    asian = (["STRIKE", TODAY, monthly, MATURITY],
-             ["100", "total=0 count=0", "total=total+SPOT() count=count+1", "call PAYS MAX(total/count-STRIKE,0)"])
+    asian = (
+        ["STRIKE", TODAY, monthly, MATURITY],
+        [
+            "100",
+            "total=0 count=0",
+            "total=total+SPOT() count=count+1",
+            "call PAYS MAX(total/count-STRIKE,0)",
+        ],
+    )
     coupon = (["COUPON", monthly], ["5", "pay PAYS COUPON*DCF(ACT365F,PeriodBegin,PeriodEnd)"])
     comparisons = []
-    for label, rows in (("Historical SCALE assignment; past PAYS discarded", historical),
-                        ("Scalar monthly Asian", asian), ("DCF coupon schedule", coupon)):
+    for label, rows in (
+        ("Historical SCALE assignment; past PAYS discarded", historical),
+        ("Scalar monthly Asian", asian),
+        ("DCF coupon schedule", coupon),
+    ):
         engine = prepare(rows).engine(model(), settings(args))
         comparisons.append(compare(label, engine, rows, args))
     product = prepare(historical)
     engine = product.engine(model(), settings(args))
     params = engine.default_params()
+
     def value(scale):
         return engine.pricer(args.paths)(params | {"script": {"SCALE": scale}})[0]
+
     value = jax.jit(value)
-    gradient = float(jax.grad(value)(2.))
-    difference = float((value(2.+1e-5)-value(2.-1e-5))/(2e-5))
+    gradient = float(jax.grad(value)(2.0))
+    difference = float((value(2.0 + 1e-5) - value(2.0 - 1e-5)) / (2e-5))
     np.testing.assert_allclose(gradient, difference, rtol=1e-8, atol=1e-10)
     table(["history parameter", "JAX grad", "common-path FD"], [["SCALE", gradient, difference]])
     print("Prepared initial values:", product.initial_values)

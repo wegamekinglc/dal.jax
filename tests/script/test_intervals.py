@@ -64,7 +64,12 @@ def test_bound_negation_and_multiplication():
 
 def test_interval_kinds():
     i = S(4.0)
-    assert i.singleton_value() == 4.0 and not i.is_continuous and i.left == B(4.0) and not i.is_infinite
+    assert (
+        i.singleton_value() == 4.0
+        and not i.is_continuous
+        and i.left == B(4.0)
+        and not i.is_infinite
+    )
     assert S(0.0).is_zero and S(0.0).is_singleton
     c = I(B(1.0), B(2.0))
     assert not c.is_singleton and c.is_continuous and not c.is_zero
@@ -150,7 +155,9 @@ def test_interval_intersect_and_merge():
 
 def test_domain_empty_and_singleton():
     d = Domain()
-    assert d.is_empty and len(d.intervals) == 0 and d.min_bound().minus_inf and d.max_bound().plus_inf
+    assert (
+        d.is_empty and len(d.intervals) == 0 and d.min_bound().minus_inf and d.max_bound().plus_inf
+    )
     s = Domain.value(3.0)
     assert not s.is_empty and len(s.intervals) == 1 and s.is_discrete and s.constant_value() == 3.0
     assert s.min_bound() == B(3.0) and s.max_bound() == B(3.0)
@@ -160,11 +167,18 @@ def test_domain_insertion():
     d = Domain(S(1.0), S(3.0))
     assert len(d.intervals) == 2 and d.is_discrete and d.singletons() == [1.0, 3.0]
     merged = Domain(I(B(1.0), B(4.0)), I(B(3.0), B(6.0)))
-    assert len(merged.intervals) == 1 and merged.min_bound() == B(1.0) and merged.max_bound() == B(6.0)
+    assert (
+        len(merged.intervals) == 1 and merged.min_bound() == B(1.0) and merged.max_bound() == B(6.0)
+    )
     disjoint = Domain(I(B(1.0), B(2.0)), I(B(5.0), B(6.0)))
     assert len(disjoint.intervals) == 2
     real = Domain(I(B(1.0), B(2.0)), I(MINUS_INF, PLUS_INF))
-    assert len(real.intervals) == 1 and real.is_infinite and real.min_bound().minus_inf and real.max_bound().plus_inf
+    assert (
+        len(real.intervals) == 1
+        and real.is_infinite
+        and real.min_bound().minus_inf
+        and real.max_bound().plus_inf
+    )
 
 
 def test_domain_queries():

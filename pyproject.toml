@@ -28,6 +28,7 @@ cuda13 = ["jax[cuda13]>=0.11,<0.12"]
 
 [dependency-groups]
 dev = [
+    "ruff==0.16.10",
     "pytest>=8",
     "scipy>=1.14",
     "dal-python>=2026.9.25",
@@ -58,3 +59,12 @@ filterwarnings = [
 [tool.pylint.typecheck]
 # Compiled extensions whose members astroid cannot introspect.
 ignored-modules = ["dal", "scipy.special"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = ["src/dal_jax/dates/calendar_data.py"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+ignore = ["E731"]

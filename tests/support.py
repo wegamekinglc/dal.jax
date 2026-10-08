@@ -23,17 +23,18 @@ def call_payoff(params, scenario, ctx):
 
 def european_call(maturity: float = MATURITY, strike: float = STRIKE) -> PathProduct:
     """DAL: ``["STRIKE", maturity] / [strike, "call pays MAX(spot() - STRIKE, 0.0)"]``."""
-    return PathProduct(timeline=(maturity,), payoff=call_payoff, payoff_names=("call",), script_params={"STRIKE": strike})
+    return PathProduct(
+        timeline=(maturity,),
+        payoff=call_payoff,
+        payoff_names=("call",),
+        script_params={"STRIKE": strike},
+    )
 
 
-def up_and_out_call(timeline: tuple[float, ...], barrier_dates: tuple[int, ...], *, vectorized: bool = False) -> PathProduct:
-    """``alive = 1`` today; ``if spot() >= BARRIER:0.1 then alive = 0 end`` on each of
-    ``barrier_dates`` (sample indices, repeats allowed); ``call pays alive * MAX(spot() - STRIKE, 0)``
-    on the last sample.  Fuzzy mode blends with DAL's call-spread kernel.
-
-    The default evaluates date by date, like DAL's event loop.  ``vectorized``
-    computes the same survival product over all dates at once, which keeps the
-    traced program small for long schedules."""
+def up_and_out_call(
+    timeline: tuple[float, ...], barrier_dates: tuple[int, ...], *, vectorized: bool = False
+) -> PathProduct:
+    """``alive = 1`` today; ``if spot() >= BARRIER:0.1 then alive = 0 end`` on each of"""
 
     def payoff(params, scenario, ctx):
         barrier, strike = params["script"]["BARRIER"], params["script"]["STRIKE"]
@@ -55,7 +56,11 @@ def up_and_out_call(timeline: tuple[float, ...], barrier_dates: tuple[int, ...],
         factors = jnp.ones_like(survive)
         for k in range(int(multiplicity.max())):
             factors = factors * jnp.where(multiplicity > k, survive, 1.0)
-        return jnp.prod(factors) * jnp.maximum(scenario.spot[-1] - strike, 0.0) / scenario.numeraire[-1]
+        return (
+            jnp.prod(factors)
+            * jnp.maximum(scenario.spot[-1] - strike, 0.0)
+            / scenario.numeraire[-1]
+        )
 
     return PathProduct(
         timeline=timeline,

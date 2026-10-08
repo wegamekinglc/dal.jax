@@ -1,10 +1,4 @@
-"""Process-wide JAX configuration: x64, platform, PRNG, compilation cache, CPU devices.
-
-``dal_jax`` enables ``jax_enable_x64`` on import.  DAL computes in double
-precision and the parity tests compare to 1e-10, so float64 must be available
-even when a float32 simulation is requested (the float32 mode only casts the
-path arrays, see :class:`dal_jax.mc.MonteCarloSettings`).
-"""
+"""Process-wide JAX configuration: x64, platform, PRNG, compilation cache, CPU devices."""
 
 from typing import Literal
 
@@ -23,15 +17,7 @@ def configure(
     prng_impl: str | None = None,
     compilation_cache_dir: str | None = None,
 ) -> None:
-    """Apply process-wide settings.
-
-    ``num_cpu_devices`` splits the host into that many virtual CPU devices so
-    ``shard_map`` can spread blocks across cores.  JAX only accepts it before
-    the first JAX operation runs, so call this right after importing ``dal_jax``.
-    ``prng_impl`` sets the default key implementation (``"threefry2x32"``,
-    ``"rbg"`` or ``"unsafe_rbg"``).  ``compilation_cache_dir`` enables the
-    persistent compilation cache.
-    """
+    """Configure JAX before its first operation."""
     if num_cpu_devices is not None:
         if num_cpu_devices < 1:
             raise ValueError("num_cpu_devices must be positive")
