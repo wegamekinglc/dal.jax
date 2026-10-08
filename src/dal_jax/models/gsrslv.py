@@ -7,10 +7,12 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax import Array
 
 from dal_jax.errors import InvalidModelParameter, script_error
 from dal_jax.models.gsr import (
     GSR,
+    GSRState,
     MultiFactorGSRVol,
     covariance_factor,
     validate_correlation,
@@ -118,20 +120,46 @@ class SLVPlan:
 
 
 class SLVState(NamedTuple):
-    rates: object
-    times: object
-    widths: object
-    g: object
-    h: object
-    covariance: object
-    covariance_h: object
-    bank_base: object
-    bridge_variance: object
-    bridge_std: object
-    leverage: object
-    kappa: object
-    vol_of_vol: object
-    lower: object
+    rates: GSRState
+    times: Array
+    widths: Array
+    g: Array
+    h: Array
+    covariance: Array
+    covariance_h: Array
+    bank_base: Array
+    bridge_variance: Array
+    bridge_std: Array
+    leverage: Array
+    kappa: Array
+    vol_of_vol: Array
+    lower: Array
+
+    @property
+    def steps(self):
+        return SLVSteps(
+            self.times,
+            self.widths,
+            self.g,
+            self.h,
+            self.covariance,
+            self.covariance_h,
+            self.bank_base,
+            self.bridge_variance,
+            self.bridge_std,
+        )
+
+
+class SLVSteps(NamedTuple):
+    times: Array
+    widths: Array
+    g: Array
+    h: Array
+    covariance: Array
+    covariance_h: Array
+    bank_base: Array
+    bridge_variance: Array
+    bridge_std: Array
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -247,31 +275,17 @@ class GSRSLV:
         correlation = jnp.asarray(
             self.gaussian.correlations if correlations is None else correlations
         )
-        gs, hs, covs, covhs, banks, variances, stds = [], [], [], [], [], [], []
-        for start, end in zip(grid, grid[1:]):
-            g, h = self.gaussian.pieces(params, start)
-            covariance = g[:, None] * g[None, :] * correlation
-            variance = jnp.einsum("i,ij,j->", h, covariance, h)
-            positive = variance > 0.0
-            std = jnp.where(
-                positive,
-                jnp.sqrt(jnp.where(positive, variance * (end - start) ** 3 / 12.0, 1.0)),
-                0.0,
-            )
-            gs.append(g)
-            hs.append(h)
-            covs.append(covariance)
-            covhs.append(covariance @ h)
-            banks.append(
-                self.gaussian.curve.log_df(params, start) - self.gaussian.curve.log_df(params, end)
-            )
-            variances.append(variance)
-            stds.append(std)
-        n = self.gaussian.n_factors
-
-        def stack(values, shape):
-            return jnp.stack(values) if values else jnp.empty((0,) + shape)
-
+        gs, hs = self.gaussian.batch_pieces(params, grid[:-1])
+        widths = jnp.diff(jnp.asarray(grid))
+        covs = gs[:, :, None] * gs[:, None, :] * correlation
+        covhs = jnp.einsum("sij,sj->si", covs, hs)
+        variances = jnp.einsum("si,sij,sj->s", hs, covs, hs)
+        positive = variances > 0.0
+        stds = jnp.where(
+            positive, jnp.sqrt(jnp.where(positive, variances * widths**3 / 12.0, 1.0)), 0.0
+        )
+        log_df = self.gaussian.curve.log_dfs(params, grid)
+        banks = log_df[:-1] - log_df[1:]
         leverage = jnp.stack(
             [
                 jnp.stack([params[f"leverage:{i}:{j}"] for j in range(len(self.leverage.times))])
@@ -282,13 +296,13 @@ class GSRSLV:
             rate_state,
             jnp.asarray(grid[:-1]),
             jnp.diff(jnp.asarray(grid)),
-            stack(gs, (n,)),
-            stack(hs, (n,)),
-            stack(covs, (n, n)),
-            stack(covhs, (n,)),
-            stack(banks, ()),
-            stack(variances, ()),
-            stack(stds, ()),
+            gs,
+            hs,
+            covs,
+            covhs,
+            banks,
+            variances,
+            stds,
             leverage,
             params["kappa"],
             params["volOfVol"],
@@ -355,7 +369,7 @@ class GSRSLV:
         _, (xs, ys, log_n) = jax.lax.scan(
             jax.checkpoint(step, prevent_cse=False),
             initial,
-            tuple(state[1:10]) + (normals.reshape((-1, self.n_factors)),),
+            tuple(state.steps) + (normals.reshape((-1, self.n_factors)),),
         )
         xs = jnp.concatenate((jnp.zeros((1, n), dtype=xs.dtype), xs))
         ys = jnp.concatenate((jnp.zeros((1, n, n), dtype=ys.dtype), ys))

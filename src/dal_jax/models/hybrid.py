@@ -8,13 +8,20 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax import Array
 
 from dal_jax.errors import InvalidModelParameter, script_error
 from dal_jax.index import CURRENCIES
-from dal_jax.models.base import SampleDef, Scenario, validate_timeline
+from dal_jax.models.base import ModelParams, SampleDef, Scenario, validate_timeline
 from dal_jax.models.correlated_bs import plain_equity
-from dal_jax.models.gsr import GSR, covariance_factor, validate_correlation, varying_initial
-from dal_jax.models.gsrslv import GSRSLV, integration_grid
+from dal_jax.models.gsr import (
+    GSR,
+    GSRState,
+    covariance_factor,
+    validate_correlation,
+    varying_initial,
+)
+from dal_jax.models.gsrslv import GSRSLV, SLVState, integration_grid
 from dal_jax.models.localvol import LocalVol, LocalVolSurface
 from dal_jax.strings import ci_key
 
@@ -333,18 +340,18 @@ class HybridPlan:
 
 
 class HybridState(NamedTuple):
-    log_spots: object
-    vols: tuple
-    dividends: object
-    initial_carry: object
-    rate: object
-    rate_loading: object
-    rate_noise: object
-    rate_std: object
-    rate_bridge: object
-    rate_drift: object
-    lower: object
-    params: object
+    log_spots: Array
+    vols: tuple[Array, ...]
+    dividends: Array
+    initial_carry: Array
+    rate: GSRState | SLVState | None
+    rate_loading: Array
+    rate_noise: Array
+    rate_std: Array
+    rate_bridge: Array
+    rate_drift: Array
+    lower: Array
+    params: ModelParams
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -585,30 +592,23 @@ class Hybrid:
             else jnp.empty(0)
         )
         rate_state = None
-        bs, qs, stds, bridges, drifts = [], [], [], [], []
+        bs = qs = stds = bridges = drifts = None
         if isinstance(self.rate, HybridGSRRate):
             rates = self.rate.model
             rate_state = rates.init(params, plan.rate_plan)
-            for i, (start, end) in enumerate(zip(plan.grid, plan.grid[1:])):
-                b = rate_state.loading[i + 1]
-                g, _ = rates.pieces(params, start)
-                std = g * math.sqrt(end - start)
-                q = 0.5 * b * std
-                var = jnp.einsum("i,ij,j->", q, jnp.asarray(rates.correlations), q)
-                positive = var > 0.0
-                bridge = jnp.where(positive, jnp.sqrt(jnp.where(positive, var / 3.0, 1.0)), 0.0)
-                old_v, _, old_c = rates.integrals(params, 0.0, start)
-                drift = (
-                    carry[i]
-                    + jnp.dot(b, old_c)
-                    + 0.5 * jnp.einsum("i,ij,j->", b, old_v, b)
-                    + (2.0 / 3.0) * var
-                )
-                bs.append(b)
-                qs.append(q)
-                stds.append(std)
-                bridges.append(bridge)
-                drifts.append(drift)
+            bs = rate_state.loading[1:]
+            gs, _ = rates.batch_pieces(params, plan.grid[:-1])
+            stds = gs * jnp.sqrt(jnp.diff(jnp.asarray(plan.grid)))[:, None]
+            qs = 0.5 * bs * stds
+            variance = jnp.einsum("si,ij,sj->s", qs, jnp.asarray(rates.correlations), qs)
+            positive = variance > 0.0
+            bridges = jnp.where(positive, jnp.sqrt(jnp.where(positive, variance / 3.0, 1.0)), 0.0)
+            drifts = (
+                carry
+                + jnp.einsum("si,si->s", bs, rate_state.prefix_covariance[:-1])
+                + 0.5 * jnp.einsum("si,sij,sj->s", bs, rate_state.prefix_variance[:-1], bs)
+                + (2.0 / 3.0) * variance
+            )
         elif isinstance(self.rate, HybridGSRSLVRate):
             slv = self.rate.model
             rate_state = slv.prepare_steps(
@@ -625,7 +625,7 @@ class Hybrid:
         n = self.rate.model.n_factors if isinstance(self.rate, HybridGSRRate) else 1
 
         def stack(values, shape):
-            return jnp.stack(values) if values else jnp.zeros((len(carry),) + shape)
+            return jnp.zeros((len(carry),) + shape) if values is None else values
 
         return HybridState(
             jnp.stack([jnp.log(params[f"spot:{c.index}"]) for c in self.equities]),
@@ -667,7 +667,7 @@ class Hybrid:
                 )
                 x = x + state.rate_std[i] * drivers
             elif slv:
-                coefficients = tuple(field[i] for field in state.rate[1:10])
+                coefficients = tuple(field[i] for field in state.rate.steps)
                 x, y, variance, latent, log_n = self.rate.model.advance(
                     state.rate, rate, coefficients, named[jnp.asarray(slots[:-1])], named[slots[-1]]
                 )

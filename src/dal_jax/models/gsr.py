@@ -5,11 +5,13 @@ import datetime
 import math
 import re
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax import Array
 
 from dal_jax.dates import Date
 from dal_jax.dates.daybasis import DayBasis
@@ -78,6 +80,20 @@ def validate_correlation(values, n, code="InvalidCorrelation"):
     return tuple(tuple(float(x) for x in row) for row in matrix)
 
 
+def _curve_interval(knots, time):
+    if not math.isfinite(time) or time < 0.0 or time > knots[-1]:
+        raise script_error("InvalidGSRDate: date lies outside the curve domain")
+    upper = min(max(bisect.bisect_right(knots, time), 1), len(knots) - 1)
+    return upper, (time - knots[upper - 1]) / (knots[upper] - knots[upper - 1])
+
+
+@dataclass(frozen=True, slots=True)
+class CurveInterpolationPlan:
+    lower: tuple[int, ...]
+    upper: tuple[int, ...]
+    weights: tuple[float, ...]
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GSRCurve:
     evaluation_date: Date
@@ -123,21 +139,41 @@ class GSRCurve:
         )
         return dict(zip(self.param_labels, map(jnp.asarray, values)))
 
-    def log_df(self, params, time, row=-1):
-        if not math.isfinite(time) or time < 0.0 or time > self.times[-1]:
-            raise script_error("InvalidGSRDate: date lies outside the curve domain")
-        upper = min(max(bisect.bisect_right(self.times, time), 1), len(self.times) - 1)
-        tenor = "OIS" if row < 0 else self.projection_tenors[row]
+    def interpolation_plan(self, times, rows=None) -> CurveInterpolationPlan:
+        times = tuple(times)
+        rows = (-1,) * len(times) if rows is None else tuple(rows)
+        knots = self.times
+        intervals = tuple(_curve_interval(knots, time) for time in times)
+        upper = tuple(index for index, _ in intervals)
+        weights = tuple(weight for _, weight in intervals)
+        slots = tuple(
+            (row + 1) * len(knots) + index for row, index in zip(rows, upper, strict=True)
+        )
+        return CurveInterpolationPlan(tuple(index - 1 for index in slots), slots, weights)
 
-        def value(i):
-            return (
-                jnp.asarray(0.0, dtype=jnp.float64)
-                if i == 0
-                else params[f"logdf:{tenor}:{self.node_dates[i]}"]
+    def interpolate(self, params, plan: CurveInterpolationPlan):
+        rows = tuple(
+            jnp.concatenate(
+                (
+                    jnp.zeros(1),
+                    jnp.stack(
+                        tuple(params[f"logdf:{tenor}:{date}"] for date in self.node_dates[1:])
+                    ),
+                )
             )
+            for tenor in ("OIS",) + self.projection_tenors
+        )
+        values = jnp.concatenate(rows)
+        weights = jnp.asarray(plan.weights)
+        return (1.0 - weights) * values[
+            jnp.asarray(plan.lower, dtype=jnp.int32)
+        ] + weights * values[jnp.asarray(plan.upper, dtype=jnp.int32)]
 
-        weight = (time - self.times[upper - 1]) / (self.times[upper] - self.times[upper - 1])
-        return (1.0 - weight) * value(upper - 1) + weight * value(upper)
+    def log_dfs(self, params, times):
+        return self.interpolate(params, self.interpolation_plan(times))
+
+    def log_df(self, params, time, row=-1):
+        return self.interpolate(params, self.interpolation_plan((time,), (row,)))[0]
 
 
 def _validate_discount_nodes(currency, today, dates, values):
@@ -231,6 +267,13 @@ class MultiFactorGSRVol:
 
 
 @dataclass(frozen=True, slots=True)
+class IntegralPlan:
+    widths: tuple[tuple[float, ...], ...]
+    g_slots: tuple[tuple[int, ...], ...]
+    h_slots: tuple[tuple[int, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class GSRPlan:
     times: tuple
     definitions: tuple
@@ -241,16 +284,35 @@ class GSRPlan:
     max_bonds: int
     max_observations: int
     max_discounts: int
+    step_integrals: IntegralPlan
+    cumulative_integrals: IntegralPlan
+    bond_integrals: IntegralPlan
+    date_curve: CurveInterpolationPlan
+    bond_curve: CurveInterpolationPlan
+    projection_curve: CurveInterpolationPlan
 
 
 class GSRState(NamedTuple):
-    loading: object
-    lower: object
-    discount_normals: object
-    drift: object
-    bond_loading: object
-    bond_intercept: object
-    scales: object
+    loading: Array
+    lower: Array
+    discount_normals: Array
+    drift: Array
+    bond_loading: Array
+    bond_intercept: Array
+    scales: Array
+    prefix_variance: Array
+    prefix_covariance: Array
+
+
+def _discount_noise(lower, covariance):
+    noise = jnp.zeros_like(covariance)
+    for i in range(covariance.shape[0]):
+        residual = covariance[i] - (jnp.sum(lower[i, :i] * noise[:i]) if i else 0.0)
+        positive = lower[i, i] > 0.0
+        noise = noise.at[i].set(
+            jnp.where(positive, residual / jnp.where(positive, lower[i, i], 1.0), 0.0)
+        )
+    return noise
 
 
 def varying_initial(value, normals):
@@ -378,6 +440,95 @@ class GSR:
             )
         return tuple(values)
 
+    def _piece_slots(self, dates, times):
+        knots = tuple(self.time(date) for date in dates)
+        return tuple(bisect.bisect_right(knots, time) - 1 for time in times)
+
+    def _integral_row(self, start, end):
+        segments = tuple(pairwise(self._knots(start, end)))
+        times = tuple(left for left, _ in segments)
+        widths = tuple(right - left for left, right in segments)
+        return (
+            widths,
+            self._piece_slots(self.vol.g_knot_dates, times),
+            self._piece_slots(self.vol.h_knot_dates, times),
+        )
+
+    def integral_plan(self, intervals) -> IntegralPlan:
+        rows = tuple(self._integral_row(start, end) for start, end in intervals)
+        width = max(1, max((len(row[0]) for row in rows), default=0))
+        padding = (0.0, 0, 0)
+        fields = tuple(
+            tuple(row[index] + (padding[index],) * (width - len(row[index])) for row in rows)
+            for index in range(3)
+        )
+        return IntegralPlan(*fields)
+
+    def batch_pieces(self, params, times):
+        values = []
+        for prefix, dates in (("g", self.vol.g_knot_dates), ("H", self.vol.h_knot_dates)):
+            knots = tuple(self.time(date) for date in dates)
+            slots = jnp.asarray(
+                tuple(bisect.bisect_right(knots, time) - 1 for time in times), dtype=jnp.int32
+            )
+            table = jnp.stack(tuple(params[label] for label in self._labels(prefix))).reshape(
+                (self.n_factors, len(dates))
+            )
+            values.append(table[:, slots].T)
+        return tuple(values)
+
+    def integrate(self, params, plan: IntegralPlan):
+        g = jnp.stack(tuple(params[label] for label in self._labels("g"))).reshape(
+            (self.n_factors, -1)
+        )
+        h = jnp.stack(tuple(params[label] for label in self._labels("H"))).reshape(
+            (self.n_factors, -1)
+        )
+        gs = g[:, jnp.asarray(plan.g_slots, dtype=jnp.int32)].transpose((1, 2, 0))
+        hs = h[:, jnp.asarray(plan.h_slots, dtype=jnp.int32)].transpose((1, 2, 0))
+        correlation = jnp.asarray(self.correlations)
+
+        def one(widths, gs, hs):
+            vector = varying_initial(jnp.zeros(self.n_factors, dtype=gs.dtype), gs + hs)
+            matrix = varying_initial(
+                jnp.zeros((self.n_factors, self.n_factors), dtype=gs.dtype), gs + hs
+            )
+
+            def forward(carry, data):
+                variance, loading = carry
+                width, g, h = data
+                return (
+                    variance + g[:, None] * g[None, :] * correlation * width,
+                    loading + h * width,
+                ), None
+
+            def backward(carry, data):
+                covariance, remaining = carry
+                width, g, h = data
+                increment = jnp.sum(
+                    g[:, None]
+                    * g[None, :]
+                    * correlation
+                    * (width * remaining + 0.5 * width * width * h)[None, :],
+                    axis=1,
+                )
+                return (covariance + increment, remaining + width * h), None
+
+            variance, loading = jax.lax.scan(
+                forward,
+                (matrix, vector),
+                (widths, gs, hs),
+            )[0]
+            covariance, _ = jax.lax.scan(
+                backward,
+                (vector, vector),
+                (widths, gs, hs),
+                reverse=True,
+            )[0]
+            return variance, loading, covariance
+
+        return jax.vmap(one)(jnp.asarray(plan.widths), gs, hs)
+
     def integrals(self, params, start, end):
         n = self.n_factors
         variance, loading, covariance = jnp.zeros((n, n)), jnp.zeros(n), jnp.zeros(n)
@@ -417,6 +568,7 @@ class GSR:
                 tuple(planner.bond(time, maturity) for maturity in definition.discount_mats)
             )
             bonds.append(tuple(planner.bonds))
+        width = max(1, max(map(len, bonds)))
         return GSRPlan(
             times,
             tuple(sample_defs),
@@ -424,76 +576,73 @@ class GSR:
             tuple(observations),
             tuple(planner.projections),
             tuple(discounts),
-            max(1, max(map(len, bonds))),
+            width,
             max(map(len, observations)),
             max(map(len, discounts)),
+            *self._coefficient_plans(times, bonds, planner.projections, width),
         )
+
+    def _coefficient_plans(self, times, bonds, projections, width):
+        intervals = tuple(
+            (time, maturity)
+            for time, row in zip(times, bonds, strict=True)
+            for maturity in row + (time,) * (width - len(row))
+        )
+        return (
+            self.integral_plan(zip((0.0,) + times[:-1], times, strict=True)),
+            self.integral_plan((0.0, time) for time in (0.0,) + times),
+            self.integral_plan(intervals),
+            self.curve.interpolation_plan((0.0,) + times),
+            self.curve.interpolation_plan(tuple(end for _, end in intervals)),
+            self._projection_plan(projections),
+        )
+
+    def _projection_plan(self, projections):
+        projection_times = tuple(
+            time for start, end, _ in projections for time in (start, end, start, end)
+        )
+        projection_rows = tuple(value for _, _, row in projections for value in (row, row, -1, -1))
+        return self.curve.interpolation_plan(projection_times, projection_rows)
 
     def sim_dim(self, plan):
         return self.n_factors * sum(time > 0.0 for time in plan.times)
 
     def init(self, params, plan, *, hjm=False):
-        loadings, lowers, noises, drifts, bond_b, bond_a = [], [], [], [], [], []
-        previous = 0.0
-        for time, maturities in zip(plan.times, plan.bonds):
-            variance, loading, cov = self.integrals(params, previous, time)
-            lower = covariance_factor(variance)
-            noise = jnp.zeros(self.n_factors)
-            for i in range(self.n_factors):
-                residual = cov[i] - (jnp.sum(lower[i, :i] * noise[:i]) if i else 0.0)
-                noise = noise.at[i].set(
-                    jnp.where(
-                        lower[i, i] > 0.0,
-                        residual / jnp.where(lower[i, i] > 0.0, lower[i, i], 1.0),
-                        0.0,
-                    )
-                )
-            old_v, _, old_c = self.integrals(params, 0.0, previous)
-            drift = (
-                self.curve.log_df(params, time)
-                - self.curve.log_df(params, previous)
-                - jnp.dot(loading, old_c)
-                - 0.5 * jnp.einsum("i,ij,j->", loading, old_v, loading)
-                - 0.5 * jnp.dot(noise, noise)
-            )
-            loadings.append(loading)
-            lowers.append(lower)
-            noises.append(noise)
-            drifts.append(drift)
-            current_v, _, current_c = self.integrals(params, 0.0, time)
-            b, a = self._bond_coefficients(
-                params, time, maturities, plan.max_bonds, current_v, current_c, hjm
-            )
-            bond_b.append(b)
-            bond_a.append(a)
-            previous = time
-        scales = [
-            jnp.exp(
-                self.curve.log_df(params, start, row)
-                - self.curve.log_df(params, end, row)
-                - self.curve.log_df(params, start)
-                + self.curve.log_df(params, end)
-            )
-            for start, end, row in plan.projections
-        ]
-        return GSRState(
-            *(jnp.stack(values) for values in (loadings, lowers, noises, drifts, bond_b, bond_a)),
-            jnp.stack(scales) if scales else jnp.ones(1),
+        variance, loading, covariance = self.integrate(params, plan.step_integrals)
+        prefix_v, _, prefix_c = self.integrate(params, plan.cumulative_integrals)
+        lower = jax.vmap(covariance_factor)(variance)
+        noise = jax.vmap(_discount_noise)(lower, covariance)
+        log_df = self.curve.interpolate(params, plan.date_curve)
+        drift = (
+            log_df[1:]
+            - log_df[:-1]
+            - jnp.einsum("si,si->s", loading, prefix_c[:-1])
+            - 0.5 * jnp.einsum("si,sij,sj->s", loading, prefix_v[:-1], loading)
+            - 0.5 * jnp.sum(noise * noise, axis=1)
         )
-
-    def _bond_coefficients(self, params, time, maturities, width, variance, covariance, hjm):
-        loadings, intercepts = [], []
-        for maturity in maturities:
-            _, b, _ = self.integrals(params, time, maturity)
-            a = self.curve.log_df(params, maturity) - self.curve.log_df(params, time)
-            if not hjm:
-                a = a - jnp.dot(b, covariance) - 0.5 * jnp.einsum("i,ij,j->", b, variance, b)
-            loadings.append(b)
-            intercepts.append(a)
-        while len(loadings) < width:
-            loadings.append(jnp.zeros(self.n_factors))
-            intercepts.append(jnp.asarray(0.0))
-        return jnp.stack(loadings), jnp.stack(intercepts)
+        _, bond_b, _ = self.integrate(params, plan.bond_integrals)
+        bond_b = bond_b.reshape((len(plan.times), plan.max_bonds, self.n_factors))
+        bond_a = (
+            self.curve.interpolate(params, plan.bond_curve).reshape(
+                (len(plan.times), plan.max_bonds)
+            )
+            - log_df[1:, None]
+        )
+        if not hjm:
+            bond_a = (
+                bond_a
+                - jnp.einsum("sbi,si->sb", bond_b, prefix_c[1:])
+                - 0.5 * jnp.einsum("sbi,sij,sbj->sb", bond_b, prefix_v[1:], bond_b)
+            )
+        projections = self.curve.interpolate(params, plan.projection_curve).reshape((-1, 4))
+        scales = (
+            jnp.exp(projections[:, 0] - projections[:, 1] - projections[:, 2] + projections[:, 3])
+            if plan.projections
+            else jnp.ones(1)
+        )
+        return GSRState(
+            loading, lower, noise, drift, bond_b, bond_a, scales, prefix_v[1:], prefix_c[1:]
+        )
 
     def observe(self, state, plan, xs, log_n, covariance=None):
         exponent = state.bond_intercept - jnp.einsum("sbf,sf->sb", state.bond_loading, xs)
