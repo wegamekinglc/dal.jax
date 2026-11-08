@@ -303,6 +303,13 @@ def _selected_outputs(outputs, selector, request) -> tuple[list[RiskOutputCoordi
     return chosen, indices
 
 
+def _reject_non_finite(raw, code) -> None:
+    """Reject the first non-finite weight, naming its component index, as native."""
+    for ordinal, weight in enumerate(raw):
+        if not math.isfinite(weight):
+            raise script_error(f"{code}: weight must be finite; component={ordinal}")
+
+
 def _weights(request, count) -> list[float]:
     """Weights normalised per native ``ValidateWeights``: one float per selected output.
 
@@ -327,9 +334,7 @@ def _weights(request, count) -> list[float]:
             )
     if len(raw) != count:
         raise script_error(f"{code}: weight count must match selected outputs; field=weights")
-    for ordinal, weight in enumerate(raw):
-        if not math.isfinite(weight):
-            raise script_error(f"{code}: weight must be finite; component={ordinal}")
+    _reject_non_finite(raw, code)
     return [float(weight) for weight in raw]
 
 
