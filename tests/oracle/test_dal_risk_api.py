@@ -21,6 +21,7 @@ from dal_jax.errors import (
     InvalidRiskRequest,
     InvalidSetting,
     InvalidWeightedRiskRequest,
+    UnsupportedJacobianRisk,
 )
 from dal_jax.mc.risk import payoff_outputs
 from dal_jax.script.product import ScriptProductSettings
@@ -40,13 +41,29 @@ def _native_product(dal, dates, events, settings=None):
     )
 
 
-#  The output axis is one coordinate per distinct scalar ``=``/``PAYS`` target, in
-#  first-assignment order over date-sorted events; the last one is id='payoff'.
+#  The output axis is one coordinate per scalar variable of the var table, in
+#  first-reference order over date-sorted events (reads count); the last one is
+#  id='payoff' and slot is the var-table index.
 RISK_CASES = [
     pytest.param(
         [(2024, 1, 2)],
         ["p pays spot()"],
         id="single-payoff",
+    ),
+    pytest.param(
+        [(2024, 1, 2)],
+        ["if w > 1 then\nq = 1\nelse\nq = 2\nend\nq PAYS q"],
+        id="condition-only-var-included",
+    ),
+    pytest.param(
+        [(2024, 1, 2)],
+        ["z = x\nx = spot()\nz PAYS z"],
+        id="read-before-assign",
+    ),
+    pytest.param(
+        [(2024, 1, 2)],
+        ["p PAYS MAX(SPOT()-W,0)"],
+        id="rhs-only-var-included-target-first",
     ),
     pytest.param(
         [(2024, 1, 2)],
@@ -503,6 +520,96 @@ def test_risk_variants_enforce_request_types(dal, function, make_request, detail
             64,
             valuation=_VALUATION,
             request=make_request(),
+        )
+    assert str(error.value) == message
+
+
+@pytest.mark.parametrize(
+    ("events", "zero_slot"),
+    [
+        (["if w > 1 then\nq = 1\nelse\nq = 2\nend\nq PAYS q"], 0),
+        (["z = x\nx = spot()\nz PAYS z"], 0),
+        (["p PAYS MAX(SPOT()-W,0)"], 1),
+    ],
+    ids=["condition-only-var", "read-before-assign", "rhs-only-var"],
+)
+def test_value_with_jacobian_risk_prices_each_var_table_slot(dal, events, zero_slot):
+    dates = [(2024, 1, 2)]
+    outputs = ["output:0", "payoff"]
+    ours = _ours_jacobian(dates, events, request=JacobianRiskRequest_(outputs=outputs))
+    theirs = _theirs_jacobian(dal, dates, events, request=dal.JacobianRiskRequest_(outputs=outputs))
+    _assert_jacobian_parity(ours, theirs)
+    #  A variable with no accumulated payments prices to zero with an all-zero row.
+    assert ours.values[zero_slot] == 0.0
+    row = np.asarray(ours.jacobian)[zero_slot]
+    assert row.tolist() == [0.0] * row.shape[0]
+
+
+def test_value_with_risk_prices_the_payoff_variable_not_the_payoff_target(dal):
+    dates, events = [(2024, 1, 2)], ["if w > 1 then\nq = 1\nelse\nq = 2\nend\nq PAYS q"]
+    _assert_risk_parity(_ours(dates, events, 512), _theirs(dal, dates, events, 512))
+
+
+_EXERCISE_MESSAGE = "UnsupportedJacobianRisk: EXERCISE requires a separate Jacobian estimator"
+
+
+def test_value_with_jacobian_risk_rejects_exercise(dal):
+    dates = [(2024, 1, 2), (2024, 7, 2)]
+    events = ["x = 1\nexercise x", "y PAYS SPOT()"]
+    for request, native_request in (
+        (None, None),
+        (JacobianRiskRequest_(inputs=["nonsense"]), dal.JacobianRiskRequest_(inputs=["nonsense"])),
+    ):
+        with pytest.raises(RuntimeError, match="UnsupportedJacobianRisk"):
+            _theirs_jacobian(dal, dates, events, request=native_request)
+        with pytest.raises(UnsupportedJacobianRisk, match=_EXERCISE_MESSAGE) as error:
+            _ours_jacobian(dates, events, request=request)
+        assert str(error.value) == _EXERCISE_MESSAGE
+    #  The plain AAD variant still supports EXERCISE products.
+    _assert_risk_parity(_ours(dates, events, 256), _theirs(dal, dates, events, 256))
+
+
+@pytest.mark.parametrize(
+    ("entry", "native_entry", "make_request", "native_request", "error_class", "message"),
+    [
+        (
+            MonteCarlo_ValueWithRisk,
+            "MonteCarlo_ValueWithRisk",
+            RiskRequest_(inputs=["nonsense"], outputs=["a"]),
+            lambda dal: dal.RiskRequest_(inputs=["nonsense"], outputs=["a"]),
+            InvalidRiskRequest,
+            "InvalidRiskRequest: unknown input ID; input=nonsense",
+        ),
+        (
+            MonteCarlo_ValueWithJacobianRisk,
+            "MonteCarlo_ValueWithJacobianRisk",
+            JacobianRiskRequest_(inputs=["nonsense"], outputs=["a"]),
+            lambda dal: dal.JacobianRiskRequest_(inputs=["nonsense"], outputs=["a"]),
+            InvalidJacobianRiskRequest,
+            "InvalidJacobianRiskRequest: unknown scalar output ID; output=a",
+        ),
+    ],
+    ids=["aad-validates-inputs-first", "jacobian-validates-outputs-first"],
+)
+def test_risk_selector_validation_order(
+    dal, entry, native_entry, make_request, native_request, error_class, message
+):
+    dates, events = [(2024, 1, 2)], ["a = 1\nb = 2\na pays spot()\nb pays spot() * 2"]
+    with pytest.raises(RuntimeError, match=message.split(":")[0]):
+        getattr(dal, native_entry)(
+            _native_product(dal, dates, events),
+            dal.BSModelData_New(*_MODEL),
+            64,
+            valuation=_native_valuation(dal),
+            request=native_request(dal),
+        )
+    with pytest.raises(error_class, match=message) as error:
+        entry(
+            Product_New(_cells(dates), list(events)),
+            BSModelData_New(*_MODEL),
+            64,
+            valuation=_VALUATION,
+            request=make_request,
         )
     assert str(error.value) == message
 

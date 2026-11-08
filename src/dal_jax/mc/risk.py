@@ -1,12 +1,10 @@
 """Request-driven risk machinery mirroring DAL 2026.11.1's script risk API."""
 
-from collections.abc import Iterator
 from dataclasses import dataclass, replace
 
 import numpy as np
 
 from dal_jax.errors import script_error
-from dal_jax.script import ast as A
 from dal_jax.script.product import ScriptProduct, ScriptProductData
 from dal_jax.strings import ci_key
 
@@ -123,55 +121,32 @@ class JacobianRiskResult:
     execution: JacobianRiskExecution
 
 
-def _scalar_targets(node: A.Node) -> Iterator[str]:
-    """Scalar ``=`` / ``PAYS`` target names in statement order, descending into IF/FOR.
-
-    Only ``If`` branches and ``Collect`` (the unrolled FOR body) hold nested statements;
-    expressions never contain statements, so their subtrees are skipped.
-    """
-    if isinstance(node, (A.Assign, A.Pays)):
-        yield node.args[0].name
-    elif isinstance(node, (A.If, A.Collect)):
-        for child in node.args:
-            yield from _scalar_targets(child)
-
-
-def _distinct_labels(product: ScriptProduct) -> list[str]:
-    """Scalar ``=`` / ``PAYS`` target names, deduplicated keeping the first spelling."""
-    labels: list[str] = []
-    seen: set[str] = set()
-    for statement in product.statements():
-        for name in _scalar_targets(statement):
-            key = ci_key(name)
-            if key not in seen:
-                seen.add(key)
-                labels.append(name)
-    return labels
-
-
 def payoff_outputs(data: ScriptProductData | ScriptProduct) -> list[RiskOutputCoordinate]:
-    """One coordinate per distinct scalar ``=``/``PAYS`` target, the last one ``payoff``.
+    """One coordinate per scalar variable of the var table, the last one ``payoff``.
 
-    Mirrors ``Product_Get_RiskOutputs``: events in date order (same-date rows in input
-    order), targets deduplicated case-insensitively keeping the first spelling.  Vector
-    targets, FOR loop indices and table constants are not payment outputs; with no
-    scalar receiver at all (empty, vector-only, or ``EXERCISE`` without ``PAYS``)
-    DAL rejects the request.
+    Mirrors ``Product_Get_RiskOutputs``: DAL's output axis is the scalar var table,
+    whose entries appear in first-reference order (a variable read only in an ``IF``
+    condition or on a RHS still gets a coordinate) and keep their first spelling.
+    ``slot`` is the var-table index, so it equals the engine's ``payoff_index`` for
+    the last coordinate by construction.  Vectors, FOR loop indices and table
+    constants are not scalar outputs; with no scalar at all (empty, vector-only, or
+    ``EXERCISE`` without ``PAYS``) DAL rejects the request.
     """
     product = data.product() if isinstance(data, ScriptProductData) else data
-    labels = _distinct_labels(product)
+    product.index_variables()
+    names = product.vars.var_names
     receiverless = product.has_exercise and not product.has_pays
-    if not labels or receiverless:
+    if not names or receiverless:
         raise script_error(
             "InvalidWeightedRiskRequest: indexed scalar default receiver is required; output=payoff"
         )
     return [
         RiskOutputCoordinate(
-            id="payoff" if slot == len(labels) - 1 else f"output:{slot}",
-            label=label,
+            id="payoff" if slot == len(names) - 1 else f"output:{slot}",
+            label=name,
             slot=slot,
         )
-        for slot, label in enumerate(labels)
+        for slot, name in enumerate(names)
     ]
 
 
@@ -233,8 +208,13 @@ def _selector_keys(selector, field, code, ctor) -> list[str]:
     return list(selector)
 
 
-_REQUEST_CODES = {  # subclasses first: isinstance matches the most specific request
+#  Message codes/ctor names of each request class, probed from native constructors; the
+#  subclasses come first so isinstance matches the most specific request.  Mirrors
+#  api._REQUEST_NAMES, which maps the same classes to their API-level type-check names.
+_REQUEST_CODES = {
     JacobianRiskRequest: ("InvalidJacobianRiskRequest", "JacobianRiskRequest_"),
+    WeightedRiskRequest: ("InvalidWeightedRiskRequest", "WeightedRiskRequest_"),
+    BumpOverAADRequest: ("InvalidCurvatureRequest", "BumpOverAADRequest_"),
     RiskRequest: ("InvalidRiskRequest", "RiskRequest_"),
 }
 
@@ -247,7 +227,11 @@ def _request_codes(request):
 
 
 def _selected(axis, selector, request) -> tuple[list[RiskCoordinate], list[int]]:
-    """Coordinates chosen by case-insensitive ID in request order, as DAL's ``SelectedInputs``."""
+    """Coordinates chosen by case-insensitive ID in request order, as DAL's ``SelectedInputs``.
+
+    Also returns the chosen var-table indices; current callers ignore them, the
+    weighted-risk path keeps them for index-addressed components.
+    """
     if selector is None:
         return list(axis), list(range(len(axis)))
     code, ctor = _request_codes(request)
@@ -320,8 +304,9 @@ def _risk_fields(engine, prepared, data, n_paths, request) -> dict:
     legacy = engine.value(n_paths)
     axis = input_axis(engine.model, prepared.script_params)
     outputs = payoff_outputs(data)
-    chosen_outputs = _selected_payoff(outputs, getattr(request, "outputs", None), request)
+    #  Native validates the input selector before the output selector.
     chosen_inputs, _ = _selected(axis, getattr(request, "inputs", None), request)
+    chosen_outputs = _selected_payoff(outputs, getattr(request, "outputs", None), request)
     jacobian = np.asarray([[float(legacy[f"d_{c.label}"]) for c in chosen_inputs]], dtype=float)
     return dict(
         values=[float(legacy["PV"])] * len(chosen_outputs),
@@ -336,7 +321,15 @@ def _risk_fields(engine, prepared, data, n_paths, request) -> dict:
 
 
 def value_with_risk(prepared, data, model, settings, n_paths, request=None) -> dict:
-    """Risk result fields as a plain dict: one AAD run shaped like ``RiskResult_``."""
+    """One AAD run shaped like native ``RiskResult_``, as a plain dict with the keys:
+
+    ``values`` (list[float], the supported payoff's PV once per selected output),
+    ``output_ids`` (list[str]), ``input_axis`` / ``complete_input_axis``
+    (list[RiskCoordinate]), ``output_axis`` (list[RiskOutputCoordinate]),
+    ``jacobian`` and ``reported_jacobian`` (one float64 row over the selected
+    inputs, both the same matrix as native), and ``legacy_values`` (the engine's
+    ``PV`` plus every ``d_<label>``).
+    """
     engine = prepared.engine(model, replace(settings, enable_aad=True))
     return _risk_fields(engine, prepared, data, int(n_paths), request)
 
@@ -356,15 +349,21 @@ def jacobian_risk_result(
     prepared, data, model, settings, n_paths, request=None, method="NativeAAD"
 ):
     """A :class:`JacobianRiskResult`: one AAD replay per selected output slot, as native."""
+    if prepared.has_exercise:
+        raise script_error(
+            "UnsupportedJacobianRisk: EXERCISE requires a separate Jacobian estimator"
+        )
     settings = replace(settings, enable_aad=True)
     n_paths = int(n_paths)
     outputs = payoff_outputs(data)
+    #  Native validates the output selector before the input selector here.
     chosen_outputs, slots = _selected_outputs(outputs, getattr(request, "outputs", None), request)
     axis = input_axis(model, prepared.script_params)
     chosen_inputs, _ = _selected(axis, getattr(request, "inputs", None), request)
-    engine = None
     values, rows = [], []
     for slot in slots:
+        #  slots index the var table, so payoff_index=slot prices that slot's variable;
+        #  the final loop engine supplies the block layout for the provenance snapshot.
         engine = replace(prepared, payoff_index=slot).engine(model, settings)
         legacy = engine.value(n_paths)
         values.append(float(legacy["PV"]))

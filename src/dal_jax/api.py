@@ -381,7 +381,10 @@ def MonteCarlo_ValueWithSettings(product, model, n_paths, *, valuation=None, sim
     return prepared.engine(model, simulation).value(int(n_paths))
 
 
-_REQUEST_NAMES = {  # subclasses first: isinstance matches the most specific request
+#  API-level request type names for the InvalidSetting messages; subclasses come first
+#  so isinstance matches the most specific request.  Mirrors mc.risk._REQUEST_CODES,
+#  which maps the same classes to their constructor-error codes and names.
+_REQUEST_NAMES = {
     JacobianRiskRequest: "JacobianRiskRequest_",
     WeightedRiskRequest: "WeightedRiskRequest_",
     BumpOverAADRequest: "BumpOverAADRequest_",
