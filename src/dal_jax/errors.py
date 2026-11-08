@@ -140,6 +140,14 @@ class InvalidWeightedRiskRequest(ScriptError):
     code = "InvalidWeightedRiskRequest"
 
 
+class InvalidRiskRequest(ScriptError):
+    code = "InvalidRiskRequest"
+
+
+class InvalidJacobianRiskRequest(ScriptError):
+    code = "InvalidJacobianRiskRequest"
+
+
 class PreparationRequired(ScriptError):
     code = "PreparationRequired"
 
@@ -265,6 +273,8 @@ _SCRIPT_CODES = MappingProxyType(
             InvalidExerciseCondition,
             UnsupportedExercisePayoff,
             InvalidWeightedRiskRequest,
+            InvalidRiskRequest,
+            InvalidJacobianRiskRequest,
             PreparationRequired,
             UnboundHistoricalSpot,
             LookAheadObservation,

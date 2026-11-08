@@ -13,11 +13,15 @@ from dal_jax.mc import MonteCarloSettings
 from dal_jax.mc.risk import (
     BumpOverAADRequest,
     JacobianRiskRequest,
+    JacobianRiskResult,
     RiskCoordinate,
     RiskOutputCoordinate,
     RiskRequest,
+    RiskResult,
     WeightedRiskRequest,
+    jacobian_risk_result,
     payoff_outputs,
+    risk_result,
 )
 from dal_jax.mc.settings import DEFAULT_SMOOTH
 from dal_jax.models import BlackScholes, CorrelatedBlackScholes, LocalVol, LocalVolSurface
@@ -377,6 +381,49 @@ def MonteCarlo_ValueWithSettings(product, model, n_paths, *, valuation=None, sim
     return prepared.engine(model, simulation).value(int(n_paths))
 
 
+_REQUEST_NAMES = {  # subclasses first: isinstance matches the most specific request
+    JacobianRiskRequest: "JacobianRiskRequest_",
+    WeightedRiskRequest: "WeightedRiskRequest_",
+    BumpOverAADRequest: "BumpOverAADRequest_",
+    RiskRequest: "RiskRequest_",
+}
+
+
+def _require_request_type(request, accepted, function, expected) -> None:
+    if request is not None and type(request) is not accepted:
+        name = next((n for cls, n in _REQUEST_NAMES.items() if isinstance(request, cls)), None)
+        raise script_error(
+            f"InvalidSetting: {function}; request; type={name or type(request).__name__}; "
+            f"expected {expected} or None"
+        )
+
+
+def MonteCarlo_ValueWithRisk(  # noqa: N802
+    product, model, n_paths, *, request=None, valuation=None, simulation=None
+) -> RiskResult:
+    """Value the supported payoff with AAD risks, shaped like native ``RiskResult_``."""
+    _path_count(n_paths)
+    _require_request_type(request, RiskRequest, "MonteCarlo_ValueWithRisk", "RiskRequest_")
+    prepared = prepare(product, model=model, valuation=valuation)
+    return risk_result(
+        prepared, product, model, simulation or MonteCarloSettings(), int(n_paths), request
+    )
+
+
+def MonteCarlo_ValueWithJacobianRisk(  # noqa: N802
+    product, model, n_paths, *, request=None, valuation=None, simulation=None
+) -> JacobianRiskResult:
+    """Per-slot values and Jacobian rows, as native's Jacobian-risk variant."""
+    _path_count(n_paths)
+    _require_request_type(
+        request, JacobianRiskRequest, "MonteCarlo_ValueWithJacobianRisk", "JacobianRiskRequest_"
+    )
+    prepared = prepare(product, model=model, valuation=valuation)
+    return jacobian_risk_result(
+        prepared, product, model, simulation or MonteCarloSettings(), int(n_paths), request
+    )
+
+
 def PseudoRSG_New(seed, ndim=1):  # noqa: N802
     from dal_jax.random.pseudorng import PseudoRSG
 
@@ -488,3 +535,4 @@ __all__ += (
     "WeightedRiskRequest_",
     "BumpOverAADRequest_",
 )
+__all__ += ("MonteCarlo_ValueWithRisk", "MonteCarlo_ValueWithJacobianRisk")
