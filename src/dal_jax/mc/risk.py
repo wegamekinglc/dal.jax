@@ -102,11 +102,16 @@ class WeightedRiskResult:
 
 
 def _scalar_targets(node: A.Node) -> Iterator[str]:
-    """Scalar ``=`` / ``PAYS`` target names in statement order, descending into IF/FOR."""
+    """Scalar ``=`` / ``PAYS`` target names in statement order, descending into IF/FOR.
+
+    Only ``If`` branches and ``Collect`` (the unrolled FOR body) hold nested statements;
+    expressions never contain statements, so their subtrees are skipped.
+    """
     if isinstance(node, (A.Assign, A.Pays)):
         yield node.args[0].name
-    for child in node.args:
-        yield from _scalar_targets(child)
+    elif isinstance(node, (A.If, A.Collect)):
+        for child in node.args:
+            yield from _scalar_targets(child)
 
 
 def _distinct_labels(product: ScriptProduct) -> list[str]:

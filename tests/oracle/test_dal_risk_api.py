@@ -4,6 +4,8 @@ import pytest
 
 from dal_jax.api import Product_Get_RiskOutputs, Product_New
 from dal_jax.dates import Date
+from dal_jax.errors import InvalidWeightedRiskRequest
+from dal_jax.mc.risk import payoff_outputs
 
 pytestmark = pytest.mark.oracle
 
@@ -98,6 +100,21 @@ RISK_CASES = [
         ["pay PAYS spot() on 2024-02-15", "pay PAYS spot() * 2 on 2024-03-15", "pay PAYS 3.0"],
         id="schedule-same-variable",
     ),
+    pytest.param(
+        [(2024, 1, 15), (2024, 7, 2)],
+        ["x = 1\nexercise x", "y PAYS SPOT()"],
+        id="exercise-plus-pays",
+    ),
+    pytest.param(
+        [(2024, 7, 2)],
+        ["FOR(i, 0, 2)\ns = i * spot()\nEND\nq PAYS s"],
+        id="for-body-only-target",
+    ),
+    pytest.param(
+        [(2024, 7, 2)],
+        ["APPEND(v,SPOT())\nv[0] = 2.0\nq PAYS SUM(v)"],
+        id="vector-entry-assign-excluded",
+    ),
 ]
 
 
@@ -120,6 +137,11 @@ def test_risk_outputs_expected_coordinates():
     ]
 
 
+_RECEIVERLESS = (
+    "InvalidWeightedRiskRequest: indexed scalar default receiver is required; output=payoff"
+)
+
+
 @pytest.mark.parametrize(
     ("dates", "events"),
     [
@@ -131,7 +153,14 @@ def test_risk_outputs_expected_coordinates():
     ],
 )
 def test_risk_outputs_require_scalar_receiver(dal, dates, events):
-    with pytest.raises(Exception, match="InvalidWeightedRiskRequest"):
+    with pytest.raises(Exception, match=_RECEIVERLESS):
         dal.Product_Get_RiskOutputs(_native_product(dal, dates, events))
-    with pytest.raises(Exception, match="InvalidWeightedRiskRequest"):
+    with pytest.raises(InvalidWeightedRiskRequest, match=_RECEIVERLESS) as error:
         Product_Get_RiskOutputs(Product_New(_cells(dates), events))
+    assert str(error.value) == _RECEIVERLESS
+    assert error.value.detail == "indexed scalar default receiver is required; output=payoff"
+
+
+def test_payoff_outputs_accepts_parsed_product():
+    data = Product_New(_cells([(2024, 1, 2)]), ["a pays spot()"])
+    assert payoff_outputs(data) == payoff_outputs(data.product())

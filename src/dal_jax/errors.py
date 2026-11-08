@@ -136,6 +136,10 @@ class UnsupportedExercisePayoff(ScriptError):
     code = "UnsupportedExercisePayoff"
 
 
+class InvalidWeightedRiskRequest(ScriptError):
+    code = "InvalidWeightedRiskRequest"
+
+
 class PreparationRequired(ScriptError):
     code = "PreparationRequired"
 
@@ -260,6 +264,7 @@ _SCRIPT_CODES = MappingProxyType(
             UnsupportedExerciseNesting,
             InvalidExerciseCondition,
             UnsupportedExercisePayoff,
+            InvalidWeightedRiskRequest,
             PreparationRequired,
             UnboundHistoricalSpot,
             LookAheadObservation,

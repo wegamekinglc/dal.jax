@@ -116,7 +116,7 @@ def Product_Debug(product: ScriptProductData, *, valuation=None) -> str:  # noqa
     )
 
 
-def Product_Get_RiskOutputs(product: ScriptProductData) -> list:  # noqa: N802
+def Product_Get_RiskOutputs(product: ScriptProductData) -> list[RiskOutputCoordinate]:  # noqa: N802
     return payoff_outputs(product)
 
 
