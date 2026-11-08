@@ -10,6 +10,15 @@ from typing import NamedTuple
 from dal_jax.dates.date import Date
 from dal_jax.errors import InvalidPathCount, InvalidSetting, script_error
 from dal_jax.mc import MonteCarloSettings
+from dal_jax.mc.risk import (
+    BumpOverAADRequest,
+    JacobianRiskRequest,
+    RiskCoordinate,
+    RiskOutputCoordinate,
+    RiskRequest,
+    WeightedRiskRequest,
+    payoff_outputs,
+)
 from dal_jax.mc.settings import DEFAULT_SMOOTH
 from dal_jax.models import BlackScholes, CorrelatedBlackScholes, LocalVol, LocalVolSurface
 from dal_jax.models.base import Model
@@ -105,6 +114,10 @@ def Product_Debug(product: ScriptProductData, *, valuation=None) -> str:  # noqa
     return diagnostics.debug_text(
         product, resolve_valuation(valuation or ValuationSettings()).evaluation_date
     )
+
+
+def Product_Get_RiskOutputs(product: ScriptProductData) -> list:  # noqa: N802
+    return payoff_outputs(product)
 
 
 def BSModelData_New(spot: float, vol: float, rate: float = 0.0, div: float = 0.0) -> BlackScholes:  # noqa: N802
@@ -378,6 +391,14 @@ def PseudoRSG_Get_Normal(rsg, n_rows):  # noqa: N802
     return rsg.fill_normal(n_rows)
 
 
+RiskCoordinate_ = RiskCoordinate
+RiskOutputCoordinate_ = RiskOutputCoordinate
+RiskRequest_ = RiskRequest
+JacobianRiskRequest_ = JacobianRiskRequest
+WeightedRiskRequest_ = WeightedRiskRequest
+BumpOverAADRequest_ = BumpOverAADRequest
+
+
 def ScriptValuation_Explain(product, model, *, valuation=None):  # noqa: N802
     from dal_jax.script.explain import valuation_explain
 
@@ -458,3 +479,12 @@ __all__ += (
 __all__ += ("ScriptValuation_Explain", "ScriptSimulation_Explain")
 __all__ += ("HybridFactorLink_",)
 __all__ += ("PseudoRSG_New", "PseudoRSG_Get_Uniform", "PseudoRSG_Get_Normal")
+__all__ += (
+    "Product_Get_RiskOutputs",
+    "RiskCoordinate_",
+    "RiskOutputCoordinate_",
+    "RiskRequest_",
+    "JacobianRiskRequest_",
+    "WeightedRiskRequest_",
+    "BumpOverAADRequest_",
+)
