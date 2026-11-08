@@ -371,11 +371,11 @@ def PseudoRSG_New(seed, ndim=1):  # noqa: N802
 
 
 def PseudoRSG_Get_Uniform(rsg, n_rows):  # noqa: N802
-    return rsg.fill_uniform(int(n_rows))
+    return rsg.fill_uniform(n_rows)
 
 
 def PseudoRSG_Get_Normal(rsg, n_rows):  # noqa: N802
-    return rsg.fill_normal(int(n_rows))
+    return rsg.fill_normal(n_rows)
 
 
 def ScriptValuation_Explain(product, model, *, valuation=None):  # noqa: N802

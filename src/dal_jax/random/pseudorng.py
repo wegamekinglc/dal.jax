@@ -49,9 +49,20 @@ def _mrg32_ks(state: Mrg32State, n: int) -> tuple[Array, Mrg32State]:
 
 
 def mrg32_uniforms(state: Mrg32State, n: int) -> tuple[Array, Mrg32State]:
-    """``n`` uniforms in DAL's order, plus the advanced state."""
+    """``n`` uniforms in DAL's order, plus the advanced state.
+
+    The division runs through XLA, whose vectorized float64 divide can land
+    an ULP above the correctly rounded result native produces; consumers
+    needing bit-exact uniforms should divide ``_mrg32_ks`` output in numpy.
+    """
     ks, new_state = _mrg32_ks(state, n)
     return ks.astype(jnp.float64) / jnp.float64(M1 + 1), new_state
+
+
+def _row_count(n_rows: int) -> int:
+    if not isinstance(n_rows, numbers.Integral) or isinstance(n_rows, bool) or n_rows < 0:
+        raise InvalidSetting(f"n_rows={n_rows!r}; expected a nonnegative integer")
+    return int(n_rows)
 
 
 class PseudoRSG:
@@ -61,7 +72,9 @@ class PseudoRSG:
     ``FillUniformWith``); normals consume fresh uniforms per element with the
     precise inverse normal.  The division runs through numpy: XLA's vectorized
     float64 divide lands an ULP above the correctly rounded result, which the
-    antithetic complement amplifies past parity tolerance.
+    antithetic complement amplifies past parity tolerance.  Native's binding
+    rejects seeds above ``2**31 - 1``; this port accepts any seed the int64
+    state holds.
     """
 
     NORM = M1 + 1
@@ -83,19 +96,29 @@ class PseudoRSG:
         return np.asarray(ks) / self.NORM
 
     def fill_uniform(self, n_rows: int) -> np.ndarray:
-        rows = []
-        for _ in range(int(n_rows)):
+        n_rows = _row_count(n_rows)
+        if n_rows == 0:
+            return np.empty((0, self.ndim))
+        # anti rows consume no stream: every fresh row of this call comes from one scan
+        needed = (n_rows + (0 if self._anti else 1)) // 2
+        fresh = self._draw(needed * self.ndim).reshape(needed, self.ndim)
+        rows, used = [], 0
+        for _ in range(n_rows):
             if self._anti:
                 rows.append(1.0 - self._fresh)
             else:
-                self._fresh = self._draw(self.ndim)
-                rows.append(self._fresh.copy())
+                self._fresh = fresh[used]
+                used += 1
+                rows.append(self._fresh)
             self._anti = not self._anti
         return np.stack(rows)
 
     def fill_normal(self, n_rows: int) -> np.ndarray:
-        uniforms = self._draw(int(n_rows) * self.ndim)
+        n_rows = _row_count(n_rows)
+        if n_rows == 0:
+            return np.empty((0, self.ndim))
+        uniforms = self._draw(n_rows * self.ndim)
         normals = np.asarray(
             inverse_ncdf(jnp.asarray(uniforms), precise=self.precise, polish=self.precise)
         )
-        return normals.reshape(int(n_rows), self.ndim)
+        return normals.reshape(n_rows, self.ndim)

@@ -3,8 +3,10 @@
 import numpy as np
 import pytest
 
+from dal_jax.api import PseudoRSG_Get_Normal, PseudoRSG_Get_Uniform, PseudoRSG_New
 from dal_jax.errors import InvalidSetting
-from dal_jax.random.pseudorng import PseudoRSG, mrg32_state, mrg32_uniforms
+from dal_jax.random.inverse_normal import inverse_ncdf
+from dal_jax.random.pseudorng import M1, PseudoRSG, _mrg32_ks, mrg32_state, mrg32_uniforms
 
 
 def test_stream_matches_reference_values():
@@ -40,11 +42,41 @@ def test_seed_zero_matches_native():
 
 
 def test_pseudo_rsg_rejects_invalid_settings():
-    with pytest.raises(InvalidSetting):
+    with pytest.raises(InvalidSetting, match="expected a nonnegative MRG32 seed"):
         PseudoRSG(-1)
-    with pytest.raises(InvalidSetting):
+    with pytest.raises(InvalidSetting, match="expected an integer"):
         PseudoRSG(1.5)
-    with pytest.raises(InvalidSetting):
+    with pytest.raises(InvalidSetting, match="expected a positive integer"):
         PseudoRSG(7, ndim=0)
-    with pytest.raises(InvalidSetting):
+    with pytest.raises(InvalidSetting, match="expected a positive integer"):
         PseudoRSG(7, ndim=2.5)
+
+
+def test_pseudo_rsg_rejects_bool_seed():
+    with pytest.raises(InvalidSetting, match="expected an integer"):
+        PseudoRSG_New(True, 1)
+
+
+def test_pseudo_rsg_zero_rows_return_empty_matrices():
+    rsg = PseudoRSG(7, 3)
+    assert rsg.fill_uniform(0).shape == (0, 3)
+    assert rsg.fill_normal(0).shape == (0, 3)
+
+
+def test_pseudo_rsg_rejects_invalid_row_counts():
+    rsg = PseudoRSG(7, 3)
+    with pytest.raises(InvalidSetting, match="expected a nonnegative integer"):
+        rsg.fill_uniform(-2)
+    with pytest.raises(InvalidSetting, match="expected a nonnegative integer"):
+        rsg.fill_normal(-2)
+    with pytest.raises(InvalidSetting, match="expected a nonnegative integer"):
+        PseudoRSG_Get_Uniform(rsg, 2.7)
+    with pytest.raises(InvalidSetting, match="expected a nonnegative integer"):
+        PseudoRSG_Get_Normal(rsg, True)
+
+
+def test_fill_normal_precise_false_uses_fast_inverse():
+    rsg = PseudoRSG(7, 2, precise=False)
+    ks, _ = _mrg32_ks(mrg32_state(7), 8)
+    expected = inverse_ncdf(np.asarray(ks) / (M1 + 1), precise=False, polish=False)
+    np.testing.assert_array_equal(rsg.fill_normal(4), np.asarray(expected).reshape(4, 2))

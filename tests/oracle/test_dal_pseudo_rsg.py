@@ -35,3 +35,26 @@ def test_normals_match_native_stream(dal, seed, ndim):
         rtol=1e-14,
         atol=1e-15,
     )
+
+
+def test_interleaved_calls_match_native_stream(dal):
+    ours, theirs = PseudoRSG_New(11, 3), dal.PseudoRSG_New(11, 3)
+    np.testing.assert_allclose(
+        PseudoRSG_Get_Uniform(ours, 3),
+        np.asarray(dal.PseudoRSG_Get_Uniform(theirs, 3).to_rows()),
+        atol=0,
+        rtol=1e-15,
+    )
+    # normals must not disturb the antithetic alternation or the stream position
+    np.testing.assert_allclose(
+        PseudoRSG_Get_Normal(ours, 2),
+        np.asarray(dal.PseudoRSG_Get_Normal(theirs, 2).to_rows()),
+        rtol=1e-14,
+        atol=1e-15,
+    )
+    np.testing.assert_allclose(
+        PseudoRSG_Get_Uniform(ours, 2),
+        np.asarray(dal.PseudoRSG_Get_Uniform(theirs, 2).to_rows()),
+        atol=0,
+        rtol=1e-15,
+    )
