@@ -101,7 +101,7 @@ class PseudoRSG:
             return np.empty((0, self.ndim))
         # anti rows consume no stream: every fresh row of this call comes from one scan
         needed = (n_rows + (0 if self._anti else 1)) // 2
-        fresh = self._draw(needed * self.ndim).reshape(needed, self.ndim)
+        fresh = self._draw(needed * self.ndim).reshape(needed, self.ndim) if needed else None
         rows, used = [], 0
         for _ in range(n_rows):
             if self._anti:

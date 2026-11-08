@@ -80,3 +80,22 @@ def test_fill_normal_precise_false_uses_fast_inverse():
     ks, _ = _mrg32_ks(mrg32_state(7), 8)
     expected = inverse_ncdf(np.asarray(ks) / (M1 + 1), precise=False, polish=False)
     np.testing.assert_array_equal(rsg.fill_normal(4), np.asarray(expected).reshape(4, 2))
+
+
+def test_batched_fill_uniform_matches_row_at_a_time():
+    batched, stepped = PseudoRSG(7, 3), PseudoRSG(7, 3)
+    batched_rows = [
+        batched.fill_uniform(1),  # fresh entry, odd length -> antithetic entry next
+        batched.fill_uniform(1),  # antithetic entry: reuses the cached fresh row
+        batched.fill_uniform(2),  # fresh entry
+        batched.fill_uniform(3),  # fresh entry, odd length -> antithetic entry next
+    ]
+    batched_normals = batched.fill_normal(2)  # must not disturb the alternation
+    batched_rows.append(batched.fill_uniform(2))  # antithetic entry
+
+    stepped_rows = [stepped.fill_uniform(1) for _ in range(1 + 1 + 2 + 3)]
+    stepped_normals = stepped.fill_normal(2)
+    stepped_rows += [stepped.fill_uniform(1) for _ in range(2)]
+
+    np.testing.assert_array_equal(np.vstack(batched_rows), np.vstack(stepped_rows))
+    np.testing.assert_array_equal(batched_normals, stepped_normals)
