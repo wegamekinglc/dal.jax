@@ -20,6 +20,14 @@ from support import (
 )
 
 from dal_jax import MonteCarloEngine, MonteCarloSettings
+from dal_jax.api import (
+    BSModelData_New,
+    MonteCarlo_ValueWithSettings,
+    MonteCarloSettings_,
+    Product_New,
+    ValuationSettings,
+)
+from dal_jax.dates import Date
 from dal_jax.random.sobol import Sobol
 
 pytestmark = pytest.mark.oracle
@@ -72,6 +80,41 @@ def test_sobol_polished_normals(dal, precise, polish):
     np.testing.assert_allclose(
         np.asarray(jax.vmap(seq.normal)(ids)), theirs, rtol=1e-13, atol=1e-14
     )
+
+
+def test_normal_precision_pricing_matches_native(dal):
+    """``normalPrecision='Precise'`` selects the precise Sobol inversion, as in native.
+
+    Native's engine builds every RSG with ``precise = (normalPrecision == 'Precise')``
+    ('Fast' is accepted but behaves as 'Default'), polishing Acklam with the exact
+    NCDF; at 4096 Sobol paths that moves this call's PV by ~1.6e-10 relative.
+    """
+    dates, events = [(2027, 9, 20)], ["p pays MAX(spot() - 150.0, 0.0)"]
+    model = (100.0, 0.2, 0.03, 0.01)
+    valuation = dal.ScriptValuationSettings_(evaluation_date=dal.Date_(2022, 9, 15))
+
+    def native(precision):
+        return dal.MonteCarlo_ValueWithSettings(
+            dal.Product_New([dal.Date_(*dates[0])], events),
+            dal.BSModelData_New(*model),
+            4096,
+            valuation=valuation,
+            simulation=dal.MonteCarloSettings_(normal_precision=precision),
+        )["PV"]
+
+    def ours(precision):
+        return MonteCarlo_ValueWithSettings(
+            Product_New([Date.ymd(*dates[0])], events),
+            BSModelData_New(*model),
+            4096,
+            valuation=ValuationSettings(evaluation_date=Date.ymd(2022, 9, 15)),
+            simulation=MonteCarloSettings_(normal_precision=precision),
+        )["PV"]
+
+    assert ours("Default") == pytest.approx(native("Default"), rel=1e-12)
+    assert ours("Precise") == pytest.approx(native("Precise"), rel=1e-12)
+    #  The knob bites: Precise normals move the PV far beyond the parity tolerance.
+    assert ours("Precise") != pytest.approx(native("Default"), rel=1e-12)
 
 
 @pytest.fixture(scope="module")

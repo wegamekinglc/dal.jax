@@ -214,11 +214,22 @@ class MonteCarloEngine:
             return lambda block_id, path_ids: jnp.zeros((path_ids.shape[0], 0), dtype=jnp.float64)
 
         if settings.rsg == "sobol":
+            #  Native's engine only distinguishes normalPrecision='Precise' when building
+            #  every RSG ('Fast' is accepted but behaves as 'Default'); it forces the
+            #  precise inversion on top of the acklam family's own resolution.
+            precise = (
+                settings.normal_precision == "Precise"
+                or settings.inverse_normal == "acklam_polish_precise"
+            )
+            polish = precise or settings.inverse_normal in (
+                "acklam_polish",
+                "acklam_polish_precise",
+            )
             sequence = Sobol(
                 dim=dim,
                 shift_key=settings.sobol_shift_key,
-                precise=settings.inverse_normal == "acklam_polish_precise",
-                polish=settings.inverse_normal in ("acklam_polish", "acklam_polish_precise"),
+                precise=precise,
+                polish=polish,
             )
             if settings.inverse_normal == "ndtri":
                 one_path = lambda path_id: inverse_ncdf_ndtri(sequence.uniform(path_id))
