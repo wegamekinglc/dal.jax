@@ -64,6 +64,7 @@ def _settings(native, ours):
         "use_bb",
         "enable_aad",
         "smooth",
+        "normal_precision",
         "lsmc_basis_degree",
         "lsmc_training_paths",
         "lsmc_validation_paths",
@@ -155,6 +156,38 @@ def test_shifted_replicas_match_individual_native_prices(dal, aad):
         np.testing.assert_allclose(
             evaluated.replicate_means, diagnostics["uncertainty"]["replicate_means"], atol=1e-12
         )
+
+
+def test_rqmc_replicates_honour_normal_precision(dal):
+    """``normalPrecision='Precise'`` reaches the RQMC replay, not just the training paths."""
+    rows, model = _case("put")
+    settings = MonteCarloSettings(
+        use_bb=True,
+        parallel="none",
+        lsmc_training_paths=512,
+        lsmc_validation_paths=128,
+        lsmc_rqmc_replicates=3,
+        lsmc_training_seed=17,
+        lsmc_pricing_seed=29,
+        normal_precision="Precise",
+    )
+    ours_precise = (
+        prepare(Product_New(*rows), TODAY, model=model).engine(model, settings).value(256)
+    )
+    ours_default = (
+        prepare(Product_New(*rows), TODAY, model=model)
+        .engine(model, replace(settings, normal_precision="Default"))
+        .value(256)
+    )
+    product = dal.Product_New([_native_date(dal, day) for day in rows[0]], rows[1])
+    nmodel = dal.BSModelData_New(model.spot, model.vol, model.rate, model.div)
+    valuation = dal.ScriptValuationSettings_(evaluation_date=_native_date(dal, TODAY))
+    theirs_precise = dal.MonteCarlo_ValueWithSettings(
+        product, nmodel, 256, valuation=valuation, simulation=_settings(dal, settings)
+    )
+    np.testing.assert_allclose(ours_precise["PV"], theirs_precise["PV"], rtol=1e-12, atol=1e-12)
+    #  The knob bites: the Precise replay differs from the Default one at the same seeds.
+    assert ours_precise["PV"] != pytest.approx(ours_default["PV"], rel=1e-12)
 
 
 def test_vmapped_retrained_policy_risks_match_native(dal):

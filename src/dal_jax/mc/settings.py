@@ -159,3 +159,17 @@ class MonteCarloSettings:
         if not found:
             raise InvalidSetting(f"no {self.platform} devices available")
         return found
+
+
+def normal_inversion_flags(settings: MonteCarloSettings) -> tuple[bool, bool]:
+    """``(precise, polish)`` inversion flags for the Sobol engine and LSMC replay.
+
+    Native's engine only distinguishes ``normalPrecision='Precise'`` when building
+    every RSG ('Fast' is accepted but behaves as 'Default'); it forces the precise
+    inversion on top of the ``inverse_normal`` family's own resolution.
+    """
+    precise = (
+        settings.normal_precision == "Precise" or settings.inverse_normal == "acklam_polish_precise"
+    )
+    polish = precise or settings.inverse_normal in ("acklam_polish", "acklam_polish_precise")
+    return precise, polish

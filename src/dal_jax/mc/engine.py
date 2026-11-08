@@ -22,7 +22,7 @@ from dal_jax.errors import (
     script_error,
 )
 from dal_jax.mc import parallel, tuning
-from dal_jax.mc.settings import DEFAULT_SMOOTH, MonteCarloSettings
+from dal_jax.mc.settings import DEFAULT_SMOOTH, MonteCarloSettings, normal_inversion_flags
 from dal_jax.models.base import Model, SampleDef
 from dal_jax.random import bridge
 from dal_jax.random.inverse_normal import inverse_ncdf_ndtri
@@ -214,17 +214,7 @@ class MonteCarloEngine:
             return lambda block_id, path_ids: jnp.zeros((path_ids.shape[0], 0), dtype=jnp.float64)
 
         if settings.rsg == "sobol":
-            #  Native's engine only distinguishes normalPrecision='Precise' when building
-            #  every RSG ('Fast' is accepted but behaves as 'Default'); it forces the
-            #  precise inversion on top of the acklam family's own resolution.
-            precise = (
-                settings.normal_precision == "Precise"
-                or settings.inverse_normal == "acklam_polish_precise"
-            )
-            polish = precise or settings.inverse_normal in (
-                "acklam_polish",
-                "acklam_polish_precise",
-            )
+            precise, polish = normal_inversion_flags(settings)
             sequence = Sobol(
                 dim=dim,
                 shift_key=settings.sobol_shift_key,

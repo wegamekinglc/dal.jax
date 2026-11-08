@@ -12,7 +12,7 @@ from dal_jax.errors import DalError, InvalidPathCount, InvalidPayoff, script_err
 from dal_jax.mc.engine import MonteCarloEngine, PathProduct
 from dal_jax.mc.regression import Regression, _design, basis_powers, select_regression
 from dal_jax.mc.regression_device import select_device
-from dal_jax.mc.settings import MonteCarloSettings
+from dal_jax.mc.settings import MonteCarloSettings, normal_inversion_flags
 from dal_jax.models.base import Model
 from dal_jax.random import bridge
 from dal_jax.random.inverse_normal import inverse_ncdf, inverse_ncdf_ndtri
@@ -295,14 +295,11 @@ class _ReplayEngine(MonteCarloEngine):
         if "_lsmc_random" not in params:
             return super()._random_normals(params, block_id, path_ids)
         offset, shift = params["_lsmc_random"]
-        sequence = Sobol(dim=self.sim_dim)
+        precise, polish = normal_inversion_flags(self.settings)
+        sequence = Sobol(dim=self.sim_dim, precise=precise, polish=polish)
         states = jax.vmap(sequence.state)(path_ids + offset)
         uniforms = ((states ^ shift).astype(jnp.float64) + 0.5) * MUL
-        normals = inverse_ncdf(
-            uniforms,
-            self.settings.inverse_normal == "acklam_polish_precise",
-            self.settings.inverse_normal in ("acklam_polish", "acklam_polish_precise"),
-        )
+        normals = inverse_ncdf(uniforms, precise, polish)
         if self.settings.inverse_normal == "ndtri":
             normals = inverse_ncdf_ndtri(uniforms)
         if self.settings.use_bb:
