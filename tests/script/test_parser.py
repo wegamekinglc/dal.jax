@@ -176,10 +176,11 @@ def test_precedence():
     assert isinstance(parse("x = -3")[0].args[1], A.UMinus) and isinstance(
         parse("x = +3")[0].args[1], A.UPlus
     )
-    assert (
-        len(parse("x = MIN(2, 3)")[0].args[1].args) == 2
-        and len(parse("x = MAX(2, 3, 4)")[0].args[1].args) == 3
-    )
+    # Variadic MIN/MAX fold left into binary chains, matching DAL's AST shape:
+    # MAX(2, 3, 4) parses as max(max(2, 3), 4) with binary nodes only.
+    assert len(parse("x = MIN(2, 3)")[0].args[1].args) == 2
+    folded_max = parse("x = MAX(2, 3, 4)")[0].args[1]
+    assert len(folded_max.args) == 2 and isinstance(folded_max.args[0], A.Max)
     pow_node = parse("x = 2 ^ 3")[0].args[1]
     assert isinstance(pow_node, A.Pow) and all(isinstance(a, A.Const) for a in pow_node.args)
 

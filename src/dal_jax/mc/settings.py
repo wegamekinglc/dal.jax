@@ -17,6 +17,7 @@ type InverseNormal = Literal["acklam", "acklam_polish", "acklam_polish_precise",
 type DType = Literal["float64", "float32", "auto"]
 type BlockSize = int | Literal["auto"]
 type SmoothingKernel = Literal["dal", "smoothstep"]
+type NormalPrecision = Literal["Default", "Fast", "Precise"]
 
 DEFAULT_SMOOTH = 0.01
 DEFAULT_BLOCK_SIZE = 8192
@@ -30,10 +31,13 @@ _CHOICES = MappingProxyType(
         "parallel": ("shard_map", "auto", "pmap", "none"),
         "dtype": ("float64", "float32", "auto"),
         "smoothing_kernel": ("dal", "smoothstep"),
+        "normal_precision": ("Default", "Fast", "Precise"),
         "lsmc_policy_risk_mode": ("Frozen", "RetrainedBump"),
     }
 )
-_DAL_FIELD_NAMES = MappingProxyType({"rsg": "simulation.rsg_"})
+_DAL_FIELD_NAMES = MappingProxyType(
+    {"rsg": "simulation.rsg_", "normal_precision": "simulation.normalPrecision_"}
+)
 
 
 def _check_choices(settings: "MonteCarloSettings") -> None:
@@ -59,8 +63,10 @@ class MonteCarloSettings:
     """Static, validated simulation configuration."""
 
     rsg: Rsg = "sobol"
+    normal_precision: NormalPrecision = "Default"
     use_bb: bool = False
     enable_aad: bool = False
+    compiled: bool = True
     smooth: float = DEFAULT_SMOOTH
     smoothing_kernel: SmoothingKernel = "dal"
     scan_group_threshold: int = 4
@@ -82,6 +88,8 @@ class MonteCarloSettings:
     lsmc_rqmc_replicates: int | None = None
     lsmc_training_seed: int | None = None
     lsmc_pricing_seed: int | None = None
+    lsmc_checkpoint_block_events: int | None = None
+    lsmc_training_memory_mb: int | None = None
     lsmc_policy_risk_mode: str = "Frozen"
     lsmc_policy_bump_relative: float = 1e-3
 
@@ -117,6 +125,8 @@ class MonteCarloSettings:
             ("lsmc_rqmc_replicates", 2),
             ("lsmc_training_seed", 0),
             ("lsmc_pricing_seed", 0),
+            ("lsmc_checkpoint_block_events", 1),
+            ("lsmc_training_memory_mb", 1),
         ):
             value = getattr(self, name)
             if value is not None:
@@ -127,16 +137,20 @@ class MonteCarloSettings:
         ):
             raise InvalidSetting("lsmc_policy_bump_relative must be finite and in (0, 0.1]")
         self._check_lsmc_modes()
+        self._check_lsmc_memory()
 
     def _check_lsmc_modes(self) -> None:
         if self.lsmc_policy_risk_mode == "RetrainedBump" and not self.enable_aad:
             raise InvalidSetting("lsmc_policy_risk_mode=RetrainedBump requires enable_aad=True")
-        if self.lsmc_rqmc_replicates is not None and self.rsg != "sobol":
-            raise InvalidSetting("lsmc_rqmc_replicates requires rsg=sobol")
-        if self.lsmc_rqmc_replicates is None and (
-            self.lsmc_training_seed is not None or self.lsmc_pricing_seed is not None
-        ):
+        if self.lsmc_rqmc_replicates is not None:
+            if self.rsg != "sobol":
+                raise InvalidSetting("lsmc_rqmc_replicates requires rsg=sobol")
+        elif self.lsmc_training_seed is not None or self.lsmc_pricing_seed is not None:
             raise InvalidSetting("LSMC seeds require lsmc_rqmc_replicates")
+
+    def _check_lsmc_memory(self) -> None:
+        if self.lsmc_checkpoint_block_events is not None and self.lsmc_training_memory_mb is None:
+            raise InvalidSetting("lsmc_checkpoint_block_events requires lsmc_training_memory_mb")
 
     def resolved_devices(self) -> tuple[jax.Device, ...]:
         if self.devices is not None:

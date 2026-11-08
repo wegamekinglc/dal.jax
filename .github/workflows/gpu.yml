@@ -22,11 +22,9 @@ jobs:
         with:
           python-version: "3.13"
           cache-suffix: gpu-${{ inputs.cuda }}
-      - name: Install GPU dependencies
+      - name: Install GPU dependencies with the pinned dal-python oracle
         run: uv sync --extra "${{ inputs.cuda }}"
       - name: Verify hardware
         run: nvidia-smi
-      - name: Build pinned DAL source oracle
-        run: bash scripts/build_dal_oracle.sh "$RUNNER_TEMP/dal-oracle" "$GITHUB_WORKSPACE/.venv/bin/python"
       - name: Run actual GPU tests
         run: .venv/bin/python -m pytest tests/gpu --run-gpu

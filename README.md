@@ -125,7 +125,7 @@ Adjacent events with the same normalized structure share one `lax.scan` body. Da
 
 DAL's piecewise-linear kernels remain the default. `smoothing_kernel="smoothstep"` selects bounded cubic C1 transitions, including a zero-slope butterfly peak, for second derivatives. This option changes the smoothing profile and its Greeks.
 
-The front end follows DAL's current `master`, so it also supports what dal-python 2026.9.25 lacks: vectors (`APPEND`, `v[i]`, `SUM`/`AVERAGE`/`MIN`/`MAX`, predefined `[1, 2, 3]` definitions), `FOR` loops over constant bounds, `PAYS ... ON date`, `FIX(index, date)` observations, `EXERCISE` statements, IR index names and the `30U/360` basis. Errors raise the `DalError` subclass that DAL names in its message (`InvalidIndex`, `DuplicateExercise`, ...), with the same text.
+The front end follows DAL's current `master`, including vectors (`APPEND`, `v[i]`, `SUM`/`AVERAGE`/`MIN`/`MAX`, predefined `[1, 2, 3]` definitions), `FOR` loops over constant bounds, `PAYS ... ON date`, `FIX(index, date)` observations, `EXERCISE` statements, IR index names and the `30U/360` basis. Errors raise the `DalError` subclass that DAL names in its message (`InvalidIndex`, `DuplicateExercise`, ...), with the same text.
 
 Valuation supports mutable vectors, expanded `FOR`, reductions, dated `FIX` and delayed payments. Vectors use fixed capacities and dynamic lengths; fuzzy branches blend padded values and use the longer length only inside the transition. Invalid reads and empty non-SUM reductions raise DAL-named exceptions through `engine.value`. For pure JAX code, `engine.checked_pricer(n_paths)` returns `(prices, error_rates)`; `pricer` returns NaN when a live path has a vector error.
 

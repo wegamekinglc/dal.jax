@@ -23,21 +23,23 @@ from dal_jax.strings import ci_key
 
 def simulation_settings(settings):
     names = (
-        "use_bb",
-        "enable_aad",
-        "smooth",
         "lsmc_basis_degree",
         "lsmc_training_paths",
         "lsmc_validation_paths",
         "lsmc_rqmc_replicates",
         "lsmc_training_seed",
         "lsmc_pricing_seed",
+        "lsmc_checkpoint_block_events",
+        "lsmc_training_memory_mb",
     )
     return {
         "rsg": settings.rsg,
-        **{name: getattr(settings, name) for name in names[:3]},
-        "compiled": False,
-        **{name: getattr(settings, name) for name in names[3:]},
+        "normal_precision": settings.normal_precision,
+        "use_bb": settings.use_bb,
+        "enable_aad": settings.enable_aad,
+        "smooth": settings.smooth,
+        "compiled": settings.compiled,
+        **{name: getattr(settings, name) for name in names},
     }
 
 

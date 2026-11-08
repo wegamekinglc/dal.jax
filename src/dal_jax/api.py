@@ -290,9 +290,8 @@ def HybridModelData_New(name, domestic_currency, components, correlation):  # no
     )
 
 
-def MonteCarloSettings_(*, method="sobol", compiled=None, **settings):  # noqa: N802
-    _compiled_option(compiled)
-    return MonteCarloSettings(rsg=method, **settings)
+def MonteCarloSettings_(*, method="sobol", compiled=True, **settings):  # noqa: N802
+    return MonteCarloSettings(rsg=method, compiled=compiled, **settings)
 
 
 def MonteCarlo_Value(
@@ -318,7 +317,12 @@ def MonteCarlo_Value(
     rsg = _random_sequence(rsg, method)
     _compiled_option(compiled)
     settings = MonteCarloSettings(
-        rsg=rsg, use_bb=use_bb, enable_aad=enable_aad, smooth=smooth, **execution_settings
+        rsg=rsg,
+        use_bb=use_bb,
+        enable_aad=enable_aad,
+        smooth=smooth,
+        compiled=compiled if compiled is not None else True,
+        **execution_settings,
     )
     date = None if evaluation_date is None else _to_date(evaluation_date)
     spots = (
@@ -392,7 +396,9 @@ def _compiled_option(compiled: bool | None) -> None:
     if not isinstance(compiled, bool):
         raise TypeError("compiled must be bool or None")
     warnings.warn(
-        "compiled has no effect: JAX always compiles the script with XLA", UserWarning, stacklevel=3
+        "compiled only changes reported diagnostics: JAX always compiles the script with XLA",
+        UserWarning,
+        stacklevel=3,
     )
 
 

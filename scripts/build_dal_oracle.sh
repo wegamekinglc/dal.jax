@@ -4,7 +4,7 @@ set -euo pipefail
 
 oracle_root="${1:?Usage: build_dal_oracle.sh BUILD_ROOT PYTHON}"
 oracle_python="${2:?Pass the Python executable of the target virtual environment}"
-oracle_revision=4feabe89b105e0a3883fd4e2d74a2d70d618d8c7
+oracle_revision=f83a05c1e64125571780249ca5267d971d389381
 mkdir -p "$oracle_root"
 oracle_root="$(cd "$oracle_root" && pwd)"
 oracle_source="$oracle_root/source"
