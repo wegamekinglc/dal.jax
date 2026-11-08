@@ -89,15 +89,17 @@ class RiskResult:
 
 @dataclass(slots=True)
 class WeightedRiskResult:
+    """Field-for-field with native ``WeightedRiskResult_``: no per-slot ``values``
+    or ``legacy_values``; the Jacobian is one weight-aggregated row."""
+
     weighted_value: float
     component_means: list
     weights: list
-    values: list
     output_axis: list
     input_axis: list
     complete_input_axis: list
     jacobian: object
-    legacy_values: dict
+    reported_jacobian: object
     provenance: RiskResultProvenance
 
 
@@ -260,7 +262,7 @@ def _selected_payoff(outputs, selector, request) -> list[RiskOutputCoordinate]:
 
 
 def _selected_outputs(outputs, selector, request) -> tuple[list[RiskOutputCoordinate], list[int]]:
-    """Output slots chosen by case-insensitive ID, several allowed (the Jacobian variant)."""
+    """Output slots chosen by case-insensitive ID, several allowed (Jacobian and weighted)."""
     if selector is None:
         return outputs[-1:], [len(outputs) - 1]
     code, ctor = _request_codes(request)
@@ -269,18 +271,40 @@ def _selected_outputs(outputs, selector, request) -> tuple[list[RiskOutputCoordi
         match = ci_key(key)
         found = next((i for i, c in enumerate(outputs) if ci_key(c.id) == match), None)
         if found is None:
-            raise script_error(
-                f"InvalidJacobianRiskRequest: unknown scalar output ID; output={key}"
-            )
+            raise script_error(f"{code}: unknown scalar output ID; output={key}")
         if found in indices:
-            raise script_error(f"InvalidJacobianRiskRequest: repeated output ID; output={key}")
+            raise script_error(f"{code}: repeated output ID; output={key}")
         chosen.append(outputs[found])
         indices.append(found)
     if not chosen:
-        raise script_error(
-            "InvalidJacobianRiskRequest: output selection must be nonempty; field=outputs"
-        )
+        raise script_error(f"{code}: output selection must be nonempty; field=outputs")
     return chosen, indices
+
+
+def _weights(request, count) -> list[float]:
+    """Weights normalised per native ``ValidateWeights``: one float per selected output.
+
+    A missing list defaults to unit weights; type errors carry the request's
+    constructor name, a count mismatch is a valuation-time error.
+    """
+    raw = getattr(request, "weights", None)
+    if raw is None:
+        return [1.0] * count
+    code, ctor = _request_codes(request)
+    if not isinstance(raw, (list, tuple)):
+        raise script_error(
+            f"{code}: {ctor}; weights; type={type(raw).__name__}, value={raw!r}; "
+            f"expected list or tuple, or None"
+        )
+    for weight in raw:
+        if isinstance(weight, bool) or not isinstance(weight, (int, float)):
+            raise script_error(
+                f"{code}: {ctor}; weights; type={type(weight).__name__}, value={weight!r}; "
+                f"expected int or float, excluding bool"
+            )
+    if len(raw) != count:
+        raise script_error(f"{code}: weight count must match selected outputs; field=weights")
+    return [float(weight) for weight in raw]
 
 
 def _provenance(prepared, settings, n_paths, method, engine) -> RiskResultProvenance:
@@ -345,6 +369,23 @@ def risk_result(prepared, data, model, settings, n_paths, request=None, method="
     )
 
 
+def _slot_runs(prepared, model, settings, n_paths, slots, input_labels):
+    """One AAD replay per selected output slot: per-slot means and rows over the inputs.
+
+    ``slots`` index the var table, so ``payoff_index=slot`` prices that slot's
+    variable.  Also returns the last engine, which supplies the block layout for
+    the provenance snapshot.
+    """
+    means, rows = [], []
+    engine = None
+    for slot in slots:
+        engine = replace(prepared, payoff_index=slot).engine(model, settings)
+        legacy = engine.value(n_paths)
+        means.append(float(legacy["PV"]))
+        rows.append([float(legacy[f"d_{label}"]) for label in input_labels])
+    return means, rows, engine
+
+
 def jacobian_risk_result(
     prepared, data, model, settings, n_paths, request=None, method="NativeAAD"
 ):
@@ -360,14 +401,9 @@ def jacobian_risk_result(
     chosen_outputs, slots = _selected_outputs(outputs, getattr(request, "outputs", None), request)
     axis = input_axis(model, prepared.script_params)
     chosen_inputs, _ = _selected(axis, getattr(request, "inputs", None), request)
-    values, rows = [], []
-    for slot in slots:
-        #  slots index the var table, so payoff_index=slot prices that slot's variable;
-        #  the final loop engine supplies the block layout for the provenance snapshot.
-        engine = replace(prepared, payoff_index=slot).engine(model, settings)
-        legacy = engine.value(n_paths)
-        values.append(float(legacy["PV"]))
-        rows.append([float(legacy[f"d_{c.label}"]) for c in chosen_inputs])
+    values, rows, engine = _slot_runs(
+        prepared, model, settings, n_paths, slots, [c.label for c in chosen_inputs]
+    )
     jacobian = np.asarray(rows, dtype=float)
     return JacobianRiskResult(
         values=values,
@@ -383,4 +419,41 @@ def jacobian_risk_result(
             executed_paths=n_paths * len(values),
             replay_attempts=len(values),
         ),
+    )
+
+
+def weighted_result(prepared, data, model, settings, n_paths, request=None, method="NativeAAD"):
+    """A :class:`WeightedRiskResult`: the weight-aggregated AAD view of selected slots.
+
+    Native validates the product first (EXERCISE and fully-expired guards), then
+    the output selector, then the weights, then the input selector; the Jacobian
+    is a single row, the weighted sum of the per-slot AAD rows.
+    """
+    if prepared.has_exercise:
+        raise script_error(
+            "UnsupportedWeightedRisk: EXERCISE requires a separate weighted estimator"
+        )
+    if prepared.expired:
+        raise script_error("UnsupportedWeightedRisk: fully expired products are not supported")
+    settings = replace(settings, enable_aad=True)
+    n_paths = int(n_paths)
+    outputs = payoff_outputs(data)
+    chosen_outputs, slots = _selected_outputs(outputs, getattr(request, "outputs", None), request)
+    weights = _weights(request, len(chosen_outputs))
+    axis = input_axis(model, prepared.script_params)
+    chosen_inputs, _ = _selected(axis, getattr(request, "inputs", None), request)
+    means, rows, engine = _slot_runs(
+        prepared, model, settings, n_paths, slots, [c.label for c in chosen_inputs]
+    )
+    jacobian = (np.asarray(rows, dtype=float).T @ np.asarray(weights, dtype=float)).reshape(1, -1)
+    return WeightedRiskResult(
+        weighted_value=float(np.dot(weights, means)),
+        component_means=means,
+        weights=weights,
+        output_axis=chosen_outputs,
+        input_axis=chosen_inputs,
+        complete_input_axis=axis,
+        jacobian=jacobian,
+        reported_jacobian=jacobian,
+        provenance=_provenance(prepared, settings, n_paths, method, engine),
     )

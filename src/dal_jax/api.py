@@ -19,9 +19,11 @@ from dal_jax.mc.risk import (
     RiskRequest,
     RiskResult,
     WeightedRiskRequest,
+    WeightedRiskResult,
     jacobian_risk_result,
     payoff_outputs,
     risk_result,
+    weighted_result,
 )
 from dal_jax.mc.settings import DEFAULT_SMOOTH
 from dal_jax.models import BlackScholes, CorrelatedBlackScholes, LocalVol, LocalVolSurface
@@ -427,6 +429,20 @@ def MonteCarlo_ValueWithJacobianRisk(  # noqa: N802
     )
 
 
+def MonteCarlo_ValueWithWeightedRisk(  # noqa: N802
+    product, model, n_paths, *, request=None, valuation=None, simulation=None
+) -> WeightedRiskResult:
+    """Weighted aggregation over selected output slots, as native's weighted variant."""
+    _path_count(n_paths)
+    _require_request_type(
+        request, WeightedRiskRequest, "MonteCarlo_ValueWithWeightedRisk", "WeightedRiskRequest_"
+    )
+    prepared = prepare(product, model=model, valuation=valuation)
+    return weighted_result(
+        prepared, product, model, simulation or MonteCarloSettings(), int(n_paths), request
+    )
+
+
 def PseudoRSG_New(seed, ndim=1):  # noqa: N802
     from dal_jax.random.pseudorng import PseudoRSG
 
@@ -538,4 +554,8 @@ __all__ += (
     "WeightedRiskRequest_",
     "BumpOverAADRequest_",
 )
-__all__ += ("MonteCarlo_ValueWithRisk", "MonteCarlo_ValueWithJacobianRisk")
+__all__ += (
+    "MonteCarlo_ValueWithRisk",
+    "MonteCarlo_ValueWithJacobianRisk",
+    "MonteCarlo_ValueWithWeightedRisk",
+)

@@ -152,6 +152,10 @@ class UnsupportedJacobianRisk(ScriptError):
     code = "UnsupportedJacobianRisk"
 
 
+class UnsupportedWeightedRisk(ScriptError):
+    code = "UnsupportedWeightedRisk"
+
+
 class InvalidCurvatureRequest(ScriptError):
     code = "InvalidCurvatureRequest"
 
@@ -284,6 +288,7 @@ _SCRIPT_CODES = MappingProxyType(
             InvalidRiskRequest,
             InvalidJacobianRiskRequest,
             UnsupportedJacobianRisk,
+            UnsupportedWeightedRisk,
             InvalidCurvatureRequest,
             PreparationRequired,
             UnboundHistoricalSpot,
