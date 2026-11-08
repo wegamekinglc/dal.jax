@@ -31,10 +31,12 @@ dev = [
     "ruff==0.16.10",
     "pytest>=8",
     "scipy>=1.14",
-    "dal-python>=2026.9.25",
+    # The oracle version defines expected outputs of the parity tests;
+    # keep it pinned until dal-jax adopts a newer DAL release.
+    "dal-python==2026.9.25",
 ]
 examples = [
-    "dal-python>=2026.9.25",
+    "dal-python==2026.9.25",
 ]
 
 [tool.hatch.build.targets.wheel]

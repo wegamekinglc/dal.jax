@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Pin the dal-python oracle to 2026.9.25 and track uv.lock in git so CI and the JAX nightly workflow resolve reproducible dependencies instead of silently picking up each new PyPI release.
 - Freeze engine configuration and snapshot sequence inputs; expose explicit valuation contexts and owned sessions while deprecating legacy global setters.
 - Return immutable LSMC training/valuation results, move caches outside transformed kernels, and add per-engine cache clearing.
 - Batch GSR, GSRSLV and Hybrid coefficient preparation; use a reverse device-training scan and CPU ordered Welford scan while retaining measured GPU fallbacks.
