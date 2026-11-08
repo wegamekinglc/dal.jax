@@ -10,6 +10,7 @@ from typing import NamedTuple
 from dal_jax.dates.date import Date
 from dal_jax.errors import InvalidPathCount, InvalidSetting, script_error
 from dal_jax.mc import MonteCarloSettings
+from dal_jax.mc.plan import SegmentedMonteCarloSettings
 from dal_jax.mc.risk import (
     BumpOverAADRequest,
     JacobianRiskRequest,
@@ -454,6 +455,33 @@ def PseudoRSG_New(seed, ndim=1):  # noqa: N802
     return PseudoRSG(seed, ndim)
 
 
+def BlackScholesMonteCarloPlan_New(  # noqa: N802
+    product: ScriptProductData, *, valuation=None, smoothing: float = 0.01
+):
+    """Prepare a script product once for revaluation at Black-Scholes model points."""
+    from dal_jax.mc.plan import black_scholes_plan
+
+    return black_scholes_plan(product, valuation=valuation, smoothing=smoothing)
+
+
+def BlackScholesMonteCarlo_Get_Risk(  # noqa: N802
+    plan, point, num_path: int, *, settings=None
+):
+    """Value and differentiate a plan at one model point, as native Get_Risk."""
+    from dal_jax.mc.plan import get_risk
+
+    return get_risk(plan, point, num_path, settings=settings)
+
+
+def BlackScholesMonteCarlo_Get_Curvature(  # noqa: N802
+    plan, point, num_path: int, bumps, *, settings=None
+):
+    """Bump-over-AAD curvature of a plan at one model point, as native Get_Curvature."""
+    from dal_jax.mc.plan import get_curvature
+
+    return get_curvature(plan, point, num_path, bumps, settings=settings)
+
+
 def PseudoRSG_Get_Uniform(rsg, n_rows):  # noqa: N802
     return rsg.fill_uniform(n_rows)
 
@@ -468,6 +496,7 @@ RiskRequest_ = RiskRequest
 JacobianRiskRequest_ = JacobianRiskRequest
 WeightedRiskRequest_ = WeightedRiskRequest
 BumpOverAADRequest_ = BumpOverAADRequest
+SegmentedMonteCarloSettings_ = SegmentedMonteCarloSettings
 
 
 def ScriptValuation_Explain(product, model, *, valuation=None):  # noqa: N802
@@ -563,4 +592,10 @@ __all__ += (
     "MonteCarlo_ValueWithRisk",
     "MonteCarlo_ValueWithJacobianRisk",
     "MonteCarlo_ValueWithWeightedRisk",
+)
+__all__ += (
+    "BlackScholesMonteCarloPlan_New",
+    "BlackScholesMonteCarlo_Get_Risk",
+    "BlackScholesMonteCarlo_Get_Curvature",
+    "SegmentedMonteCarloSettings_",
 )
