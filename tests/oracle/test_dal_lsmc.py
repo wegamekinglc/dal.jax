@@ -260,6 +260,17 @@ def test_multivariate_training_coefficients_and_risks(dal, features):
         simulation=_settings(dal, replace(settings, enable_aad=False)),
     )
     for fit, event in zip(evaluated.training.regressions, diagnostic["exercise_events"]):
+        # A rank-deficient fit (exact feature collinearity, e.g. VAR[x] = A * B / 100)
+        # has coefficients that are unique only modulo the null space: engine-side
+        # reduction noise or native thread scheduling picks a different gauge run to
+        # run. Economic parity is already pinned by the value loop above, so compare
+        # only the structural fit properties when the basis is degenerate.
+        degenerate = fit.rank < len(fit.coefficients)
+        assert degenerate == (event["effective_rank"] < len(event["coefficients"]))
+        if degenerate:
+            assert fit.rank == event["effective_rank"]
+            assert fit.degree == event["basis_degree"]
+            continue
         np.testing.assert_allclose(fit.coefficients, event["coefficients"], rtol=1e-8, atol=1e-10)
 
 

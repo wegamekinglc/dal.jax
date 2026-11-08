@@ -67,7 +67,7 @@ jobs:
           done
 
   native-oracle:
-    name: Pinned native DAL oracle and P5-P7 examples
+    name: Pinned DAL wheel oracle and P5-P7 examples
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -76,11 +76,9 @@ jobs:
         with:
           python-version: "3.13"
           cache-suffix: native-oracle
-      - name: Install
+      - name: Install pinned dal-python oracle from the lockfile
         run: uv sync --group examples
-      - name: Build pinned DAL source oracle
-        run: bash scripts/build_dal_oracle.sh "$RUNNER_TEMP/dal-oracle" "$GITHUB_WORKSPACE/.venv/bin/python"
-      - name: Full CPU suite with native oracle
+      - name: Full CPU suite with the pinned native oracle
         run: .venv/bin/python -m pytest
       - name: P5-P7 examples with DAL prices, risks and synchronized timings
         run: |

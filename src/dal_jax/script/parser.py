@@ -231,7 +231,16 @@ class Parser:
         lo, hi, node = _FUNCTIONS[name]
         if not lo <= len(args) <= hi:
             raise _fail(f"Function {token.text}: wrong number of arguments_")
-        return A.Spot(args=args, source=token.source) if name == "SPOT" else node(args=args)
+        if name == "SPOT":
+            return A.Spot(args=args, source=token.source)
+        # DAL builds variadic MIN/MAX as left-folded binary chains: MIN(a, b, c)
+        # parses as min(min(a, b), c), one AST node per binary application.
+        if node in (A.Min, A.Max) and len(args) > 2:
+            folded = node(args=args[:2])
+            for arg in args[2:]:
+                folded = node(args=(folded, arg))
+            return folded
+        return node(args=args)
 
     def _parse_const(self) -> A.Node:
         value = _to_double(self._text())
