@@ -19,6 +19,7 @@ from dal_jax.errors import (
     InvalidRiskRequest,
     InvalidSetting,
     InvalidWeightedRiskRequest,
+    UnsupportedJacobianRisk,
     UnsupportedWeightedRisk,
 )
 
@@ -177,10 +178,91 @@ def test_weighted_rejects_exercise():
     assert error.value.detail == "EXERCISE requires a separate weighted estimator"
 
 
+@pytest.mark.parametrize(
+    ("weights", "component"),
+    [
+        ([float("nan")], 0),
+        ([float("inf")], 0),
+        ([-float("inf")], 0),
+        ([1.0, float("nan")], 1),
+    ],
+)
+def test_weighted_rejects_non_finite_weights(weights, component):
+    dates, events = _THREE_DATES, _THREE_EVENTS
+    outputs = ["output:0", "payoff"] if len(weights) > 1 else None
+    message = f"InvalidWeightedRiskRequest: weight must be finite; component={component}"
+    with pytest.raises(InvalidWeightedRiskRequest, match=message) as error:
+        _weighted(
+            dates,
+            events,
+            request=(
+                WeightedRiskRequest_(weights=weights)
+                if outputs is None
+                else WeightedRiskRequest_(outputs=outputs, weights=weights)
+            ),
+        )
+    assert str(error.value) == message
+
+
+def test_weighted_count_check_precedes_the_finite_check():
+    message = "InvalidWeightedRiskRequest: weight count must match selected outputs; field=weights"
+    with pytest.raises(InvalidWeightedRiskRequest, match=message):
+        _weighted(
+            [(2024, 1, 2)],
+            ["p pays spot()"],
+            request=WeightedRiskRequest_(weights=[1.0, float("nan")]),
+        )
+
+
+def test_weighted_accepts_negative_and_zero_weights():
+    dates, events = [(2024, 1, 2)], ["p pays spot()"]
+    base = _weighted(dates, events)
+    negative = _weighted(dates, events, request=WeightedRiskRequest_(weights=[-2.0]))
+    assert negative.weighted_value == pytest.approx(-2.0 * base.weighted_value, rel=1e-12)
+    zero = _weighted(dates, events, request=WeightedRiskRequest_(weights=[0.0]))
+    assert zero.weighted_value == 0.0
+    assert not np.any(np.asarray(zero.jacobian))
+
+
 def test_weighted_rejects_expired_products():
     message = "UnsupportedWeightedRisk: fully expired products are not supported"
     with pytest.raises(UnsupportedWeightedRisk, match=message) as error:
         _weighted([(2022, 1, 15)], ["p pays 1.0"])
+    assert str(error.value) == message
+
+
+def test_jacobian_rejects_expired_products():
+    message = "UnsupportedJacobianRisk: fully expired products are not supported"
+    with pytest.raises(UnsupportedJacobianRisk, match=message) as error:
+        _jacobian([(2022, 1, 15)], ["p pays spot()"])
+    assert str(error.value) == message
+
+
+@pytest.mark.parametrize(
+    ("entry", "message"),
+    [
+        (
+            MonteCarlo_ValueWithJacobianRisk,
+            "UnsupportedJacobianRisk: EXERCISE requires a separate Jacobian estimator",
+        ),
+        (
+            MonteCarlo_ValueWithWeightedRisk,
+            "UnsupportedWeightedRisk: EXERCISE requires a separate weighted estimator",
+        ),
+    ],
+    ids=["jacobian", "weighted"],
+)
+def test_expired_exercise_raises_the_exercise_guard_before_binding(entry, message):
+    #  The guard fires before prepare(), so an expired exercise date must not
+    #  surface UnsupportedExerciseDate from binding.
+    error_class = UnsupportedJacobianRisk if "Jacobian" in message else UnsupportedWeightedRisk
+    with pytest.raises(error_class, match=message) as error:
+        entry(
+            _product([(2022, 1, 15)], ["s = 1\nexercise s"]),
+            BSModelData_New(*_MODEL),
+            64,
+            valuation=_VALUATION,
+        )
     assert str(error.value) == message
 
 

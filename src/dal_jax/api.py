@@ -23,6 +23,7 @@ from dal_jax.mc.risk import (
     jacobian_risk_result,
     payoff_outputs,
     risk_result,
+    validate_risk_product,
     weighted_result,
 )
 from dal_jax.mc.settings import DEFAULT_SMOOTH
@@ -423,6 +424,8 @@ def MonteCarlo_ValueWithJacobianRisk(  # noqa: N802
     _require_request_type(
         request, JacobianRiskRequest, "MonteCarlo_ValueWithJacobianRisk", "JacobianRiskRequest_"
     )
+    #  Native guards the product before binding, so prepare errors cannot shadow it.
+    validate_risk_product(product, valuation, "UnsupportedJacobianRisk", "Jacobian")
     prepared = prepare(product, model=model, valuation=valuation)
     return jacobian_risk_result(
         prepared, product, model, simulation or MonteCarloSettings(), int(n_paths), request
@@ -437,6 +440,8 @@ def MonteCarlo_ValueWithWeightedRisk(  # noqa: N802
     _require_request_type(
         request, WeightedRiskRequest, "MonteCarlo_ValueWithWeightedRisk", "WeightedRiskRequest_"
     )
+    #  Native guards the product before binding, so prepare errors cannot shadow it.
+    validate_risk_product(product, valuation, "UnsupportedWeightedRisk", "weighted")
     prepared = prepare(product, model=model, valuation=valuation)
     return weighted_result(
         prepared, product, model, simulation or MonteCarloSettings(), int(n_paths), request

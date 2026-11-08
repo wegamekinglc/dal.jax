@@ -827,6 +827,8 @@ _WEIGHT_COUNT = (
         (None, []),
         (["payoff"], [1.0, 2.0]),
         (["output:0", "payoff"], [1.0]),
+        #  The count check runs before the finiteness check.
+        (None, [1.0, float("nan")]),
     ],
 )
 def test_weighted_risk_validates_weight_count(dal, outputs, weights):
@@ -1026,3 +1028,126 @@ def test_weighted_risk_rejects_expired_products(dal):
     with pytest.raises(UnsupportedWeightedRisk, match=_EXPIRED_WEIGHTED) as error:
         _ours_weighted(dates, events, n_paths=64)
     assert str(error.value) == _EXPIRED_WEIGHTED
+
+
+@pytest.mark.parametrize(
+    ("outputs", "weights", "component"),
+    [
+        (None, [float("nan")], 0),
+        (None, [float("inf")], 0),
+        (None, [-float("inf")], 0),
+        (["output:0", "payoff"], [1.0, float("nan")], 1),
+        (["output:0", "payoff"], [float("nan"), 1.0], 0),
+    ],
+)
+def test_weighted_risk_rejects_non_finite_weights(dal, outputs, weights, component):
+    dates, events = _THREE_DATES, _THREE_EVENTS
+    message = f"InvalidWeightedRiskRequest: weight must be finite; component={component}"
+    with pytest.raises(RuntimeError, match="weight must be finite"):
+        _theirs_weighted(
+            dal,
+            dates,
+            events,
+            n_paths=64,
+            request=(
+                dal.WeightedRiskRequest_(weights=weights)
+                if outputs is None
+                else dal.WeightedRiskRequest_(outputs=outputs, weights=weights)
+            ),
+        )
+    with pytest.raises(InvalidWeightedRiskRequest, match=message) as error:
+        _ours_weighted(
+            dates,
+            events,
+            n_paths=64,
+            request=(
+                WeightedRiskRequest_(weights=weights)
+                if outputs is None
+                else WeightedRiskRequest_(outputs=outputs, weights=weights)
+            ),
+        )
+    assert str(error.value) == message
+    assert error.value.detail == f"weight must be finite; component={component}"
+
+
+def test_weighted_risk_accepts_negative_and_zero_weights(dal):
+    dates, events = [(2024, 1, 2)], ["p pays spot()"]
+    negative = _ours_weighted(dates, events, request=WeightedRiskRequest_(weights=[-2.0]))
+    _assert_weighted_parity(
+        negative,
+        _theirs_weighted(dal, dates, events, request=dal.WeightedRiskRequest_(weights=[-2.0])),
+    )
+    assert negative.weighted_value < 0.0
+    zero = _ours_weighted(dates, events, request=WeightedRiskRequest_(weights=[0.0]))
+    _assert_weighted_parity(
+        zero, _theirs_weighted(dal, dates, events, request=dal.WeightedRiskRequest_(weights=[0.0]))
+    )
+    assert zero.weighted_value == 0.0
+    assert not np.any(np.asarray(zero.jacobian))
+
+
+_EXPIRED_JACOBIAN = "UnsupportedJacobianRisk: fully expired products are not supported"
+
+
+@pytest.mark.parametrize("events", [["p pays 1.0"], ["p pays spot()"]], ids=["const", "spot"])
+def test_value_with_jacobian_risk_rejects_expired_products(dal, events):
+    dates = [(2022, 1, 15)]
+    with pytest.raises(RuntimeError, match="UnsupportedJacobianRisk"):
+        _theirs_jacobian(dal, dates, events, n_paths=64)
+    with pytest.raises(UnsupportedJacobianRisk, match=_EXPIRED_JACOBIAN) as error:
+        _ours_jacobian(dates, events, n_paths=64)
+    assert str(error.value) == _EXPIRED_JACOBIAN
+
+
+@pytest.mark.parametrize(
+    ("entry", "native_entry", "error_class", "message"),
+    [
+        (
+            MonteCarlo_ValueWithJacobianRisk,
+            "MonteCarlo_ValueWithJacobianRisk",
+            UnsupportedJacobianRisk,
+            "UnsupportedJacobianRisk: EXERCISE requires a separate Jacobian estimator",
+        ),
+        (
+            MonteCarlo_ValueWithWeightedRisk,
+            "MonteCarlo_ValueWithWeightedRisk",
+            UnsupportedWeightedRisk,
+            "UnsupportedWeightedRisk: EXERCISE requires a separate weighted estimator",
+        ),
+    ],
+    ids=["jacobian", "weighted"],
+)
+def test_expired_exercise_products_raise_the_exercise_guard_before_binding(
+    dal, entry, native_entry, error_class, message
+):
+    #  Native guards EXERCISE before the fully-expired check and before binding,
+    #  so an expired exercise date must not surface UnsupportedExerciseDate.
+    dates, events = [(2022, 1, 15)], ["s = 1\nexercise s"]
+    with pytest.raises(RuntimeError, match=message.split(":")[0]):
+        getattr(dal, native_entry)(
+            _native_product(dal, dates, events),
+            dal.BSModelData_New(*_MODEL),
+            64,
+            valuation=_native_valuation(dal),
+        )
+    with pytest.raises(error_class, match=message) as error:
+        entry(
+            Product_New(_cells(dates), list(events)),
+            BSModelData_New(*_MODEL),
+            64,
+            valuation=_VALUATION,
+        )
+    assert str(error.value) == message
+
+
+def test_value_with_risk_has_no_product_guards(dal):
+    #  The plain AAD variant values fully expired products (to zero) instead of
+    #  rejecting them, exactly like native.  Provenance is not compared here:
+    #  native labels the method "Expired", ours still says "NativeAAD".
+    dates, events = [(2022, 1, 15)], ["p pays 1.0"]
+    ours = _ours(dates, events, 64)
+    theirs = _theirs(dal, dates, events, 64)
+    assert ours.values == theirs.values == [0.0]
+    np.testing.assert_allclose(
+        np.asarray(ours.jacobian), np.asarray(theirs.jacobian.to_rows()), rtol=1e-9, atol=1e-12
+    )

@@ -1,10 +1,12 @@
 """Request-driven risk machinery mirroring DAL 2026.11.1's script risk API."""
 
+import math
 from dataclasses import dataclass, replace
 
 import numpy as np
 
 from dal_jax.errors import script_error
+from dal_jax.script.fixings import ValuationSettings, resolve_valuation
 from dal_jax.script.product import ScriptProduct, ScriptProductData
 from dal_jax.strings import ci_key
 
@@ -152,6 +154,24 @@ def payoff_outputs(data: ScriptProductData | ScriptProduct) -> list[RiskOutputCo
     ]
 
 
+def validate_risk_product(data, valuation, code, estimator) -> None:
+    """Native's ``ValidateProduct`` for the multi-replay risk variants, pre-binding.
+
+    EXERCISE needs its own estimator, and a fully expired product (every event
+    date strictly before the valuation date, or no dates at all) has no live
+    events.  Native checks both before binding observations, so this must run
+    before ``prepare`` and no binding error may shadow it; the EXERCISE check
+    comes first, as in native.  ``code`` is the ``Unsupported*Risk`` prefix and
+    ``estimator`` the name in its EXERCISE message.
+    """
+    product = data.product() if isinstance(data, ScriptProductData) else data
+    date = resolve_valuation(valuation or ValuationSettings()).evaluation_date
+    if product.has_exercise:
+        raise script_error(f"{code}: EXERCISE requires a separate {estimator} estimator")
+    if all(day < date for day in product.event_dates):
+        raise script_error(f"{code}: fully expired products are not supported")
+
+
 _PHYSICAL_UNITS = (("vol", "year^-1/2"), ("rate", "year^-1"), ("div", "year^-1"))
 
 
@@ -241,6 +261,8 @@ def _selected(axis, selector, request) -> tuple[list[RiskCoordinate], list[int]]
     for key in _selector_keys(selector, "inputs", code, ctor):
         match = ci_key(key)
         found = next((i for i, c in enumerate(axis) if ci_key(c.id) == match), None)
+        #  Semantic ID errors keep the base InvalidRiskRequest code for every
+        #  request class, Jacobian and weighted included; that is native behavior.
         if found is None:
             raise script_error(f"InvalidRiskRequest: unknown input ID; input={key}")
         if found in indices:
@@ -284,8 +306,9 @@ def _selected_outputs(outputs, selector, request) -> tuple[list[RiskOutputCoordi
 def _weights(request, count) -> list[float]:
     """Weights normalised per native ``ValidateWeights``: one float per selected output.
 
-    A missing list defaults to unit weights; type errors carry the request's
-    constructor name, a count mismatch is a valuation-time error.
+    A missing list defaults to unit weights.  Native checks the element types
+    when the request is constructed and the count and finiteness at valuation;
+    we check all of it here, in that same order.
     """
     raw = getattr(request, "weights", None)
     if raw is None:
@@ -304,6 +327,9 @@ def _weights(request, count) -> list[float]:
             )
     if len(raw) != count:
         raise script_error(f"{code}: weight count must match selected outputs; field=weights")
+    for ordinal, weight in enumerate(raw):
+        if not math.isfinite(weight):
+            raise script_error(f"{code}: weight must be finite; component={ordinal}")
     return [float(weight) for weight in raw]
 
 
@@ -389,11 +415,10 @@ def _slot_runs(prepared, model, settings, n_paths, slots, input_labels):
 def jacobian_risk_result(
     prepared, data, model, settings, n_paths, request=None, method="NativeAAD"
 ):
-    """A :class:`JacobianRiskResult`: one AAD replay per selected output slot, as native."""
-    if prepared.has_exercise:
-        raise script_error(
-            "UnsupportedJacobianRisk: EXERCISE requires a separate Jacobian estimator"
-        )
+    """A :class:`JacobianRiskResult`: one AAD replay per selected output slot, as native.
+
+    The product must already have passed :func:`validate_risk_product`.
+    """
     settings = replace(settings, enable_aad=True)
     n_paths = int(n_paths)
     outputs = payoff_outputs(data)
@@ -425,16 +450,11 @@ def jacobian_risk_result(
 def weighted_result(prepared, data, model, settings, n_paths, request=None, method="NativeAAD"):
     """A :class:`WeightedRiskResult`: the weight-aggregated AAD view of selected slots.
 
-    Native validates the product first (EXERCISE and fully-expired guards), then
-    the output selector, then the weights, then the input selector; the Jacobian
-    is a single row, the weighted sum of the per-slot AAD rows.
+    The product must already have passed :func:`validate_risk_product`.  Native
+    then validates the output selector, the weights, and the input selector, in
+    that order; the Jacobian is a single row, the weighted sum of the per-slot
+    AAD rows.
     """
-    if prepared.has_exercise:
-        raise script_error(
-            "UnsupportedWeightedRisk: EXERCISE requires a separate weighted estimator"
-        )
-    if prepared.expired:
-        raise script_error("UnsupportedWeightedRisk: fully expired products are not supported")
     settings = replace(settings, enable_aad=True)
     n_paths = int(n_paths)
     outputs = payoff_outputs(data)
