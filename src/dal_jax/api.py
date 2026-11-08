@@ -364,6 +364,20 @@ def MonteCarlo_ValueWithSettings(product, model, n_paths, *, valuation=None, sim
     return prepared.engine(model, simulation).value(int(n_paths))
 
 
+def PseudoRSG_New(seed, ndim=1):  # noqa: N802
+    from dal_jax.random.pseudorng import PseudoRSG
+
+    return PseudoRSG(seed, ndim)
+
+
+def PseudoRSG_Get_Uniform(rsg, n_rows):  # noqa: N802
+    return rsg.fill_uniform(int(n_rows))
+
+
+def PseudoRSG_Get_Normal(rsg, n_rows):  # noqa: N802
+    return rsg.fill_normal(int(n_rows))
+
+
 def ScriptValuation_Explain(product, model, *, valuation=None):  # noqa: N802
     from dal_jax.script.explain import valuation_explain
 
@@ -443,3 +457,4 @@ __all__ += (
 )
 __all__ += ("ScriptValuation_Explain", "ScriptSimulation_Explain")
 __all__ += ("HybridFactorLink_",)
+__all__ += ("PseudoRSG_New", "PseudoRSG_Get_Uniform", "PseudoRSG_Get_Normal")

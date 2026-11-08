@@ -1,8 +1,10 @@
 """Exact MRG32k3a uniforms matching DAL's PseudoRSG stream."""
 
 import numpy as np
+import pytest
 
-from dal_jax.random.pseudorng import mrg32_state, mrg32_uniforms
+from dal_jax.errors import InvalidSetting
+from dal_jax.random.pseudorng import PseudoRSG, mrg32_state, mrg32_uniforms
 
 
 def test_stream_matches_reference_values():
@@ -28,3 +30,21 @@ def test_stream_matches_reference_values():
         atol=0,
         rtol=1e-9,
     )
+
+
+def test_seed_zero_matches_native():
+    draws, _ = mrg32_uniforms(mrg32_state(0), 3)
+    assert np.allclose(
+        draws, [0.0002015431043507917, 0.5557426818633633, 0.27246401940298176], rtol=1e-9
+    )
+
+
+def test_pseudo_rsg_rejects_invalid_settings():
+    with pytest.raises(InvalidSetting):
+        PseudoRSG(-1)
+    with pytest.raises(InvalidSetting):
+        PseudoRSG(1.5)
+    with pytest.raises(InvalidSetting):
+        PseudoRSG(7, ndim=0)
+    with pytest.raises(InvalidSetting):
+        PseudoRSG(7, ndim=2.5)
