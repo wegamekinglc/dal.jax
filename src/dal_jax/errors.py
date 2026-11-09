@@ -136,6 +136,30 @@ class UnsupportedExercisePayoff(ScriptError):
     code = "UnsupportedExercisePayoff"
 
 
+class InvalidWeightedRiskRequest(ScriptError):
+    code = "InvalidWeightedRiskRequest"
+
+
+class InvalidRiskRequest(ScriptError):
+    code = "InvalidRiskRequest"
+
+
+class InvalidJacobianRiskRequest(ScriptError):
+    code = "InvalidJacobianRiskRequest"
+
+
+class UnsupportedJacobianRisk(ScriptError):
+    code = "UnsupportedJacobianRisk"
+
+
+class UnsupportedWeightedRisk(ScriptError):
+    code = "UnsupportedWeightedRisk"
+
+
+class InvalidCurvatureRequest(ScriptError):
+    code = "InvalidCurvatureRequest"
+
+
 class PreparationRequired(ScriptError):
     code = "PreparationRequired"
 
@@ -260,6 +284,12 @@ _SCRIPT_CODES = MappingProxyType(
             UnsupportedExerciseNesting,
             InvalidExerciseCondition,
             UnsupportedExercisePayoff,
+            InvalidWeightedRiskRequest,
+            InvalidRiskRequest,
+            InvalidJacobianRiskRequest,
+            UnsupportedJacobianRisk,
+            UnsupportedWeightedRisk,
+            InvalidCurvatureRequest,
             PreparationRequired,
             UnboundHistoricalSpot,
             LookAheadObservation,

@@ -12,7 +12,7 @@ from dal_jax.errors import DalError, InvalidPathCount, InvalidPayoff, script_err
 from dal_jax.mc.engine import MonteCarloEngine, PathProduct
 from dal_jax.mc.regression import Regression, _design, basis_powers, select_regression
 from dal_jax.mc.regression_device import select_device
-from dal_jax.mc.settings import MonteCarloSettings
+from dal_jax.mc.settings import MonteCarloSettings, normal_inversion_flags
 from dal_jax.models.base import Model
 from dal_jax.random import bridge
 from dal_jax.random.inverse_normal import inverse_ncdf, inverse_ncdf_ndtri
@@ -84,6 +84,12 @@ def _policy(regressions, prepared, degree):
 
 def scramble_key(pricing, seed, replicate=0):
     return (int(pricing) << 63) | (int(seed) << 32) | int(replicate)
+
+
+def _training_checkpoint(settings):
+    """Native memory-only knob: a training-memory budget forces the checkpointed
+    (rematerialized) training scan regardless of the generic checkpoint flag."""
+    return settings.checkpoint or settings.lsmc_training_memory_mb is not None
 
 
 def _path_counts(settings, n_paths):
@@ -295,14 +301,11 @@ class _ReplayEngine(MonteCarloEngine):
         if "_lsmc_random" not in params:
             return super()._random_normals(params, block_id, path_ids)
         offset, shift = params["_lsmc_random"]
-        sequence = Sobol(dim=self.sim_dim)
+        precise, polish = normal_inversion_flags(self.settings)
+        sequence = Sobol(dim=self.sim_dim, precise=precise, polish=polish)
         states = jax.vmap(sequence.state)(path_ids + offset)
         uniforms = ((states ^ shift).astype(jnp.float64) + 0.5) * MUL
-        normals = inverse_ncdf(
-            uniforms,
-            self.settings.inverse_normal == "acklam_polish_precise",
-            self.settings.inverse_normal in ("acklam_polish", "acklam_polish_precise"),
-        )
+        normals = inverse_ncdf(uniforms, precise, polish)
         if self.settings.inverse_normal == "ndtri":
             normals = inverse_ncdf_ndtri(uniforms)
         if self.settings.use_bb:
@@ -320,6 +323,7 @@ class LsmcEngine:
     prepared: "PreparedProduct"
     model: Model
     settings: MonteCarloSettings
+    training_checkpoint: bool
     _training: MonteCarloEngine
     _validation_engines: dict
     _replica_functions: dict
@@ -334,12 +338,17 @@ class LsmcEngine:
             raise script_error("UnsupportedRsgForExercise: EXERCISE requires rsg=sobol")
         if len(prepared.regression_features) > 1 and self.settings.lsmc_basis_degree > 3:
             raise script_error("InvalidLsmcFeatureBudget: multivariate basis degree must be 1..3")
+        #  lsmc_training_memory_mb is memory-only: it forces the checkpointed training
+        #  scan (numbers unchanged); lsmc_checkpoint_block_events rides along with it.
+        training_checkpoint = _training_checkpoint(self.settings)
+        object.__setattr__(self, "training_checkpoint", training_checkpoint)
         training = MonteCarloEngine(
             _records_product(prepared, 0),
             model,
             replace(
                 self.settings,
                 enable_aad=False,
+                checkpoint=training_checkpoint,
                 sobol_shift_key=self.settings.sobol_shift_key
                 if self.settings.lsmc_rqmc_replicates is None
                 else scramble_key(False, self.settings.lsmc_training_seed or 0),

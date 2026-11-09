@@ -10,6 +10,23 @@ from typing import NamedTuple
 from dal_jax.dates.date import Date
 from dal_jax.errors import InvalidPathCount, InvalidSetting, script_error
 from dal_jax.mc import MonteCarloSettings
+from dal_jax.mc.plan import SegmentedMonteCarloSettings
+from dal_jax.mc.risk import (
+    BumpOverAADRequest,
+    JacobianRiskRequest,
+    JacobianRiskResult,
+    RiskCoordinate,
+    RiskOutputCoordinate,
+    RiskRequest,
+    RiskResult,
+    WeightedRiskRequest,
+    WeightedRiskResult,
+    jacobian_risk_result,
+    payoff_outputs,
+    risk_result,
+    validate_risk_product,
+    weighted_result,
+)
 from dal_jax.mc.settings import DEFAULT_SMOOTH
 from dal_jax.models import BlackScholes, CorrelatedBlackScholes, LocalVol, LocalVolSurface
 from dal_jax.models.base import Model
@@ -105,6 +122,10 @@ def Product_Debug(product: ScriptProductData, *, valuation=None) -> str:  # noqa
     return diagnostics.debug_text(
         product, resolve_valuation(valuation or ValuationSettings()).evaluation_date
     )
+
+
+def Product_Get_RiskOutputs(product: ScriptProductData) -> list[RiskOutputCoordinate]:  # noqa: N802
+    return payoff_outputs(product)
 
 
 def BSModelData_New(spot: float, vol: float, rate: float = 0.0, div: float = 0.0) -> BlackScholes:  # noqa: N802
@@ -364,6 +385,120 @@ def MonteCarlo_ValueWithSettings(product, model, n_paths, *, valuation=None, sim
     return prepared.engine(model, simulation).value(int(n_paths))
 
 
+#  API-level request type names for the InvalidSetting messages; subclasses come first
+#  so isinstance matches the most specific request.  Mirrors mc.risk._REQUEST_CODES,
+#  which maps the same classes to their constructor-error codes and names.
+_REQUEST_NAMES = {
+    JacobianRiskRequest: "JacobianRiskRequest_",
+    WeightedRiskRequest: "WeightedRiskRequest_",
+    BumpOverAADRequest: "BumpOverAADRequest_",
+    RiskRequest: "RiskRequest_",
+}
+
+
+def _require_request_type(request, accepted, function, expected) -> None:
+    if request is not None and type(request) is not accepted:
+        name = next((n for cls, n in _REQUEST_NAMES.items() if isinstance(request, cls)), None)
+        raise script_error(
+            f"InvalidSetting: {function}; request; type={name or type(request).__name__}; "
+            f"expected {expected} or None"
+        )
+
+
+def MonteCarlo_ValueWithRisk(  # noqa: N802
+    product, model, n_paths, *, request=None, valuation=None, simulation=None
+) -> RiskResult:
+    """Value the supported payoff with AAD risks, shaped like native ``RiskResult_``."""
+    _path_count(n_paths)
+    _require_request_type(request, RiskRequest, "MonteCarlo_ValueWithRisk", "RiskRequest_")
+    prepared = prepare(product, model=model, valuation=valuation)
+    return risk_result(
+        prepared, product, model, simulation or MonteCarloSettings(), int(n_paths), request
+    )
+
+
+def MonteCarlo_ValueWithJacobianRisk(  # noqa: N802
+    product, model, n_paths, *, request=None, valuation=None, simulation=None
+) -> JacobianRiskResult:
+    """Per-slot values and Jacobian rows, as native's Jacobian-risk variant."""
+    _path_count(n_paths)
+    _require_request_type(
+        request, JacobianRiskRequest, "MonteCarlo_ValueWithJacobianRisk", "JacobianRiskRequest_"
+    )
+    #  Native guards the product before binding, so prepare errors cannot shadow it.
+    validate_risk_product(product, valuation, "UnsupportedJacobianRisk", "Jacobian")
+    prepared = prepare(product, model=model, valuation=valuation)
+    return jacobian_risk_result(
+        prepared, product, model, simulation or MonteCarloSettings(), int(n_paths), request
+    )
+
+
+def MonteCarlo_ValueWithWeightedRisk(  # noqa: N802
+    product, model, n_paths, *, request=None, valuation=None, simulation=None
+) -> WeightedRiskResult:
+    """Weighted aggregation over selected output slots, as native's weighted variant."""
+    _path_count(n_paths)
+    _require_request_type(
+        request, WeightedRiskRequest, "MonteCarlo_ValueWithWeightedRisk", "WeightedRiskRequest_"
+    )
+    #  Native guards the product before binding, so prepare errors cannot shadow it.
+    validate_risk_product(product, valuation, "UnsupportedWeightedRisk", "weighted")
+    prepared = prepare(product, model=model, valuation=valuation)
+    return weighted_result(
+        prepared, product, model, simulation or MonteCarloSettings(), int(n_paths), request
+    )
+
+
+def PseudoRSG_New(seed, ndim=1):  # noqa: N802
+    from dal_jax.random.pseudorng import PseudoRSG
+
+    return PseudoRSG(seed, ndim)
+
+
+def BlackScholesMonteCarloPlan_New(  # noqa: N802
+    product: ScriptProductData, *, valuation=None, smoothing: float = 0.01
+):
+    """Prepare a script product once for revaluation at Black-Scholes model points."""
+    from dal_jax.mc.plan import black_scholes_plan
+
+    return black_scholes_plan(product, valuation=valuation, smoothing=smoothing)
+
+
+def BlackScholesMonteCarlo_Get_Risk(  # noqa: N802
+    plan, point, num_path: int, *, settings=None
+):
+    """Value and differentiate a plan at one model point, as native Get_Risk."""
+    from dal_jax.mc.plan import get_risk
+
+    return get_risk(plan, point, num_path, settings=settings)
+
+
+def BlackScholesMonteCarlo_Get_Curvature(  # noqa: N802
+    plan, point, num_path: int, bumps, *, settings=None
+):
+    """Bump-over-AAD curvature of a plan at one model point, as native Get_Curvature."""
+    from dal_jax.mc.plan import get_curvature
+
+    return get_curvature(plan, point, num_path, bumps, settings=settings)
+
+
+def PseudoRSG_Get_Uniform(rsg, n_rows):  # noqa: N802
+    return rsg.fill_uniform(n_rows)
+
+
+def PseudoRSG_Get_Normal(rsg, n_rows):  # noqa: N802
+    return rsg.fill_normal(n_rows)
+
+
+RiskCoordinate_ = RiskCoordinate
+RiskOutputCoordinate_ = RiskOutputCoordinate
+RiskRequest_ = RiskRequest
+JacobianRiskRequest_ = JacobianRiskRequest
+WeightedRiskRequest_ = WeightedRiskRequest
+BumpOverAADRequest_ = BumpOverAADRequest
+SegmentedMonteCarloSettings_ = SegmentedMonteCarloSettings
+
+
 def ScriptValuation_Explain(product, model, *, valuation=None):  # noqa: N802
     from dal_jax.script.explain import valuation_explain
 
@@ -443,3 +578,24 @@ __all__ += (
 )
 __all__ += ("ScriptValuation_Explain", "ScriptSimulation_Explain")
 __all__ += ("HybridFactorLink_",)
+__all__ += ("PseudoRSG_New", "PseudoRSG_Get_Uniform", "PseudoRSG_Get_Normal")
+__all__ += (
+    "Product_Get_RiskOutputs",
+    "RiskCoordinate_",
+    "RiskOutputCoordinate_",
+    "RiskRequest_",
+    "JacobianRiskRequest_",
+    "WeightedRiskRequest_",
+    "BumpOverAADRequest_",
+)
+__all__ += (
+    "MonteCarlo_ValueWithRisk",
+    "MonteCarlo_ValueWithJacobianRisk",
+    "MonteCarlo_ValueWithWeightedRisk",
+)
+__all__ += (
+    "BlackScholesMonteCarloPlan_New",
+    "BlackScholesMonteCarlo_Get_Risk",
+    "BlackScholesMonteCarlo_Get_Curvature",
+    "SegmentedMonteCarloSettings_",
+)
