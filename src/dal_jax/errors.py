@@ -260,6 +260,24 @@ class InvalidLocalVolSurface(DalError):
     code = "InvalidLocalVolSurface"
 
 
+class InvalidDupireQuote(DalError):
+    """Dupire quote-grid validation, as native ``InvalidDupireQuote``."""
+
+    code = "InvalidDupireQuote"
+
+
+class InvalidDupireCalibration(DalError):
+    """Dupire calibration validation, as native ``InvalidDupireCalibration``."""
+
+    code = "InvalidDupireCalibration"
+
+
+class InvalidDupirePullback(DalError):
+    """Dupire risk-input binding errors, as native ``InvalidDupirePullback``."""
+
+    code = "InvalidDupirePullback"
+
+
 class InvalidRandomSequence(DalError):
     code = "InvalidRandomSequence"
 

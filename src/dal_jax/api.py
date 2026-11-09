@@ -44,7 +44,17 @@ from dal_jax.mc.risk import (
     weighted_result,
 )
 from dal_jax.mc.settings import DEFAULT_SMOOTH
-from dal_jax.models import BlackScholes, CorrelatedBlackScholes, LocalVol, LocalVolSurface
+from dal_jax.models import (
+    IVS,
+    BlackScholes,
+    CorrelatedBlackScholes,
+    DupireCalibrationSnapshot,
+    DupireRiskInputs,
+    LocalVol,
+    LocalVolSurface,
+    MertonIVS,
+    calibrate_dupire,
+)
 from dal_jax.models.base import Model
 from dal_jax.models.gsr import GSR, GSRCurve, GSRVol, MultiFactorGSRVol
 from dal_jax.models.gsrslv import GSRSLV, GSRLeverage, GSRSLVSettings
@@ -330,6 +340,17 @@ def HybridModelData_New(name, domestic_currency, components, correlation):  # no
 
 def MonteCarloSettings_(*, method="sobol", compiled=True, **settings):  # noqa: N802
     return MonteCarloSettings(rsg=method, compiled=compiled, **settings)
+
+
+DupireRiskInputs_ = DupireRiskInputs
+DupireCalibrationSnapshot_ = DupireCalibrationSnapshot
+IVS_ = IVS
+MertonIVS_ = MertonIVS
+
+
+def DupireCalibration_New(base, inputs, *, name=""):  # noqa: N802
+    """Calibrate the Dupire local-volatility snapshot, as native DupireCalibration_New."""
+    return calibrate_dupire(base, inputs, name)
 
 
 def MonteCarlo_Value(
@@ -641,6 +662,13 @@ __all__ += (
     "JacobianRiskRequest_",
     "WeightedRiskRequest_",
     "BumpOverAADRequest_",
+)
+__all__ += (
+    "DupireRiskInputs_",
+    "DupireCalibration_New",
+    "DupireCalibrationSnapshot_",
+    "IVS_",
+    "MertonIVS_",
 )
 __all__ += (
     "MonteCarlo_ValueWithRisk",
