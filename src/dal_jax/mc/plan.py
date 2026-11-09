@@ -238,7 +238,12 @@ def _validated_plan(function, plan) -> BlackScholesMonteCarloPlan:
     """The bindings-level plan type check: plan is the first argument, so it fires first."""
     if isinstance(plan, BlackScholesMonteCarloPlan):
         return plan
-    described = f", value={plan!r}" if plan is None or isinstance(plan, str) else ""
+    #  Scalars (str, numbers, bool, None) carry a value segment; other objects do not.
+    described = (
+        f", value={plan!r}"
+        if plan is None or isinstance(plan, (str, numbers.Integral, float))
+        else ""
+    )
     raise script_error(
         f"InvalidSegmentedMonteCarloRequest: {function}; plan; "
         f"type={type(plan).__name__}{described}; expected BlackScholesMonteCarloPlan_"

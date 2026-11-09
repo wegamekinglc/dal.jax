@@ -819,6 +819,24 @@ PLAN_TYPE_ERRORS = [
         id="string",
     ),
     pytest.param(
+        42,
+        "InvalidSegmentedMonteCarloRequest: BlackScholesMonteCarlo_Get_Risk; plan; "
+        "type=int, value=42; expected BlackScholesMonteCarloPlan_",
+        id="int",
+    ),
+    pytest.param(
+        1.5,
+        "InvalidSegmentedMonteCarloRequest: BlackScholesMonteCarlo_Get_Risk; plan; "
+        "type=float, value=1.5; expected BlackScholesMonteCarloPlan_",
+        id="float",
+    ),
+    pytest.param(
+        True,
+        "InvalidSegmentedMonteCarloRequest: BlackScholesMonteCarlo_Get_Risk; plan; "
+        "type=bool, value=True; expected BlackScholesMonteCarloPlan_",
+        id="bool",
+    ),
+    pytest.param(
         None,
         "InvalidSegmentedMonteCarloRequest: BlackScholesMonteCarlo_Get_Risk; plan; "
         "type=NoneType, value=None; expected BlackScholesMonteCarloPlan_",
