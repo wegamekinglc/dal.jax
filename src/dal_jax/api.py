@@ -12,9 +12,20 @@ from dal_jax.errors import InvalidPathCount, InvalidSetting, script_error
 from dal_jax.mc import MonteCarloSettings
 from dal_jax.mc.plan import (
     SegmentedMonteCarloSettings,
+    _check_path_count,
     black_scholes_plan,
     get_curvature,
     get_risk,
+)
+from dal_jax.mc.portfolio import (
+    PortfolioJacobianRiskRequest,
+    PortfolioJacobianRiskResult,
+    PortfolioWeightedRiskRequest,
+    PortfolioWeightedRiskResult,
+    ScriptPortfolio_New,
+    ScriptPortfolioData,
+    portfolio_jacobian_result,
+    portfolio_weighted_result,
 )
 from dal_jax.mc.risk import (
     BumpOverAADRequest,
@@ -395,6 +406,8 @@ def MonteCarlo_ValueWithSettings(product, model, n_paths, *, valuation=None, sim
 #  so isinstance matches the most specific request.  Mirrors mc.risk._REQUEST_CODES,
 #  which maps the same classes to their constructor-error codes and names.
 _REQUEST_NAMES = {
+    PortfolioJacobianRiskRequest: "PortfolioJacobianRiskRequest_",
+    PortfolioWeightedRiskRequest: "PortfolioWeightedRiskRequest_",
     JacobianRiskRequest: "JacobianRiskRequest_",
     WeightedRiskRequest: "WeightedRiskRequest_",
     BumpOverAADRequest: "BumpOverAADRequest_",
@@ -455,6 +468,46 @@ def MonteCarlo_ValueWithWeightedRisk(  # noqa: N802
     )
 
 
+def PortfolioMonteCarlo_ValueWithJacobianRisk(  # noqa: N802
+    portfolio, n_paths, *, request=None, valuation=None, simulation=None
+) -> PortfolioJacobianRiskResult:
+    """Per-trade values and one concatenated Jacobian row per selected output."""
+    _check_path_count("PortfolioMonteCarlo_ValueWithJacobianRisk", n_paths)
+    _require_request_type(
+        request,
+        PortfolioJacobianRiskRequest,
+        "PortfolioMonteCarlo_ValueWithJacobianRisk",
+        "PortfolioJacobianRiskRequest_",
+    )
+    return portfolio_jacobian_result(
+        portfolio,
+        int(n_paths),
+        request=request,
+        valuation=valuation,
+        simulation=simulation,
+    )
+
+
+def PortfolioMonteCarlo_ValueWithWeightedRisk(  # noqa: N802
+    portfolio, n_paths, *, request=None, valuation=None, simulation=None
+) -> PortfolioWeightedRiskResult:
+    """Weight-aggregated portfolio view: one value and one Jacobian row."""
+    _check_path_count("PortfolioMonteCarlo_ValueWithWeightedRisk", n_paths)
+    _require_request_type(
+        request,
+        PortfolioWeightedRiskRequest,
+        "PortfolioMonteCarlo_ValueWithWeightedRisk",
+        "PortfolioWeightedRiskRequest_",
+    )
+    return portfolio_weighted_result(
+        portfolio,
+        int(n_paths),
+        request=request,
+        valuation=valuation,
+        simulation=simulation,
+    )
+
+
 def PseudoRSG_New(seed, ndim=1):  # noqa: N802
     return PseudoRSG(seed, ndim)
 
@@ -494,6 +547,9 @@ RiskRequest_ = RiskRequest
 JacobianRiskRequest_ = JacobianRiskRequest
 WeightedRiskRequest_ = WeightedRiskRequest
 BumpOverAADRequest_ = BumpOverAADRequest
+ScriptPortfolioData_ = ScriptPortfolioData
+PortfolioJacobianRiskRequest_ = PortfolioJacobianRiskRequest
+PortfolioWeightedRiskRequest_ = PortfolioWeightedRiskRequest
 SegmentedMonteCarloSettings_ = SegmentedMonteCarloSettings
 
 
@@ -590,6 +646,14 @@ __all__ += (
     "MonteCarlo_ValueWithRisk",
     "MonteCarlo_ValueWithJacobianRisk",
     "MonteCarlo_ValueWithWeightedRisk",
+)
+__all__ += (
+    "ScriptPortfolio_New",
+    "ScriptPortfolioData_",
+    "PortfolioJacobianRiskRequest_",
+    "PortfolioWeightedRiskRequest_",
+    "PortfolioMonteCarlo_ValueWithJacobianRisk",
+    "PortfolioMonteCarlo_ValueWithWeightedRisk",
 )
 __all__ += (
     "BlackScholesMonteCarloPlan_New",

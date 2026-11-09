@@ -36,6 +36,10 @@ machinery delivered in PR #9.
   keep the message verbatim); unequal lengths →
   `InvalidScriptPortfolio: trade_ids, products and modelData must have equal nonzero lengths`.
   The result exposes `name` (empty default), `trade_ids`, `model_owners`.
+  **Identity dedup (as built, probed):** `model_owners` deduplicates by object
+  *identity*, not equality — the same object passed twice gives `[0, 0]`,
+  equal-but-distinct models give `[0, 1]`, and a model reused after a gap
+  (`[m1, m3, m1]`) keeps its first owner (`[0, 1, 0]`).
 - `PortfolioMonteCarlo_ValueWithJacobianRisk(portfolio, num_path, *, request,
   valuation)` returns a result with: `values` (one PV per trade),
   `complete_input_axis` / `input_axis` (concatenated per-trade RiskCoordinate
