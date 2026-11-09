@@ -225,8 +225,8 @@ def _selector_keys(selector, field, code, ctor) -> list[str]:
     for key in selector:
         if not isinstance(key, str):
             raise script_error(
-                f"{code}: {ctor}; {field}; type={type(key).__name__}, "
-                f"value={key!r}; expected str or DAL String_ without NUL"
+                f"{code}: {ctor}; {field}; type={type(key).__name__}{_described(key)}; "
+                "expected str or DAL String_ without NUL"
             )
     return list(selector)
 
@@ -250,8 +250,13 @@ def _request_codes(request):
 
 
 def _described(value) -> str:
-    """Native's value segment: scalars carry one, other objects do not."""
-    described = value is None or isinstance(value, (str, numbers.Integral, float))
+    """Native's value segment: builtin scalars carry one, other objects do not.
+
+    The predicate is deliberately builtin-only: ``np.int64`` registers as
+    ``numbers.Integral`` but is no ``int``, and native omits the segment for it
+    (printing ``type=int64`` with no value), so ABC membership must not decide.
+    """
+    described = value is None or isinstance(value, (str, bool, int, float))
     return f", value={value!r}" if described else ""
 
 
@@ -388,13 +393,13 @@ def _weights(request, count) -> list[float]:
     code, ctor = _request_codes(request)
     if not isinstance(raw, (list, tuple)):
         raise script_error(
-            f"{code}: {ctor}; weights; type={type(raw).__name__}, value={raw!r}; "
+            f"{code}: {ctor}; weights; type={type(raw).__name__}{_described(raw)}; "
             f"expected list or tuple, or None"
         )
     for weight in raw:
         if isinstance(weight, bool) or not isinstance(weight, (int, float)):
             raise script_error(
-                f"{code}: {ctor}; weights; type={type(weight).__name__}, value={weight!r}; "
+                f"{code}: {ctor}; weights; type={type(weight).__name__}{_described(weight)}; "
                 f"expected int or float, excluding bool"
             )
     if len(raw) != count:

@@ -899,6 +899,59 @@ def test_weighted_risk_matches_native(dal):
     )
 
 
+#  The value segment in native's messages covers builtin scalars only: numpy
+#  integers print their pybind type name (int64) with no ", value=" segment.
+NUMPY_TYPE_ERRORS = [
+    pytest.param(
+        "report_factors",
+        [np.int64(2)],
+        "InvalidRiskRequest: RiskRequest_; report_factors; type=int64; "
+        "expected int or float, excluding bool",
+        id="factors-element",
+    ),
+    pytest.param(
+        "inputs",
+        [np.int64(1)],
+        "InvalidRiskRequest: RiskRequest_; inputs; type=int64; "
+        "expected str or DAL String_ without NUL",
+        id="inputs-element",
+    ),
+]
+
+
+@pytest.mark.parametrize(("field", "value", "message"), NUMPY_TYPE_ERRORS)
+def test_risk_messages_skip_non_builtin_scalars(dal, field, value, message):
+    with pytest.raises((RuntimeError, TypeError), match=re.escape(message)):
+        _theirs(
+            dal, [(2024, 1, 2)], ["p pays spot()"], 64, request=dal.RiskRequest_(**{field: value})
+        )
+    with pytest.raises(InvalidRiskRequest, match=re.escape(message)) as error:
+        _ours(
+            [(2024, 1, 2)],
+            ["p pays spot()"],
+            64,
+            request=RiskRequest_(**{field: value}),
+        )
+    assert str(error.value) == message
+    weighted = "InvalidWeightedRiskRequest: WeightedRiskRequest_; weights; type=int64; expected int or float, excluding bool"
+    with pytest.raises(TypeError, match=re.escape(weighted)):
+        _theirs_weighted(
+            dal,
+            [(2024, 1, 2)],
+            ["p pays spot()"],
+            64,
+            request=dal.WeightedRiskRequest_(weights=[np.int64(1)]),
+        )
+    with pytest.raises(InvalidWeightedRiskRequest, match=re.escape(weighted)) as error:
+        _ours_weighted(
+            [(2024, 1, 2)],
+            ["p pays spot()"],
+            64,
+            request=WeightedRiskRequest_(weights=[np.int64(1)]),
+        )
+    assert str(error.value) == weighted
+
+
 def test_weighted_risk_scales_with_weights(dal):
     dates, events = [(2024, 1, 2)], ["p pays spot()"]
     base = _ours_weighted(dates, events)

@@ -158,9 +158,9 @@ with native's constructor messages but are neither recorded in any
 provenance nor enforced.  The only budget that surfaces is the
 plan-settings `recording_capacity_budget_bytes`, echoed into
 `MonteCarloCurvatureExecution_`.  Native, by contrast, enforces the
-recording budget during replay ("Tape capacity budget exceeded
-[required=..., limit=...]"); the oracle tests keep their accepted-budget
-cases above those limits.  `report_factors` follows the same pattern:
-type-validated and otherwise ignored (native additionally requires the
-factor count to match the selected inputs and scales the reported
-Jacobian by them).
+recording budget before replay ("Tape capacity budget exceeded before
+replay [required=..., limit=...]"); the oracle tests keep their
+accepted-budget cases above those limits.  `report_factors` follows the
+same pattern: type-validated and otherwise ignored (native additionally
+requires the factor count to match the selected inputs and scales the
+reported Jacobian by them).
