@@ -14,7 +14,7 @@ from dal_jax.mc.settings import MonteCarloSettings
 from dal_jax.models import BlackScholes
 from dal_jax.script.fixings import ValuationSettings, resolve_valuation
 from dal_jax.script.preparation import PreparedProduct, prepare
-from dal_jax.script.product import ScriptProductData
+from dal_jax.script.product import ScriptProductData, ScriptProductSettings
 
 MODEL_LABELS = BlackScholes.param_labels
 RSG_CHOICES = ("sobol", "mrg32", "irn")
@@ -24,8 +24,17 @@ _DIRECTION_MESSAGE = "BumpOverAAD: directions must have nonnegative rows and one
 #  Native's plan prepares without a model instance; dal_jax's FIX binding is
 #  model-aware, so the plan prepares against a canonical Black-Scholes.  The
 #  placeholder's parameters never reach a valuation: every revaluation passes
-#  the point's parameters explicitly.
-_CANONICAL_MODEL = BlackScholes(spot=1.0, vol=0.1)
+#  the point's parameters explicitly.  Built lazily: constructing a model runs
+#  JAX operations, and importing this module must not initialise backends
+#  before the caller has configured jax_num_cpu_devices.
+_CANONICAL_MODEL: BlackScholes | None = None
+
+
+def _canonical_model() -> BlackScholes:
+    global _CANONICAL_MODEL
+    if _CANONICAL_MODEL is None:
+        _CANONICAL_MODEL = BlackScholes(spot=1.0, vol=0.1)
+    return _CANONICAL_MODEL
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,7 +114,7 @@ class BlackScholesMonteCarloPlan:
     parameter_labels: tuple[str, ...]
     contract_dates: tuple
     contract_events: tuple[str, ...]
-    contract_settings: object
+    contract_settings: ScriptProductSettings
     observations: tuple[RiskObservationSnapshot, ...]
     script_constants: tuple[float, ...]
     prepared: PreparedProduct
@@ -381,7 +390,7 @@ def black_scholes_plan(
     if product.product().has_exercise:
         raise script_error("BlackScholesSegmentedPath: EXERCISE is unsupported")
     resolved = resolve_valuation(valuation or ValuationSettings())
-    prepared = prepare(product, model=_CANONICAL_MODEL, valuation=resolved)
+    prepared = prepare(product, model=_canonical_model(), valuation=resolved)
     return BlackScholesMonteCarloPlan(
         product=product,
         valuation=resolved,
