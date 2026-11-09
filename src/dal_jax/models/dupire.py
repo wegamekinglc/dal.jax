@@ -22,9 +22,24 @@ from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from typing import ClassVar
 
-from dal_jax.errors import InvalidDupireCalibration, InvalidDupirePullback, InvalidDupireQuote
+from dal_jax.errors import (
+    InvalidDupireCalibration,
+    InvalidDupireInput,
+    InvalidDupirePullback,
+    InvalidDupireQuote,
+    InvalidIndex,
+    InvalidModelIndex,
+    script_error,
+)
 from dal_jax.models.base import Model
 from dal_jax.models.bs import BlackScholes
+from dal_jax.models.correlated_bs import plain_equity
+from dal_jax.models.hybrid import (
+    Hybrid,
+    HybridCorrelation,
+    HybridDeterministicRate,
+    HybridLocalVolEquity,
+)
 from dal_jax.models.localvol import LocalVolSurface
 
 #  Native constants (dal-cpp dal/platform/consts.hpp and the Dupire sources).
@@ -622,11 +637,64 @@ def _calibrate_grid(samples, carry, spots, times, bands, spread):
 #  The calibration entry point and its snapshot.
 
 
-def _setting_string(value, field):
+def _setting_string(value, field, error=InvalidDupireCalibration):
     context = _input_context(value, field, "str or DAL String_ without NUL")
     if not isinstance(value, str) or "\0" in value:
-        raise InvalidDupireCalibration(context)
+        raise error(context)
     return value
+
+
+def _equity_index(index):
+    """The canonical EQ index name, as native's ordinary-EQ check reports it."""
+    try:
+        return plain_equity(index)
+    except InvalidIndex as error:
+        raise InvalidModelIndex(f"expected an ordinary EQ index: {index}") from error
+
+
+def dupire_model_data(calibration, index, currency, factor, name="", max_step=1.0 / 12.0):
+    """Mirror native NewDupireModelData: local-vol equity plus deterministic rate.
+
+    Native assembles a hybrid whose components are named ``equity`` and ``rate``
+    with an identity correlation, so the risk axis is ``spot``/``div``, the
+    row-major surface nodes, then ``rate`` — exactly as ``ValueWithRisk``
+    reports it.
+    """
+    if not isinstance(calibration, DupireCalibrationSnapshot):
+        raise InvalidDupirePullback(
+            _input_context(
+                calibration, "DupireModelData_New; calibration", "DupireCalibrationSnapshot_"
+            )
+        )
+    label = _setting_string(name, "DupireModelData_New; name", InvalidDupireInput)
+    _setting_string(index, "DupireModelData_New; index", InvalidDupireInput)
+    _setting_string(currency, "DupireModelData_New; currency", InvalidDupireInput)
+    _setting_string(factor, "DupireModelData_New; factor", InvalidDupireInput)
+    step = _numeric_input(max_step, "DupireModelData_New; max_step")
+    if step <= 0.0:
+        raise InvalidDupireInput("DupireModelData_New; max_step must be positive")
+    equity_index = _equity_index(index)
+    if not currency or not factor:
+        raise script_error(
+            "InvalidHybridComponent: local-vol equity name, currency, factor, and surface are required"
+        )
+    equity = HybridLocalVolEquity(
+        name="equity",
+        index=equity_index,
+        currency=currency,
+        factor=factor,
+        spot=calibration.spot,
+        div=calibration.dividend_yield,
+        surface=calibration.surface,
+        max_step=step,
+    )
+    rate = HybridDeterministicRate(name="rate", currency=currency, rate=calibration.rate)
+    correlation = HybridCorrelation(
+        name="correlation", factor_names=(factor,), correlations=((1.0,),)
+    )
+    return Hybrid(
+        name=label, domestic_currency=currency, components=(equity, rate), correlation=correlation
+    )
 
 
 def _base_ivs(base):

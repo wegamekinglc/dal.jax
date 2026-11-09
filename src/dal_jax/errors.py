@@ -278,6 +278,12 @@ class InvalidDupirePullback(DalError):
     code = "InvalidDupirePullback"
 
 
+class InvalidDupireInput(DalError):
+    """Dupire model-data setting errors, as native ``InvalidDupireInput``."""
+
+    code = "InvalidDupireInput"
+
+
 class InvalidRandomSequence(DalError):
     code = "InvalidRandomSequence"
 

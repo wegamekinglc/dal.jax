@@ -1,21 +1,32 @@
-"""Dupire risk inputs and calibration snapshots parity with dal-python 2026.11.1."""
+"""Dupire risk inputs, calibration snapshots and model parity with dal-python 2026.11.1."""
 
 import re
 
+import numpy as np
 import pytest
+from oracle.test_dal_risk_api import _assert_risk_parity
 
 from dal_jax.api import (
     IVS_,
     BSModelData_New,
     CorrelatedBSModelData_New,
     DupireCalibration_New,
+    DupireModelData_New,
     DupireRiskInputs_,
     MertonIVS_,
+    MonteCarlo_ValueWithRisk,
+    MonteCarlo_ValueWithSettings,
+    Product_New,
+    ValuationSettings,
 )
+from dal_jax.dates import Date
 from dal_jax.errors import (
     InvalidDupireCalibration,
+    InvalidDupireInput,
     InvalidDupirePullback,
     InvalidDupireQuote,
+    InvalidModelIndex,
+    ScriptError,
 )
 from dal_jax.models import DupireCalibrationSnapshot, LocalVolSurface
 
@@ -137,6 +148,9 @@ def _error_of(message):
         "InvalidDupireQuote": InvalidDupireQuote,
         "InvalidDupireCalibration": InvalidDupireCalibration,
         "InvalidDupirePullback": InvalidDupirePullback,
+        "InvalidDupireInput": InvalidDupireInput,
+        "InvalidModelIndex": InvalidModelIndex,
+        "InvalidHybridComponent": ScriptError,
     }[message.split(":")[0]]
 
 
@@ -594,3 +608,242 @@ def test_callable_ivs_validates_like_native(dal):
         lambda: DupireCalibration_New(IVS_(spot=100.0), _ours_inputs()),
         override_message,
     )
+
+
+#  ---------------------------------------------------------------------------
+#  DupireModelData_New: engine pricing and risk parity (the spec fixture).
+
+
+VALUATION = ValuationSettings(evaluation_date=Date.ymd(2026, 9, 12))
+INDEX = "EQ[LOCAL]"
+AXIS_LABELS = (
+    [f"spot:{INDEX}", f"div:{INDEX}"]
+    + [f"lvol:{INDEX}:{i}:{j}" for i in range(len(GRID_SPOTS)) for j in range(len(GRID_TIMES))]
+    + ["rate:USD"]
+)
+#  Native anchors (dal-python 2026.11.1): PV at 4096 paths and the AAD risk
+#  result at 257 paths for pay PAYS FIX(EQ[LOCAL])^2 / 100 at T=1.
+PV_ANCHOR = 105.040477399776
+RISK_VALUE_ANCHOR = 104.36149296571121
+JACOBIAN_ANCHOR = [
+    2.087229838097331,
+    -208.72298506454018,
+    -0.001764818918493701,
+    -0.001764818918493701,
+    1.4192315218325229,
+    0.27278357450313195,
+    1.6032207177681372,
+    0.46161200438291494,
+    2.6593385859953456,
+    0.04219775209870143,
+    15.602249517503878,
+    1.0778517587380083,
+    5.155820819562145,
+    1.1960117599900137,
+    4.7628340285264255,
+    2.1318296127421226,
+    0.21429338508498674,
+    0.43031470718152737,
+    -1.6215939997989777,
+    -1.3196185640440747,
+    104.36149209882889,
+]
+
+
+def _our_model(**overrides):
+    kwargs = dict(name="local", max_step=0.25)
+    kwargs.update(overrides)
+    return DupireModelData_New(_our_calibration(), INDEX, "USD", "F_LOCAL", **kwargs)
+
+
+def _their_model(dal, **overrides):
+    kwargs = dict(name="local", max_step=0.25)
+    kwargs.update(overrides)
+    return dal.DupireModelData_New(_their_calibration(dal), INDEX, "USD", "F_LOCAL", **kwargs)
+
+
+def _our_calibration():
+    return DupireCalibration_New(_our_base(), _ours_inputs(), name="frozen")
+
+
+def _their_calibration(dal):
+    return dal.DupireCalibration_New(_their_base(dal), _their_inputs(dal), name="frozen")
+
+
+def _our_product():
+    return Product_New([Date.ymd(2027, 9, 12)], [f"pay PAYS FIX({INDEX}) * FIX({INDEX}) / 100"])
+
+
+def _their_product(dal):
+    return dal.Product_New(
+        [dal.Date_(2027, 9, 12)], [f"pay PAYS FIX({INDEX}) * FIX({INDEX}) / 100"]
+    )
+
+
+def _their_valuation(dal):
+    return dal.ScriptValuationSettings_(evaluation_date=dal.Date_(2026, 9, 12))
+
+
+def test_model_pv_parity_on_spec_fixture(dal):
+    ours = MonteCarlo_ValueWithSettings(_our_product(), _our_model(), 4096, valuation=VALUATION)
+    theirs = dal.MonteCarlo_ValueWithSettings(
+        _their_product(dal), _their_model(dal), 4096, valuation=_their_valuation(dal)
+    )
+    assert ours["PV"] == pytest.approx(theirs["PV"], rel=1e-10)
+    assert ours["PV"] == pytest.approx(PV_ANCHOR, rel=1e-10)
+
+
+@pytest.mark.parametrize("max_step", [0.1, 0.5, 1.5])
+def test_model_pv_parity_across_max_steps(dal, max_step):
+    ours = MonteCarlo_ValueWithSettings(
+        _our_product(), _our_model(max_step=max_step), 4096, valuation=VALUATION
+    )
+    theirs = dal.MonteCarlo_ValueWithSettings(
+        _their_product(dal),
+        _their_model(dal, max_step=max_step),
+        4096,
+        valuation=_their_valuation(dal),
+    )
+    assert ours["PV"] == pytest.approx(theirs["PV"], rel=1e-10)
+
+
+def test_model_risk_axis_and_jacobian_parity(dal):
+    ours = MonteCarlo_ValueWithRisk(_our_product(), _our_model(), 257, valuation=VALUATION)
+    theirs = dal.MonteCarlo_ValueWithRisk(
+        _their_product(dal), _their_model(dal), 257, valuation=_their_valuation(dal)
+    )
+    _assert_risk_parity(ours, theirs)
+    assert ours.values[0] == pytest.approx(RISK_VALUE_ANCHOR, rel=1e-12)
+    np.testing.assert_allclose(np.asarray(ours.jacobian)[0], JACOBIAN_ANCHOR, rtol=1e-9, atol=1e-12)
+
+
+def test_model_risk_axis_reports_snapshot_coordinates(dal):
+    ours = MonteCarlo_ValueWithRisk(_our_product(), _our_model(), 257, valuation=VALUATION)
+    assert [c.label for c in ours.input_axis] == AXIS_LABELS
+    assert [c.id for c in ours.input_axis] == [f"model:{n}" for n in range(21)]
+    assert all(c.family == "model" for c in ours.input_axis)
+    assert all(c.native_unit == "model-coordinate" for c in ours.input_axis)
+    assert all(c.physical_unit is None for c in ours.input_axis)
+
+
+def test_model_risk_axis_carries_snapshot_values(dal):
+    ours = MonteCarlo_ValueWithRisk(_our_product(), _our_model(), 257, valuation=VALUATION)
+    #  The axis carries the calibrated snapshot verbatim: spot, dividend, the
+    #  row-major surface nodes, then the deterministic rate.
+    expected_values = [100.0, 0.02] + [vol for row in BS_VOLS for vol in row] + [0.05]
+    assert [c.value for c in ours.input_axis] == expected_values
+
+
+def test_model_multi_event_risk_parity(dal):
+    dates = [Date.ymd(2027, 3, 12), Date.ymd(2028, 3, 12)]
+    events = [f"pay PAYS FIX({INDEX}) * 0.01", f"pay PAYS FIX({INDEX}) / 100"]
+    ours = MonteCarlo_ValueWithRisk(
+        Product_New(dates, events), _our_model(max_step=0.1), 257, valuation=VALUATION
+    )
+    theirs = dal.MonteCarlo_ValueWithRisk(
+        dal.Product_New([dal.Date_(2027, 3, 12), dal.Date_(2028, 3, 12)], events),
+        _their_model(dal, max_step=0.1),
+        257,
+        valuation=_their_valuation(dal),
+    )
+    _assert_risk_parity(ours, theirs)
+    assert [c.label for c in ours.input_axis] == AXIS_LABELS
+
+
+def test_model_ctor_validates_like_native(dal):
+    calibration = _our_calibration()
+    native_calibration = _their_calibration(dal)
+    cases = [
+        #  (overrides, message)
+        (
+            {"index": "EQ[X]", "currency": "USD", "factor": "F", "calibration": "cal"},
+            "InvalidDupirePullback: DupireModelData_New; calibration; type=str, value='cal'; expected DupireCalibrationSnapshot_",
+        ),
+        (
+            {"index": 5, "currency": "USD", "factor": "F"},
+            "InvalidDupireInput: DupireModelData_New; index; type=int, value=5; expected str or DAL String_ without NUL",
+        ),
+        (
+            {"index": INDEX, "currency": 7, "factor": "F"},
+            "InvalidDupireInput: DupireModelData_New; currency; type=int, value=7; expected str or DAL String_ without NUL",
+        ),
+        (
+            {"index": INDEX, "currency": "USD", "factor": None},
+            "InvalidDupireInput: DupireModelData_New; factor; type=NoneType, value=None; expected str or DAL String_ without NUL",
+        ),
+        (
+            {"index": INDEX, "currency": "USD", "factor": "F", "name": "a\x00b"},
+            "InvalidDupireInput: DupireModelData_New; name; type=str, value='a\\x00b'; expected str or DAL String_ without NUL",
+        ),
+        (
+            {"index": "", "currency": "USD", "factor": "F"},
+            "InvalidModelIndex: expected an ordinary EQ index: ",
+        ),
+        (
+            {"index": "SPAM", "currency": "USD", "factor": "F"},
+            "InvalidModelIndex: expected an ordinary EQ index: SPAM",
+        ),
+        (
+            {"index": "IR[USD,XYZ]", "currency": "USD", "factor": "F"},
+            "InvalidModelIndex: expected an ordinary EQ index: IR[USD,XYZ]",
+        ),
+        (
+            {"index": INDEX, "currency": "", "factor": "F"},
+            "InvalidHybridComponent: local-vol equity name, currency, factor, and surface are required",
+        ),
+        (
+            {"index": INDEX, "currency": "USD", "factor": ""},
+            "InvalidHybridComponent: local-vol equity name, currency, factor, and surface are required",
+        ),
+        (
+            {"index": INDEX, "currency": "USD", "factor": "F", "max_step": 0.0},
+            "InvalidDupireInput: DupireModelData_New; max_step must be positive",
+        ),
+        (
+            {"index": INDEX, "currency": "USD", "factor": "F", "max_step": -0.1},
+            "InvalidDupireInput: DupireModelData_New; max_step must be positive",
+        ),
+        (
+            {"index": INDEX, "currency": "USD", "factor": "F", "max_step": NAN},
+            "InvalidDupireCalibration: DupireModelData_New; max_step; type=float, value=nan; "
+            "expected finite int or float, excluding bool and enums",
+        ),
+        (
+            {"index": INDEX, "currency": "USD", "factor": "F", "max_step": True},
+            "InvalidDupireCalibration: DupireModelData_New; max_step; type=bool, value=True; "
+            "expected finite int or float, excluding bool and enums",
+        ),
+        (
+            {"index": INDEX, "currency": "USD", "factor": "F", "max_step": "0.25"},
+            "InvalidDupireCalibration: DupireModelData_New; max_step; type=str, value='0.25'; "
+            "expected finite int or float, excluding bool and enums",
+        ),
+    ]
+    for overrides, message in cases:
+        fields = dict(calibration=calibration, index=INDEX, currency="USD", factor="F")
+        fields.update(overrides)
+        native_fields = dict(fields)
+        if native_fields["calibration"] is calibration:
+            native_fields["calibration"] = native_calibration
+        _assert_both_raise(
+            dal,
+            lambda native_fields=native_fields: dal.DupireModelData_New(**native_fields),
+            lambda fields=fields: DupireModelData_New(**fields),
+            message,
+        )
+    with pytest.raises(TypeError):
+        dal.DupireModelData_New(native_calibration, INDEX, "USD", "F_LOCAL", 0.25)
+    with pytest.raises(TypeError):
+        DupireModelData_New(calibration, INDEX, "USD", "F_LOCAL", 0.25)  # pylint: disable=too-many-function-args
+
+
+def test_model_defaults_and_lowercase_index(dal):
+    plain = DupireModelData_New(_our_calibration(), "eq[local]", "USD", "F_LOCAL")
+    theirs = dal.DupireModelData_New(_their_calibration(dal), "eq[local]", "USD", "F_LOCAL")
+    ours = MonteCarlo_ValueWithSettings(_our_product(), plain, 4096, valuation=VALUATION)
+    theirs_pv = dal.MonteCarlo_ValueWithSettings(
+        _their_product(dal), theirs, 4096, valuation=_their_valuation(dal)
+    )
+    #  Default max_step (1/12) prices differently from the 0.25 anchor fixture;
+    #  this pins canonicalisation and defaults, not the anchor.
+    assert ours["PV"] == pytest.approx(theirs_pv["PV"], rel=1e-10)

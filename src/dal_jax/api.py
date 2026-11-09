@@ -54,6 +54,7 @@ from dal_jax.models import (
     LocalVolSurface,
     MertonIVS,
     calibrate_dupire,
+    dupire_model_data,
 )
 from dal_jax.models.base import Model
 from dal_jax.models.gsr import GSR, GSRCurve, GSRVol, MultiFactorGSRVol
@@ -351,6 +352,13 @@ MertonIVS_ = MertonIVS
 def DupireCalibration_New(base, inputs, *, name=""):  # noqa: N802
     """Calibrate the Dupire local-volatility snapshot, as native DupireCalibration_New."""
     return calibrate_dupire(base, inputs, name)
+
+
+def DupireModelData_New(  # noqa: N802
+    calibration, index, currency, factor, *, name="", max_step=1.0 / 12.0
+):
+    """The Dupire model as a local-vol hybrid, as native DupireModelData_New."""
+    return dupire_model_data(calibration, index, currency, factor, name, max_step)
 
 
 def MonteCarlo_Value(
@@ -667,6 +675,7 @@ __all__ += (
     "DupireRiskInputs_",
     "DupireCalibration_New",
     "DupireCalibrationSnapshot_",
+    "DupireModelData_New",
     "IVS_",
     "MertonIVS_",
 )

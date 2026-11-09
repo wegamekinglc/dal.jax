@@ -364,6 +364,9 @@ class Hybrid:
     supports_bb = True
     max_observed_indices = 2**31 - 1
     max_output_slots_per_sample = 2**31 - 1
+    #  Native's hybrid risk driver reports no physical unit for model
+    #  coordinates, unlike the flat-model driver's vol/rate/div units.
+    parameter_physical_units = ()
 
     def __post_init__(self):
         components = tuple(sorted(self.components, key=lambda c: ci_key(c.name)))

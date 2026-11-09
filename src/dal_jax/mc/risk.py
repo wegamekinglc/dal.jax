@@ -176,18 +176,21 @@ def validate_risk_product(data, valuation, code, estimator) -> None:
 _PHYSICAL_UNITS = (("vol", "year^-1/2"), ("rate", "year^-1"), ("div", "year^-1"))
 
 
-def _physical_unit(label: str) -> str | None:
-    return next((unit for prefix, unit in _PHYSICAL_UNITS if label.startswith(prefix)), None)
+def _physical_unit(label: str, units) -> str | None:
+    return next((unit for prefix, unit in units if label.startswith(prefix)), None)
 
 
 def input_axis(model, script_params=()) -> list[RiskCoordinate]:
     """Model coordinates followed by script constants, mirroring DAL's risk axis.
 
     Model coordinates are ``model:<ordinal>`` in ``param_labels`` order with
-    ``vol``/``rate``/``div`` prefixes carrying a physical unit; script constants are
-    ``constant:<ordinal>`` with per-family ordinals and no physical unit.
+    ``vol``/``rate``/``div`` prefixes carrying a physical unit; hybrids override
+    ``parameter_physical_units`` to report none, as native's hybrid driver does.
+    Script constants are ``constant:<ordinal>`` with per-family ordinals and no
+    physical unit.
     """
     params = model.default_params()
+    units = tuple(getattr(model, "parameter_physical_units", _PHYSICAL_UNITS))
     axis = [
         RiskCoordinate(
             family="model",
@@ -195,7 +198,7 @@ def input_axis(model, script_params=()) -> list[RiskCoordinate]:
             label=label,
             ordinal=ordinal,
             native_unit="model-coordinate",
-            physical_unit=_physical_unit(label),
+            physical_unit=_physical_unit(label, units),
             report_scale=1.0,
             value=float(params[label]),
         )

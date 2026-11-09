@@ -7,6 +7,7 @@ from dal_jax.models.dupire import (
     DupireRiskInputs,
     MertonIVS,
     calibrate_dupire,
+    dupire_model_data,
 )
 from dal_jax.models.gsr import GSR, GSRCurve, GSRVol, MultiFactorGSRVol
 from dal_jax.models.gsrslv import GSRSLV, GSRLeverage, GSRSLVSettings
@@ -31,6 +32,7 @@ __all__ = (
     "SampleDef",
     "Scenario",
     "calibrate_dupire",
+    "dupire_model_data",
     "validate_timeline",
 )
 __all__ += ("GSRSLV", "GSRSLVSettings", "GSRLeverage", "Hybrid")
