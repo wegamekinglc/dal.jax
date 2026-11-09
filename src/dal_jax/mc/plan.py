@@ -9,7 +9,7 @@ import numpy as np
 from dal_jax.dates.date import Date
 from dal_jax.errors import script_error
 from dal_jax.mc.engine import MonteCarloEngine, PathProduct
-from dal_jax.mc.risk import BumpOverAADRequest
+from dal_jax.mc.risk import BumpOverAADRequest, validate_request_metadata
 from dal_jax.mc.settings import MonteCarloSettings
 from dal_jax.models import BlackScholes
 from dal_jax.script.fixings import ValuationSettings, resolve_valuation
@@ -540,6 +540,9 @@ def _validated_bumps(bumps, n_inputs) -> tuple[list[float], list[list[float]]]:
             f"InvalidSegmentedMonteCarloRequest: BlackScholesMonteCarlo_Get_Curvature; bumps; "
             f"type={type(bumps).__name__}; expected BumpOverAADRequest_"
         )
+    #  Native type-checks the capacity budgets in the constructor; our request
+    #  is a plain dataclass, so the checks ride along with its content checks.
+    validate_request_metadata(bumps)
     steps = _validated_steps(bumps.steps)
     directions = _validated_directions(bumps.directions, len(steps), n_inputs)
     return steps, directions
