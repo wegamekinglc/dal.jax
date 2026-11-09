@@ -83,3 +83,17 @@ dal_jax-only edges.
 
 CHANGELOG entry including the instrument-factory/definition exclusion
 rationale.
+
+## Implementation notes (as built, 2026-11-09)
+
+The trade-axis guard has two distinct causes, both wrapped in the
+trade-context message and raised before any selector validation: a
+product with neither PAYS nor EXERCISE fails the guard's own check
+(`cause=product must contain a PAYS or EXERCISE payoff`), while
+EXERCISE-without-PAYS passes it and is rejected by the delegated
+risk-output axis (`cause=InvalidWeightedRiskRequest: indexed scalar
+default receiver is required; output=payoff`, verbatim). The
+exercise/expired guard message omits native's
+`InvalidPortfolioPreparation: trade=<id>; cause=...` wrapper and raises
+the bare inner `UnsupportedPortfolioRisk: ...` code, consistent with the
+PR-#9 convention of matching native's final error line.

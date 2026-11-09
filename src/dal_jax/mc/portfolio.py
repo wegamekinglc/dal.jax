@@ -234,9 +234,13 @@ def _string_ids(trade_ids) -> list:
 
 
 def _typed_elements(values, ids, expected, cls, field: str) -> None:
-    """Per-element type check naming the offending trade, as native's bindings."""
+    """Per-element type check naming the offending trade, as native's bindings.
+
+    Callers must already have verified equal lengths (native's bindings check
+    the three lengths before per-element conversion of products/modelData).
+    """
     for position, value in enumerate(values):
-        if position < len(ids) and not isinstance(value, cls):
+        if not isinstance(value, cls):
             raise script_error(
                 f"InvalidScriptPortfolio: ScriptPortfolio_New; trade={ids[position]}; {field}; "
                 f"type={_native_type_name(value)}{_described(value)}; expected {expected}"
@@ -287,9 +291,9 @@ def ScriptPortfolio_New(trade_ids, products, model_data) -> ScriptPortfolioData:
     ids = _string_ids(trade_ids)
     prods = _sequence(products, "products")
     models = _sequence(model_data, "modelData")
+    _require_equal_lengths(ids, prods, models)
     _typed_elements(prods, ids, "ScriptProductData_", ScriptProductData, "products")
     _typed_elements(models, ids, "ModelData_", Model, "modelData")
-    _require_equal_lengths(ids, prods, models)
     _require_unique_ids(ids)
     return ScriptPortfolioData(ids, prods, models, _owner_indices(models))
 
@@ -431,6 +435,10 @@ def _portfolio_output_axis(position: int, outputs) -> list[RiskOutputCoordinate]
     ]
 
 
+class _NoPayoffTrade(Exception):
+    """A trade with neither PAYS nor EXERCISE; native's first-party axis check."""
+
+
 class _TradePlan:
     """One trade's output coordinates, constant coordinates and axis columns."""
 
@@ -439,6 +447,8 @@ class _TradePlan:
         self.owner = owner
         product = data.product()
         product.index_variables()
+        if not (product.has_pays or product.has_exercise):
+            raise _NoPayoffTrade("product must contain a PAYS or EXERCISE payoff")
         self.outputs = _portfolio_output_axis(position, payoff_outputs(data))
         self.constants = _constant_axis(
             position, zip(product.vars.const_names, product.vars.const_values)
@@ -451,8 +461,11 @@ def _trade_axes(portfolio, owner_models):
     """Every trade's plan plus the concatenated portfolio input axis.
 
     Owner parameter blocks come first in owner order, then each trade's
-    constants in trade order.  A product with no scalar payoff raises native's
-    trade-indexing error (naming the trade), before any selector validation.
+    constants in trade order.  A product with no PAYS or EXERCISE raises the
+    axis guard's own cause; an EXERCISE-without-PAYS product passes that check
+    but the delegated risk-output axis rejects it, so its cause is the
+    delegated message verbatim — both wrapped with the trade context, before
+    any selector validation.
     """
     owner_coordinates = {
         owner: _owner_axis(owner, model) for owner, model in enumerate(owner_models)
@@ -461,11 +474,10 @@ def _trade_axes(portfolio, owner_models):
     for position, (data, owner) in enumerate(zip(portfolio.products, portfolio.model_owners)):
         try:
             trades.append(_TradePlan(position, data, owner))
-        except InvalidWeightedRiskRequest as error:
+        except (InvalidWeightedRiskRequest, _NoPayoffTrade) as error:
             raise script_error(
                 f"InvalidScriptPortfolio: trade axes cannot be indexed; field=products; "
-                f"trade={portfolio.trade_ids[position]}; "
-                "cause=product must contain a PAYS or EXERCISE payoff"
+                f"trade={portfolio.trade_ids[position]}; cause={error}"
             ) from error
     axis, owner_offsets = [], {}
     for owner in sorted(owner_coordinates):

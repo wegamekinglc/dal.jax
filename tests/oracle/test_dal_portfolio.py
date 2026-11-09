@@ -1216,7 +1216,10 @@ def test_portfolio_guards_exercise_and_expired_trades(dal):
 def test_portfolio_receiverless_trades_fail_at_axis_indexing(dal):
     vector_only = ([(2024, 1, 2)], ["APPEND(v,SPOT())"])
     empty = ([], [])
-    for spec in (vector_only, empty):
+    scalar_only = ([(2024, 1, 2)], ["p = 1"])
+    #  Native's IndexTradeAxes makes its own has-PAYS-or-EXERCISE check (the
+    #  "must contain" cause) before delegating to the risk-output axis.
+    for spec in (vector_only, empty, scalar_only):
         ours = _ours_portfolio([spec, SIMPLE], _ours_models(_MODEL, _MODEL2))
         theirs = _native_portfolio(dal, [spec, SIMPLE], _native_models(dal, _MODEL, _MODEL2))
         with pytest.raises(RuntimeError, match="product must contain a PAYS or EXERCISE payoff"):
@@ -1224,12 +1227,91 @@ def test_portfolio_receiverless_trades_fail_at_axis_indexing(dal):
         with pytest.raises(InvalidScriptPortfolio, match=re.escape(_RECEIVERLESS)) as error:
             _ours_jacobian(ours)
         assert str(error.value) == _RECEIVERLESS
-    #  Axis indexing precedes selector validation, as in native.
+    #  Axis indexing precedes selector validation (both selectors), as in native.
+    for selector in ({"inputs": ["nonsense"]}, {"outputs": ["nonsense"]}):
+        with pytest.raises(InvalidScriptPortfolio, match=re.escape(_RECEIVERLESS)):
+            _ours_jacobian(
+                _ours_portfolio([scalar_only, SIMPLE], _ours_models(_MODEL, _MODEL2)),
+                request=PortfolioJacobianRiskRequest_(**selector),
+            )
     with pytest.raises(InvalidScriptPortfolio, match=re.escape(_RECEIVERLESS)):
-        _ours_jacobian(
-            _ours_portfolio([vector_only, SIMPLE], _ours_models(_MODEL, _MODEL2)),
-            request=PortfolioJacobianRiskRequest_(inputs=["nonsense"]),
-        )
+        _ours_weighted(_ours_portfolio([scalar_only, SIMPLE], _ours_models(_MODEL, _MODEL2)))
+
+
+def test_portfolio_exercise_without_pays_delegates_receiverless_cause(dal):
+    #  EXERCISE without PAYS passes the axis guard's own check but the delegated
+    #  risk-output axis rejects it; the cause is the delegated message verbatim.
+    exercise_only = ([(2024, 1, 2)], ["s = 1\nexercise s"])
+    message = (
+        "InvalidScriptPortfolio: trade axes cannot be indexed; field=products; trade=t1; "
+        "cause=InvalidWeightedRiskRequest: indexed scalar default receiver is required; "
+        "output=payoff"
+    )
+    ours = _ours_portfolio([exercise_only, SIMPLE], _ours_models(_MODEL, _MODEL2))
+    theirs = _native_portfolio(dal, [exercise_only, SIMPLE], _native_models(dal, _MODEL, _MODEL2))
+    with pytest.raises(RuntimeError, match="indexed scalar default receiver is required"):
+        _theirs_jacobian(dal, theirs)
+    with pytest.raises(InvalidScriptPortfolio, match=re.escape(message)) as error:
+        _ours_jacobian(ours)
+    assert str(error.value) == message
+    with pytest.raises(RuntimeError, match="indexed scalar default receiver is required"):
+        _theirs_weighted(dal, theirs)
+    with pytest.raises(InvalidScriptPortfolio, match=re.escape(message)):
+        _ours_weighted(ours)
+    #  Still an axis-time failure: it wins over a bad input selector.
+    with pytest.raises(InvalidScriptPortfolio, match=re.escape(message)):
+        _ours_jacobian(ours, request=PortfolioJacobianRiskRequest_(inputs=["nonsense"]))
+
+
+def test_script_portfolio_length_precedes_element_checks(dal):
+    #  The equal-length check precedes the per-element product/model checks,
+    #  while trade_ids' own element checks precede the length check.
+    ours_products = _ours_products([SIMPLE] * 3)
+    theirs_products = _native_products(dal, [SIMPLE] * 3)
+    ours_models = _ours_models(_MODEL, _MODEL, _MODEL)
+    theirs_models = _native_models(dal, _MODEL, _MODEL, _MODEL)
+    length_error = (
+        "InvalidScriptPortfolio: trade_ids, products and modelData must have equal nonzero lengths"
+    )
+    #  Each case pairs unequal lengths with a bad in-range element on one side.
+    cases = [
+        (
+            ["t1", "t2"],
+            theirs_products,
+            [theirs_models[0], 42],
+            ours_products,
+            [ours_models[0], 42],
+        ),
+        (
+            ["t1", "t2"],
+            [theirs_products[0], 42, theirs_products[2]],
+            theirs_models[:2],
+            [ours_products[0], 42, ours_products[2]],
+            ours_models[:2],
+        ),
+        (
+            ["t1", "t2"],
+            [theirs_products[0], 42],
+            theirs_models,
+            [ours_products[0], 42],
+            ours_models,
+        ),
+    ]
+    for ids, theirs_prods, theirs_mods, ours_prods, ours_mods in cases:
+        with pytest.raises(RuntimeError, match="equal nonzero lengths"):
+            dal.ScriptPortfolio_New(ids, theirs_prods, theirs_mods)
+        with pytest.raises(InvalidScriptPortfolio, match=re.escape(length_error)) as error:
+            ScriptPortfolio_New(ids, ours_prods, ours_mods)
+        assert str(error.value) == length_error
+    id_error = (
+        "InvalidScriptPortfolio: ScriptPortfolio_New; trade_ids; "
+        "type=int, value=2; expected str or DAL String_ without NUL"
+    )
+    with pytest.raises(TypeError, match=re.escape(id_error)):
+        dal.ScriptPortfolio_New(["t1", 2], theirs_products, theirs_models)
+    with pytest.raises(InvalidScriptPortfolio, match=re.escape(id_error)) as error:
+        ScriptPortfolio_New(["t1", 2], ours_products, ours_models)
+    assert str(error.value) == id_error
 
 
 @pytest.mark.parametrize(
