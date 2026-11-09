@@ -1,6 +1,7 @@
 """Request-driven risk machinery mirroring DAL 2026.11.1's script risk API."""
 
 import math
+import numbers
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -224,8 +225,8 @@ def _selector_keys(selector, field, code, ctor) -> list[str]:
     for key in selector:
         if not isinstance(key, str):
             raise script_error(
-                f"{code}: {ctor}; {field}; type={type(key).__name__}, "
-                f"value={key!r}; expected str or DAL String_ without NUL"
+                f"{code}: {ctor}; {field}; type={type(key).__name__}{_described(key)}; "
+                "expected str or DAL String_ without NUL"
             )
     return list(selector)
 
@@ -246,6 +247,74 @@ def _request_codes(request):
         (codes for cls, codes in _REQUEST_CODES.items() if isinstance(request, cls)),
         ("InvalidRiskRequest", "RiskRequest_"),
     )
+
+
+def _described(value) -> str:
+    """Native's value segment: builtin scalars carry one, other objects do not.
+
+    The predicate is deliberately builtin-only: ``np.int64`` registers as
+    ``numbers.Integral`` but is no ``int``, and native omits the segment for it
+    (printing ``type=int64`` with no value), so ABC membership must not decide.
+    """
+    described = value is None or isinstance(value, (str, bool, int, float))
+    return f", value={value!r}" if described else ""
+
+
+_BUDGET_FIELDS = (
+    "numeric_payload_budget_bytes",
+    "recording_capacity_budget_bytes",
+    "scratch_capacity_budget_bytes",
+)
+
+
+def _factor_types(request) -> None:
+    """``report_factors`` must be a sequence of numbers, as native's constructor."""
+    raw = getattr(request, "report_factors", None)
+    if raw is None:
+        return
+    code, ctor = _request_codes(request)
+    if not isinstance(raw, (list, tuple)):
+        raise script_error(
+            f"{code}: {ctor}; report_factors; type={type(raw).__name__}{_described(raw)}; "
+            "expected list or tuple, or None"
+        )
+    for factor in raw:
+        if isinstance(factor, bool) or not isinstance(factor, (int, float)):
+            raise script_error(
+                f"{code}: {ctor}; report_factors; "
+                f"type={type(factor).__name__}{_described(factor)}; "
+                "expected int or float, excluding bool"
+            )
+
+
+def _budget_types(request) -> None:
+    """The capacity budgets must be nonnegative integers or None, as native's."""
+    for field in _BUDGET_FIELDS:
+        value = getattr(request, field, None)
+        if value is None:
+            continue
+        if isinstance(value, numbers.Integral) and not isinstance(value, bool) and value >= 0:
+            continue
+        code, ctor = _request_codes(request)
+        raise script_error(
+            f"{code}: {ctor}; {field}; type={type(value).__name__}{_described(value)}; "
+            "expected nonnegative size_t integer or None, excluding bool"
+        )
+
+
+def validate_request_metadata(request) -> None:
+    """Native's constructor-time type checks on a request's metadata fields.
+
+    Native validates ``report_factors`` and the capacity budgets when the
+    request object is built, before any product, selector, or path-count
+    validation; our requests are plain dataclasses, so the checks run here at
+    the valuation-time boundary where the request is first consumed.  Fields a
+    request class does not carry are absent (``getattr`` default) and skipped.
+    """
+    if request is None:
+        return
+    _factor_types(request)
+    _budget_types(request)
 
 
 def _selected(axis, selector, request) -> tuple[list[RiskCoordinate], list[int]]:
@@ -324,13 +393,13 @@ def _weights(request, count) -> list[float]:
     code, ctor = _request_codes(request)
     if not isinstance(raw, (list, tuple)):
         raise script_error(
-            f"{code}: {ctor}; weights; type={type(raw).__name__}, value={raw!r}; "
+            f"{code}: {ctor}; weights; type={type(raw).__name__}{_described(raw)}; "
             f"expected list or tuple, or None"
         )
     for weight in raw:
         if isinstance(weight, bool) or not isinstance(weight, (int, float)):
             raise script_error(
-                f"{code}: {ctor}; weights; type={type(weight).__name__}, value={weight!r}; "
+                f"{code}: {ctor}; weights; type={type(weight).__name__}{_described(weight)}; "
                 f"expected int or float, excluding bool"
             )
     if len(raw) != count:
@@ -380,6 +449,12 @@ def risk_result(prepared, data, model, settings, n_paths, request=None, method="
     """A :class:`RiskResult` with native-matching provenance for the AAD risk variant."""
     settings = replace(settings, enable_aad=True)
     n_paths = int(n_paths)
+    validate_request_metadata(request)
+    #  Native labels a fully expired product's method "Expired" (it still values
+    #  to zero, unlike the guarded variants, which reject expired products
+    #  before this point); only the plain variant ever sees one prepared).
+    if prepared.expired:
+        method = "Expired"
     engine = prepared.engine(model, settings)
     return RiskResult(
         provenance=_provenance(prepared, settings, n_paths, method, engine),
@@ -413,6 +488,7 @@ def jacobian_risk_result(
     """
     settings = replace(settings, enable_aad=True)
     n_paths = int(n_paths)
+    validate_request_metadata(request)
     outputs = payoff_outputs(data)
     #  Native validates the output selector before the input selector here.
     chosen_outputs, slots = _selected_outputs(outputs, getattr(request, "outputs", None), request)
@@ -449,6 +525,7 @@ def weighted_result(prepared, data, model, settings, n_paths, request=None, meth
     """
     settings = replace(settings, enable_aad=True)
     n_paths = int(n_paths)
+    validate_request_metadata(request)
     outputs = payoff_outputs(data)
     chosen_outputs, slots = _selected_outputs(outputs, getattr(request, "outputs", None), request)
     weights = _weights(request, len(chosen_outputs))

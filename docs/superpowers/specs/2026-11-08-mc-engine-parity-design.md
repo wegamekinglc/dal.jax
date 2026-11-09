@@ -146,3 +146,21 @@ Non-oracle unit tests pin dal-jax-only behaviour (filtering, errors).
 ## Documentation
 
 CHANGELOG entry; README API table gains the new entry points.
+
+## Implementation notes (as built, 2026-11-09)
+
+Section 1 planned to "record capacity/budget request fields in provenance
+(accepted, not enforced)".  As built, the request-level budget fields
+(`numeric_payload_budget_bytes`, `recording_capacity_budget_bytes`,
+`scratch_capacity_budget_bytes` on the risk requests and
+`BumpOverAADRequest_`) are type-validated at the valuation-time boundary
+with native's constructor messages but are neither recorded in any
+provenance nor enforced.  The only budget that surfaces is the
+plan-settings `recording_capacity_budget_bytes`, echoed into
+`MonteCarloCurvatureExecution_`.  Native, by contrast, enforces the
+recording budget before replay ("Tape capacity budget exceeded before
+replay [required=..., limit=...]"); the oracle tests keep their
+accepted-budget cases above those limits.  `report_factors` follows the
+same pattern: type-validated and otherwise ignored (native additionally
+requires the factor count to match the selected inputs and scales the
+reported Jacobian by them).

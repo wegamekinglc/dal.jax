@@ -10,7 +10,23 @@ from typing import NamedTuple
 from dal_jax.dates.date import Date
 from dal_jax.errors import InvalidPathCount, InvalidSetting, script_error
 from dal_jax.mc import MonteCarloSettings
-from dal_jax.mc.plan import SegmentedMonteCarloSettings
+from dal_jax.mc.plan import (
+    SegmentedMonteCarloSettings,
+    _check_path_count,
+    black_scholes_plan,
+    get_curvature,
+    get_risk,
+)
+from dal_jax.mc.portfolio import (
+    PortfolioJacobianRiskRequest,
+    PortfolioJacobianRiskResult,
+    PortfolioWeightedRiskRequest,
+    PortfolioWeightedRiskResult,
+    ScriptPortfolio_New,
+    ScriptPortfolioData,
+    portfolio_jacobian_result,
+    portfolio_weighted_result,
+)
 from dal_jax.mc.risk import (
     BumpOverAADRequest,
     JacobianRiskRequest,
@@ -43,6 +59,7 @@ from dal_jax.models.hybrid import (
     HybridLogDfRate,
     assemble_correlation,
 )
+from dal_jax.random.pseudorng import PseudoRSG
 from dal_jax.script import diagnostics
 from dal_jax.script.fixings import (
     FixingSnapshot,
@@ -389,6 +406,8 @@ def MonteCarlo_ValueWithSettings(product, model, n_paths, *, valuation=None, sim
 #  so isinstance matches the most specific request.  Mirrors mc.risk._REQUEST_CODES,
 #  which maps the same classes to their constructor-error codes and names.
 _REQUEST_NAMES = {
+    PortfolioJacobianRiskRequest: "PortfolioJacobianRiskRequest_",
+    PortfolioWeightedRiskRequest: "PortfolioWeightedRiskRequest_",
     JacobianRiskRequest: "JacobianRiskRequest_",
     WeightedRiskRequest: "WeightedRiskRequest_",
     BumpOverAADRequest: "BumpOverAADRequest_",
@@ -449,9 +468,47 @@ def MonteCarlo_ValueWithWeightedRisk(  # noqa: N802
     )
 
 
-def PseudoRSG_New(seed, ndim=1):  # noqa: N802
-    from dal_jax.random.pseudorng import PseudoRSG
+def PortfolioMonteCarlo_ValueWithJacobianRisk(  # noqa: N802
+    portfolio, n_paths, *, request=None, valuation=None, simulation=None
+) -> PortfolioJacobianRiskResult:
+    """Per-trade values and one concatenated Jacobian row per selected output."""
+    _check_path_count("PortfolioMonteCarlo_ValueWithJacobianRisk", n_paths)
+    _require_request_type(
+        request,
+        PortfolioJacobianRiskRequest,
+        "PortfolioMonteCarlo_ValueWithJacobianRisk",
+        "PortfolioJacobianRiskRequest_",
+    )
+    return portfolio_jacobian_result(
+        portfolio,
+        int(n_paths),
+        request=request,
+        valuation=valuation,
+        simulation=simulation,
+    )
 
+
+def PortfolioMonteCarlo_ValueWithWeightedRisk(  # noqa: N802
+    portfolio, n_paths, *, request=None, valuation=None, simulation=None
+) -> PortfolioWeightedRiskResult:
+    """Weight-aggregated portfolio view: one value and one Jacobian row."""
+    _check_path_count("PortfolioMonteCarlo_ValueWithWeightedRisk", n_paths)
+    _require_request_type(
+        request,
+        PortfolioWeightedRiskRequest,
+        "PortfolioMonteCarlo_ValueWithWeightedRisk",
+        "PortfolioWeightedRiskRequest_",
+    )
+    return portfolio_weighted_result(
+        portfolio,
+        int(n_paths),
+        request=request,
+        valuation=valuation,
+        simulation=simulation,
+    )
+
+
+def PseudoRSG_New(seed, ndim=1):  # noqa: N802
     return PseudoRSG(seed, ndim)
 
 
@@ -459,8 +516,6 @@ def BlackScholesMonteCarloPlan_New(  # noqa: N802
     product: ScriptProductData, *, valuation=None, smoothing: float = 0.01
 ):
     """Prepare a script product once for revaluation at Black-Scholes model points."""
-    from dal_jax.mc.plan import black_scholes_plan
-
     return black_scholes_plan(product, valuation=valuation, smoothing=smoothing)
 
 
@@ -468,8 +523,6 @@ def BlackScholesMonteCarlo_Get_Risk(  # noqa: N802
     plan, point, num_path: int, *, settings=None
 ):
     """Value and differentiate a plan at one model point, as native Get_Risk."""
-    from dal_jax.mc.plan import get_risk
-
     return get_risk(plan, point, num_path, settings=settings)
 
 
@@ -477,8 +530,6 @@ def BlackScholesMonteCarlo_Get_Curvature(  # noqa: N802
     plan, point, num_path: int, bumps, *, settings=None
 ):
     """Bump-over-AAD curvature of a plan at one model point, as native Get_Curvature."""
-    from dal_jax.mc.plan import get_curvature
-
     return get_curvature(plan, point, num_path, bumps, settings=settings)
 
 
@@ -496,6 +547,9 @@ RiskRequest_ = RiskRequest
 JacobianRiskRequest_ = JacobianRiskRequest
 WeightedRiskRequest_ = WeightedRiskRequest
 BumpOverAADRequest_ = BumpOverAADRequest
+ScriptPortfolioData_ = ScriptPortfolioData
+PortfolioJacobianRiskRequest_ = PortfolioJacobianRiskRequest
+PortfolioWeightedRiskRequest_ = PortfolioWeightedRiskRequest
 SegmentedMonteCarloSettings_ = SegmentedMonteCarloSettings
 
 
@@ -592,6 +646,14 @@ __all__ += (
     "MonteCarlo_ValueWithRisk",
     "MonteCarlo_ValueWithJacobianRisk",
     "MonteCarlo_ValueWithWeightedRisk",
+)
+__all__ += (
+    "ScriptPortfolio_New",
+    "ScriptPortfolioData_",
+    "PortfolioJacobianRiskRequest_",
+    "PortfolioWeightedRiskRequest_",
+    "PortfolioMonteCarlo_ValueWithJacobianRisk",
+    "PortfolioMonteCarlo_ValueWithWeightedRisk",
 )
 __all__ += (
     "BlackScholesMonteCarloPlan_New",

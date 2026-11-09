@@ -3,6 +3,7 @@
 import math
 import re
 
+import jax
 import numpy as np
 import pytest
 
@@ -271,6 +272,21 @@ def test_get_risk_matches_native(dal, point):
     assert ours.execution.path_count == theirs.execution.path_count == 1024
     for field in EXECUTION_ECHO_FIELDS:
         assert getattr(ours.execution, field) == getattr(theirs.execution, field), field
+
+
+def test_get_risk_execution_lanes_report_the_device_count(dal):
+    #  Native's lanes is its thread-lane parallelism, capped by its worker
+    #  count and never exceeding its batches; this engine's analogue is the
+    #  resolved device count of the block layout, so the field is
+    #  engine-specific (like the max_path_*_bytes telemetry) rather than an
+    #  echo of batches.
+    dates, events = [(2024, 1, 2)], ["p pays spot()"]
+    point = [100.0, 0.2, 0.03, 0.01]
+    ours = BlackScholesMonteCarlo_Get_Risk(_ours(dates, events), point, 4096)
+    theirs = dal.BlackScholesMonteCarlo_Get_Risk(_theirs(dal, dates, events), list(point), 4096)
+    assert ours.execution.lanes == len(jax.local_devices())
+    assert 1 <= ours.execution.lanes <= ours.execution.batches
+    assert 1 <= theirs.execution.lanes <= theirs.execution.batches
 
 
 @pytest.mark.parametrize("strike", [100.0, 95.0])
@@ -586,8 +602,8 @@ def test_get_risk_rejects_wrong_settings_type(dal):
         )
 
 
-def _bumps(rows, steps):
-    return BumpOverAADRequest_(directions=[list(row) for row in rows], steps=list(steps))
+def _bumps(rows, steps, **budgets):
+    return BumpOverAADRequest_(directions=[list(row) for row in rows], steps=list(steps), **budgets)
 
 
 def _native_bumps(dal, rows, steps):
@@ -719,6 +735,69 @@ def test_curvature_rejects_a_non_request_bumps(dal):
         dal.BlackScholesMonteCarlo_Get_Curvature(_theirs(dal, dates, events), point, 64, (0.01,))
     with _raises_ours(message):
         BlackScholesMonteCarlo_Get_Curvature(_ours(dates, events), point, 64, (0.01,))
+
+
+BUMP_BUDGET_ERRORS = [
+    pytest.param(
+        "numeric_payload_budget_bytes",
+        "x",
+        "numeric_payload_budget_bytes; type=str, value='x'; "
+        "expected nonnegative size_t integer or None, excluding bool",
+        id="numeric-budget-string",
+    ),
+    pytest.param(
+        "recording_capacity_budget_bytes",
+        True,
+        "recording_capacity_budget_bytes; type=bool, value=True; "
+        "expected nonnegative size_t integer or None, excluding bool",
+        id="recording-budget-bool",
+    ),
+    pytest.param(
+        "numeric_payload_budget_bytes",
+        -1,
+        "numeric_payload_budget_bytes; type=int, value=-1; "
+        "expected nonnegative size_t integer or None, excluding bool",
+        id="numeric-budget-negative",
+    ),
+]
+
+
+@pytest.mark.parametrize(("field", "value", "detail"), BUMP_BUDGET_ERRORS)
+def test_curvature_rejects_bad_request_budgets(dal, field, value, detail):
+    #  Native type-checks the budgets in the constructor (pybind TypeError; the
+    #  core's RuntimeError for negative integers), ours at the curvature call.
+    dates, events = [(2024, 1, 2)], ["p pays spot()"]
+    point = [100.0, 0.2, 0.03, 0.01]
+    rows, steps = [[1.0, 0.0, 0.0, 0.0]], [0.01]
+    message = f"InvalidCurvatureRequest: BumpOverAADRequest_; {detail}"
+    with _raises_native(message):
+        dal.BumpOverAADRequest_(directions=dal.DoubleMatrix_(rows), steps=steps, **{field: value})
+    with _raises_ours(message):
+        BlackScholesMonteCarlo_Get_Curvature(
+            _ours(dates, events), point, 64, _bumps(rows, steps, **{field: value})
+        )
+
+
+def test_curvature_accepts_typed_request_budgets(dal):
+    #  A large budget stays under native's tape-capacity enforcement; ours
+    #  accepts the field and the curvature numbers are unchanged.
+    dates, events = [(2024, 1, 2)], ["p pays MAX(spot()-100.0,0)"]
+    point = [100.0, 0.2, 0.03, 0.01]
+    rows, steps = [[1.0, 0.0, 0.0, 0.0]], [1.0]
+    budgets = {"numeric_payload_budget_bytes": 2**32, "recording_capacity_budget_bytes": 2**32}
+    ours = BlackScholesMonteCarlo_Get_Curvature(
+        _ours(dates, events), point, 1024, _bumps(rows, steps, **budgets)
+    )
+    theirs = dal.BlackScholesMonteCarlo_Get_Curvature(
+        _theirs(dal, dates, events),
+        point,
+        1024,
+        dal.BumpOverAADRequest_(directions=dal.DoubleMatrix_(rows), steps=steps, **budgets),
+    )
+    np.testing.assert_allclose(
+        ours.hessian_products, theirs.hessian_products.to_rows(), rtol=1e-9, atol=1e-12
+    )
+    assert ours.base.value == pytest.approx(theirs.base.value, rel=1e-11)
 
 
 def test_curvature_validates_bumped_points(dal):

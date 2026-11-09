@@ -160,6 +160,26 @@ class InvalidCurvatureRequest(ScriptError):
     code = "InvalidCurvatureRequest"
 
 
+class InvalidScriptPortfolio(ScriptError):
+    code = "InvalidScriptPortfolio"
+
+
+class InvalidPortfolioRiskRequest(ScriptError):
+    code = "InvalidPortfolioRiskRequest"
+
+
+class InvalidPortfolioJacobianRequest(ScriptError):
+    code = "InvalidPortfolioJacobianRequest"
+
+
+class InvalidPortfolioWeightedRequest(ScriptError):
+    code = "InvalidPortfolioWeightedRequest"
+
+
+class UnsupportedPortfolioRisk(ScriptError):
+    code = "UnsupportedPortfolioRisk"
+
+
 class PreparationRequired(ScriptError):
     code = "PreparationRequired"
 
@@ -290,6 +310,11 @@ _SCRIPT_CODES = MappingProxyType(
             UnsupportedJacobianRisk,
             UnsupportedWeightedRisk,
             InvalidCurvatureRequest,
+            InvalidScriptPortfolio,
+            InvalidPortfolioRiskRequest,
+            InvalidPortfolioJacobianRequest,
+            InvalidPortfolioWeightedRequest,
+            UnsupportedPortfolioRisk,
             PreparationRequired,
             UnboundHistoricalSpot,
             LookAheadObservation,

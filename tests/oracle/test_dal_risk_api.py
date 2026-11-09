@@ -1,6 +1,7 @@
 """Request-driven risk API parity with dal-python 2026.11.1."""
 
 import dataclasses
+import re
 
 import numpy as np
 import pytest
@@ -342,6 +343,173 @@ def test_value_with_risk_validates_input_selector_types(dal, selector, detail):
     with pytest.raises(InvalidRiskRequest, match=message) as error:
         _ours(dates, events, request=RiskRequest_(inputs=selector))
     assert str(error.value) == message
+
+
+#  Native validates request metadata (report_factors, capacity budgets) in the
+#  constructor with these exact messages; ours accepts the plain dataclass and
+#  raises the same message at the valuation-time boundary.
+METADATA_VARIANTS = [
+    pytest.param("risk", InvalidRiskRequest, "RiskRequest_", id="risk"),
+    pytest.param("jacobian", InvalidJacobianRiskRequest, "JacobianRiskRequest_", id="jacobian"),
+    pytest.param("weighted", InvalidWeightedRiskRequest, "WeightedRiskRequest_", id="weighted"),
+]
+
+METADATA_ERRORS = [
+    pytest.param(
+        "report_factors",
+        "x",
+        "report_factors; type=str, value='x'; expected list or tuple, or None",
+        id="factors-string",
+    ),
+    pytest.param(
+        "report_factors",
+        True,
+        "report_factors; type=bool, value=True; expected list or tuple, or None",
+        id="factors-bool",
+    ),
+    pytest.param(
+        "report_factors",
+        {"a": 1},
+        "report_factors; type=dict; expected list or tuple, or None",
+        id="factors-dict",
+    ),
+    pytest.param(
+        "report_factors",
+        ["a"],
+        "report_factors; type=str, value='a'; expected int or float, excluding bool",
+        id="factors-element-string",
+    ),
+    pytest.param(
+        "report_factors",
+        [[1.0]],
+        "report_factors; type=list; expected int or float, excluding bool",
+        id="factors-element-list",
+    ),
+    pytest.param(
+        "numeric_payload_budget_bytes",
+        "x",
+        "numeric_payload_budget_bytes; type=str, value='x'; "
+        "expected nonnegative size_t integer or None, excluding bool",
+        id="numeric-budget-string",
+    ),
+    pytest.param(
+        "numeric_payload_budget_bytes",
+        1.5,
+        "numeric_payload_budget_bytes; type=float, value=1.5; "
+        "expected nonnegative size_t integer or None, excluding bool",
+        id="numeric-budget-float",
+    ),
+    pytest.param(
+        "numeric_payload_budget_bytes",
+        -1,
+        "numeric_payload_budget_bytes; type=int, value=-1; "
+        "expected nonnegative size_t integer or None, excluding bool",
+        id="numeric-budget-negative",
+    ),
+    pytest.param(
+        "numeric_payload_budget_bytes",
+        {"a": 1},
+        "numeric_payload_budget_bytes; type=dict; "
+        "expected nonnegative size_t integer or None, excluding bool",
+        id="numeric-budget-dict",
+    ),
+]
+
+JACOBIAN_BUDGET_ERRORS = [
+    pytest.param(
+        "recording_capacity_budget_bytes",
+        "x",
+        "recording_capacity_budget_bytes; type=str, value='x'; "
+        "expected nonnegative size_t integer or None, excluding bool",
+        id="recording-budget-string",
+    ),
+    pytest.param(
+        "scratch_capacity_budget_bytes",
+        -1,
+        "scratch_capacity_budget_bytes; type=int, value=-1; "
+        "expected nonnegative size_t integer or None, excluding bool",
+        id="scratch-budget-negative",
+    ),
+]
+
+
+def _request_of(variant, **kwargs):
+    cls = {
+        "risk": RiskRequest_,
+        "jacobian": JacobianRiskRequest_,
+        "weighted": WeightedRiskRequest_,
+    }[variant]
+    return cls(**kwargs)
+
+
+def _native_request_of(dal, variant, **kwargs):
+    cls = {
+        "risk": dal.RiskRequest_,
+        "jacobian": dal.JacobianRiskRequest_,
+        "weighted": dal.WeightedRiskRequest_,
+    }[variant]
+    return cls(**kwargs)
+
+
+def _value_with(variant, request):
+    dates, events = [(2024, 1, 2)], ["p pays spot()"]
+    if variant == "jacobian":
+        return _ours_jacobian(dates, events, 64, request=request)
+    if variant == "weighted":
+        return _ours_weighted(dates, events, 64, request=request)
+    return _ours(dates, events, 64, request=request)
+
+
+def _native_value_with(dal, variant, request):
+    dates, events = [(2024, 1, 2)], ["p pays spot()"]
+    if variant == "jacobian":
+        return _theirs_jacobian(dal, dates, events, 64, request=request)
+    if variant == "weighted":
+        return _theirs_weighted(dal, dates, events, 64, request=request)
+    return _theirs(dal, dates, events, 64, request=request)
+
+
+@pytest.mark.parametrize(("variant", "error_class", "ctor"), METADATA_VARIANTS)
+@pytest.mark.parametrize(("field", "value", "detail"), METADATA_ERRORS)
+def test_risk_requests_reject_bad_metadata_types(
+    dal, variant, error_class, ctor, field, value, detail
+):
+    message = f"{error_class.code}: {ctor}; {detail}"
+    #  Native raises at construction (pybind TypeError; the core's RuntimeError
+    #  for negative integers), ours at the valuation boundary.
+    with pytest.raises((RuntimeError, TypeError), match=re.escape(message)):
+        _native_request_of(dal, variant, **{field: value})
+    with pytest.raises(error_class, match=re.escape(message)) as error:
+        _value_with(variant, _request_of(variant, **{field: value}))
+    assert str(error.value) == message
+
+
+@pytest.mark.parametrize(("field", "value", "detail"), JACOBIAN_BUDGET_ERRORS)
+def test_jacobian_request_rejects_bad_capacity_budgets(dal, field, value, detail):
+    message = f"InvalidJacobianRiskRequest: JacobianRiskRequest_; {detail}"
+    with pytest.raises((RuntimeError, TypeError), match=re.escape(message)):
+        _native_request_of(dal, "jacobian", **{field: value})
+    with pytest.raises(InvalidJacobianRiskRequest, match=re.escape(message)) as error:
+        _value_with("jacobian", _request_of("jacobian", **{field: value}))
+    assert str(error.value) == message
+
+
+@pytest.mark.parametrize(("variant", "error_class", "ctor"), METADATA_VARIANTS)
+def test_risk_requests_accept_typed_metadata(dal, variant, error_class, ctor):
+    #  All-ones factors keep native's reported jacobian unscaled, and large
+    #  enough budgets stay under native's tape-capacity enforcement; ours
+    #  accepts the fields and changes nothing, so results stay at full parity.
+    kwargs = {"report_factors": [1.0, 1, 1.0, 1], "numeric_payload_budget_bytes": 2**32}
+    if variant == "jacobian":
+        kwargs["recording_capacity_budget_bytes"] = 2**32
+        kwargs["scratch_capacity_budget_bytes"] = 2**32
+    ours = _value_with(variant, _request_of(variant, **kwargs))
+    theirs = _native_value_with(dal, variant, _native_request_of(dal, variant, **kwargs))
+    np.testing.assert_allclose(
+        ours.values if variant != "weighted" else [ours.weighted_value],
+        theirs.values if variant != "weighted" else [theirs.weighted_value],
+        rtol=1e-9,
+    )
 
 
 def _assert_jacobian_parity(ours, theirs, *, rtol=1e-9):
@@ -729,6 +897,59 @@ def test_weighted_risk_matches_native(dal):
     assert sorted(f.name for f in dataclasses.fields(ours)) == sorted(
         attr for attr in dir(theirs) if not attr.startswith("_")
     )
+
+
+#  The value segment in native's messages covers builtin scalars only: numpy
+#  integers print their pybind type name (int64) with no ", value=" segment.
+NUMPY_TYPE_ERRORS = [
+    pytest.param(
+        "report_factors",
+        [np.int64(2)],
+        "InvalidRiskRequest: RiskRequest_; report_factors; type=int64; "
+        "expected int or float, excluding bool",
+        id="factors-element",
+    ),
+    pytest.param(
+        "inputs",
+        [np.int64(1)],
+        "InvalidRiskRequest: RiskRequest_; inputs; type=int64; "
+        "expected str or DAL String_ without NUL",
+        id="inputs-element",
+    ),
+]
+
+
+@pytest.mark.parametrize(("field", "value", "message"), NUMPY_TYPE_ERRORS)
+def test_risk_messages_skip_non_builtin_scalars(dal, field, value, message):
+    with pytest.raises((RuntimeError, TypeError), match=re.escape(message)):
+        _theirs(
+            dal, [(2024, 1, 2)], ["p pays spot()"], 64, request=dal.RiskRequest_(**{field: value})
+        )
+    with pytest.raises(InvalidRiskRequest, match=re.escape(message)) as error:
+        _ours(
+            [(2024, 1, 2)],
+            ["p pays spot()"],
+            64,
+            request=RiskRequest_(**{field: value}),
+        )
+    assert str(error.value) == message
+    weighted = "InvalidWeightedRiskRequest: WeightedRiskRequest_; weights; type=int64; expected int or float, excluding bool"
+    with pytest.raises(TypeError, match=re.escape(weighted)):
+        _theirs_weighted(
+            dal,
+            [(2024, 1, 2)],
+            ["p pays spot()"],
+            64,
+            request=dal.WeightedRiskRequest_(weights=[np.int64(1)]),
+        )
+    with pytest.raises(InvalidWeightedRiskRequest, match=re.escape(weighted)) as error:
+        _ours_weighted(
+            [(2024, 1, 2)],
+            ["p pays spot()"],
+            64,
+            request=WeightedRiskRequest_(weights=[np.int64(1)]),
+        )
+    assert str(error.value) == weighted
 
 
 def test_weighted_risk_scales_with_weights(dal):
@@ -1142,8 +1363,7 @@ def test_expired_exercise_products_raise_the_exercise_guard_before_binding(
 
 def test_value_with_risk_has_no_product_guards(dal):
     #  The plain AAD variant values fully expired products (to zero) instead of
-    #  rejecting them, exactly like native.  Provenance is not compared here:
-    #  native labels the method "Expired", ours still says "NativeAAD".
+    #  rejecting them, exactly like native, and labels the method "Expired".
     dates, events = [(2022, 1, 15)], ["p pays 1.0"]
     ours = _ours(dates, events, 64)
     theirs = _theirs(dal, dates, events, 64)
@@ -1151,3 +1371,8 @@ def test_value_with_risk_has_no_product_guards(dal):
     np.testing.assert_allclose(
         np.asarray(ours.jacobian), np.asarray(theirs.jacobian.to_rows()), rtol=1e-9, atol=1e-12
     )
+    assert ours.provenance.method == theirs.provenance.method == "Expired"
+    #  Partly expired products keep the regular method: only fully expired
+    #  ones (every event date strictly before the valuation date) short-circuit.
+    live = _theirs(dal, [(2022, 1, 15), (2024, 1, 2)], ["a = 1", "a pays 1.0"], 64)
+    assert live.provenance.method == "NativeAAD"
