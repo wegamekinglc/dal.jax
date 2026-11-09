@@ -284,6 +284,30 @@ class InvalidDupireInput(DalError):
     code = "InvalidDupireInput"
 
 
+class InvalidDupireRiskRequest(DalError):
+    """Dupire script-risk request/plan errors, as native ``InvalidDupireRiskRequest``."""
+
+    code = "InvalidDupireRiskRequest"
+
+
+class InvalidCalibrationRiskRequest(DalError):
+    """Calibration quote-selection errors, as native ``InvalidCalibrationRiskRequest``."""
+
+    code = "InvalidCalibrationRiskRequest"
+
+
+class CalibrationRiskBudgetExceeded(DalError):
+    """Numeric payload budgets exceeded, as native ``CalibrationRiskBudgetExceeded``."""
+
+    code = "CalibrationRiskBudgetExceeded"
+
+
+class DupireSnapshotMismatch(DalError):
+    """Snapshot/model disagreements, as native ``DupireSnapshotMismatch``."""
+
+    code = "DupireSnapshotMismatch"
+
+
 class InvalidRandomSequence(DalError):
     code = "InvalidRandomSequence"
 

@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 from dal_jax.errors import (
+    DupireSnapshotMismatch,
     InvalidDupireCalibration,
     InvalidDupireInput,
     InvalidDupirePullback,
@@ -800,4 +801,263 @@ def calibrate_dupire(base, inputs, name=""):
         surface=LocalVolSurface(name=label, spots=spots, times=times, vols=vols),
         base_samples=tuple(sorted(samples.items())),
         bands=tuple(bands),
+    )
+
+
+#  ---------------------------------------------------------------------------
+#  The quote pullback: the analytic VJP of the calibration through the frozen
+#  base, mirroring native PullbackDupireCalibration's AAD replay.  The frozen
+#  implied volatilities are constants; quote spreads enter only through the
+#  bilinear RiskView interpolation, so the adjoint chain is the call vega, the
+#  Dupire stencil partials and the interpolation weights.
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DupireParameterAdjoints:
+    """Surface-node seeds, mirroring native ``DupireParameterAdjoints_``."""
+
+    calibration: DupireCalibrationSnapshot
+    adjoints: tuple
+
+    def __post_init__(self):
+        if not isinstance(self.calibration, DupireCalibrationSnapshot):
+            raise InvalidDupirePullback(
+                _input_context(
+                    self.calibration, "DupireAdjoints; calibration", "DupireCalibrationSnapshot_"
+                )
+            )
+        object.__setattr__(self, "adjoints", _adjoints_matrix(self.adjoints))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DupireDirectQuoteAdjoints:
+    """Additive quote-space seeds, mirroring native ``DupireDirectQuoteAdjoints_``."""
+
+    calibration: DupireCalibrationSnapshot
+    adjoints: tuple
+
+    def __post_init__(self):
+        if not isinstance(self.calibration, DupireCalibrationSnapshot):
+            raise InvalidDupirePullback(
+                _input_context(
+                    self.calibration, "DupireAdjoints; calibration", "DupireCalibrationSnapshot_"
+                )
+            )
+        object.__setattr__(self, "adjoints", _adjoints_matrix(self.adjoints))
+
+
+@dataclass(frozen=True, slots=True)
+class DupireQuoteRisk:
+    """Quote-space adjoints, mirroring native ``DupireQuoteRisk_``."""
+
+    calibration: DupireCalibrationSnapshot
+    calibration_adjoints: tuple
+    direct_adjoints: tuple
+    total_adjoints: tuple
+
+    method = "NativeAADCalibrationVJP"
+    unit = "decimal-vol"
+    boundary = "FixedBaseIVSDeterministicCarryFixedGrids"
+
+
+def _adjoints_matrix(value):
+    """Native RequiredInput<DoubleMatrix_>: nested numeric rows; shape checked later."""
+    if not isinstance(value, (list, tuple)) or not all(
+        isinstance(row, (list, tuple)) for row in value
+    ):
+        raise InvalidDupirePullback(
+            _input_context(value, "DupireAdjoints; adjoints", "DoubleMatrix_")
+        )
+    rows = []
+    for row in value:
+        converted = []
+        for item in row:
+            if isinstance(item, bool) or not isinstance(item, (int, float)):
+                raise InvalidDupirePullback(
+                    _input_context(item, "DupireAdjoints; adjoints", "DoubleMatrix_")
+                )
+            converted.append(float(item))
+        rows.append(tuple(converted))
+    return tuple(rows)
+
+
+def _npdf(z):
+    return 0.0 if z < -10.0 or 10.0 < z else math.exp(-0.5 * z * z) / _SQRT_2_PI
+
+
+def _call_vega(carry, strike, maturity, vol):
+    """The native call's derivative with respect to its bumped implied volatility."""
+    spot, rate, dividend = carry
+    forward = spot * math.exp((rate - dividend) * maturity)
+    discount = math.exp(-rate * maturity)
+    std = vol * math.sqrt(maturity)
+    if -_DAL_EPSILON < std < _DAL_EPSILON or forward * strike < _DAL_EPSILON:
+        return 0.0
+    d_minus = math.log(forward / strike) / std - 0.5 * std
+    d_plus = d_minus + std
+    dd_minus = -math.log(forward / strike) / (std * std) - 0.5
+    dd_plus = dd_minus + 1.0
+    d_price = forward * _npdf(d_plus) * dd_plus - strike * _npdf(d_minus) * dd_minus
+    return discount * d_price * math.sqrt(maturity)
+
+
+def _interp1_weights(xs, x0):
+    index = bisect_left(xs, x0)
+    if index == len(xs):
+        return [(len(xs) - 1, 1.0)]
+    if index == 0 or _is_zero(x0 - xs[index]):
+        return [(index, 1.0)]
+    frac = (x0 - xs[index - 1]) / (xs[index] - xs[index - 1])
+    return [(index - 1, 1.0 - frac), (index, frac)]
+
+
+def _interp2_weights(strikes, maturities, strike, maturity):
+    """The bilinear quote weights, branch-for-branch as the value interpolation."""
+    upper = bisect_right(strikes, strike)
+    if upper == len(strikes):
+        strike_weights = [(upper - 1, 1.0)]
+    elif upper == 0:
+        strike_weights = [(0, 1.0)]
+    else:
+        lower = upper - 1
+        weight = (strike - strikes[lower]) / (strikes[upper] - strikes[lower])
+        strike_weights = [(lower, 1.0 - weight), (upper, weight)]
+    maturity_weights = _interp1_weights(maturities, maturity)
+    return [
+        ((i, j), w_strike * w_maturity)
+        for i, w_strike in strike_weights
+        for j, w_maturity in maturity_weights
+    ]
+
+
+def _stencil_gradient(samples, carry, inputs, strike, maturity, spread):
+    """d(local vol)/d(quote spread cell) for one in-band node, as native's replay."""
+    points = _stencil_points(strike, maturity)
+    calls = [_checked_call(samples, carry, point, spread) for point in points]
+    ds = 1e-4 * strike
+    dt = 1e-4 * maturity
+    rate, dividend = carry[1], carry[2]
+    ct = (calls[2] - calls[1]) * 0.5 / dt
+    ck = (calls[4] - calls[3]) * 0.5 / ds
+    numerator = ct + dividend * calls[0] + (rate - dividend) * strike * ck
+    curvature = (calls[3] + calls[4] - 2.0 * calls[0]) / ds / ds
+    local = math.sqrt(2.0 * numerator / curvature) / strike
+    d_numerator = (
+        dividend,
+        -0.5 / dt,
+        0.5 / dt,
+        -(rate - dividend) * strike * 0.5 / ds,
+        (rate - dividend) * strike * 0.5 / ds,
+    )
+    d_curvature = (-2.0 / ds / ds, 0.0, 0.0, 1.0 / ds / ds, 1.0 / ds / ds)
+    gradient = {}
+    for index, point in enumerate(points):
+        d_local = local * 0.5 * (d_numerator[index] / numerator - d_curvature[index] / curvature)
+        chain = d_local * _call_vega(carry, point[0], point[1], samples[point] + spread(*point))
+        for cell, weight in _interp2_weights(
+            inputs.quote_strikes, inputs.quote_maturities, point[0], point[1]
+        ):
+            gradient[cell] = gradient.get(cell, 0.0) + chain * weight
+    return gradient
+
+
+def pullback_dupire(snapshot, seeds, direct=None):
+    """Mirror native PullbackDupireCalibration: surface seeds to quote adjoints."""
+    calibrated = _validated_seeds(snapshot, seeds, "parameters")
+    contribution = _validated_direct(snapshot, direct)
+    adjoints = _quote_adjoint_matrix(snapshot, calibrated)
+    rows = len(snapshot.inputs.quote_spreads)
+    columns = len(snapshot.inputs.quote_maturities)
+    total = [
+        [adjoints[row][column] + contribution[row][column] for column in range(columns)]
+        for row in range(rows)
+    ]
+    _require_finite(adjoints)
+    _require_finite(total)
+    return DupireQuoteRisk(
+        calibration=snapshot,
+        calibration_adjoints=tuple(tuple(row) for row in adjoints),
+        direct_adjoints=tuple(tuple(row) for row in contribution),
+        total_adjoints=tuple(tuple(row) for row in total),
+    )
+
+
+def _quote_adjoint_matrix(snapshot, seeds):
+    """The VJP itself: seed-weighted stencil gradients, band edges flat-filled."""
+    carry = (snapshot.spot, snapshot.rate, snapshot.dividend_yield)
+    samples = dict(snapshot.base_samples)
+    spread = _spread_view(snapshot.inputs)
+    rows = len(snapshot.inputs.quote_spreads)
+    columns = len(snapshot.inputs.quote_maturities)
+    adjoints = [[0.0] * columns for _ in range(rows)]
+    for column, maturity in enumerate(snapshot.times):
+        low, high = snapshot.bands[column]
+        gradients = {
+            row: _stencil_gradient(
+                samples, carry, snapshot.inputs, snapshot.spots[row], maturity, spread
+            )
+            for row in range(low, high)
+        }
+        for row in range(len(snapshot.spots)):
+            seed = seeds[row][column]
+            source = gradients[min(max(row, low), high - 1)]
+            for cell, weight in source.items():
+                adjoints[cell[0]][cell[1]] += seed * weight
+    return adjoints
+
+
+def _require_finite(matrix):
+    if any(not math.isfinite(cell) for row in matrix for cell in row):
+        raise InvalidDupirePullback("non-finite total quote adjoint")
+
+
+def _validated_seeds(snapshot, seeds, field):
+    """Native ValidatedDirectSeeds: calibration match, shape and finiteness."""
+    if not isinstance(seeds, DupireParameterAdjoints):
+        raise InvalidDupirePullback(
+            _input_context(seeds, f"DupireQuoteRisk; {field}", "DupireParameterAdjoints_")
+        )
+    if not snapshot.matches(seeds.calibration):
+        raise DupireSnapshotMismatch("parameter seed calibration does not match")
+    return _checked_matrix(
+        seeds.adjoints, snapshot.surface.vols, f"seed dimensions disagree; field={field}", field
+    )
+
+
+def _validated_direct(snapshot, direct):
+    if direct is None:
+        return _zero_quote_matrix(snapshot.inputs)
+    if not isinstance(direct, DupireDirectQuoteAdjoints):
+        raise InvalidDupirePullback(
+            _input_context(direct, "DupireQuoteRisk; direct", "DupireDirectQuoteAdjoints_ or None")
+        )
+    if not _same_quotes(snapshot.inputs, direct.calibration.inputs):
+        raise DupireSnapshotMismatch("direct quote definition does not match")
+    return _checked_matrix(
+        direct.adjoints,
+        snapshot.inputs.quote_spreads,
+        "seed dimensions disagree; field=directQuotes",
+        "directQuotes",
+    )
+
+
+def _checked_matrix(matrix, expected, dimension_detail, field):
+    if len(matrix) != len(expected) or any(len(row) != len(expected[0]) for row in matrix):
+        raise InvalidDupirePullback(dimension_detail)
+    for row in matrix:
+        for seed in row:
+            if not math.isfinite(seed):
+                raise InvalidDupirePullback(f"non-finite seed; field={field}")
+    return [list(row) for row in matrix]
+
+
+def _zero_quote_matrix(inputs):
+    return [[0.0] * len(inputs.quote_maturities) for _ in inputs.quote_spreads]
+
+
+def _same_quotes(lhs, rhs):
+    return (
+        lhs.quote_strikes == rhs.quote_strikes
+        and lhs.quote_maturities == rhs.quote_maturities
+        and lhs.quote_spreads == rhs.quote_spreads
     )

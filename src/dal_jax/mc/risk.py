@@ -65,6 +65,7 @@ class RiskExecutionSnapshot:
     pricing_replicates: int
     method: str
     block_width: int
+    model: object = None  # retained for calibration pullbacks, as native's JSON snapshot
 
 
 @dataclass(slots=True)
@@ -411,7 +412,7 @@ def _weights(request, count) -> list[float]:
     return [float(weight) for weight in raw]
 
 
-def _provenance(prepared, settings, n_paths, method, engine) -> RiskResultProvenance:
+def _provenance(prepared, settings, n_paths, method, engine, model=None) -> RiskResultProvenance:
     return RiskResultProvenance(
         engine="dal-jax",
         method=method,
@@ -423,6 +424,7 @@ def _provenance(prepared, settings, n_paths, method, engine) -> RiskResultProven
             pricing_replicates=settings.lsmc_rqmc_replicates or 1,
             method=method,
             block_width=engine.layout(n_paths).block_size,
+            model=model,
         ),
     )
 
@@ -459,8 +461,17 @@ def risk_result(prepared, data, model, settings, n_paths, request=None, method="
     if prepared.expired:
         method = "Expired"
     engine = prepared.engine(model, settings)
+    #  Native labels fully expired valuations "Expired", and exercise products
+    #  under a retrained policy-risk mode after their secant estimator; the
+    #  Dupire pullback composes its method string from this label.
+    parsed = data.product() if isinstance(data, ScriptProductData) else data
+    if prepared.expired:
+        method = "Expired"
+    elif method == "NativeAAD" and parsed.has_exercise:
+        if settings.lsmc_policy_risk_mode == "RetrainedBump":
+            method = "NativeAADWithRetrainedPolicySecant"
     return RiskResult(
-        provenance=_provenance(prepared, settings, n_paths, method, engine),
+        provenance=_provenance(prepared, settings, n_paths, method, engine, model),
         **_risk_fields(engine, prepared, data, n_paths, request),
     )
 

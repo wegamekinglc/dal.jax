@@ -21,13 +21,19 @@ from dal_jax.api import (
 )
 from dal_jax.dates import Date
 from dal_jax.errors import (
+    CalibrationRiskBudgetExceeded,
+    DupireSnapshotMismatch,
+    InvalidCalibrationRiskRequest,
     InvalidDupireCalibration,
     InvalidDupireInput,
     InvalidDupirePullback,
     InvalidDupireQuote,
+    InvalidDupireRiskRequest,
     InvalidIndex,
     InvalidModelIndex,
     InvalidModelParameter,
+    InvalidPathCount,
+    InvalidSetting,
     ScriptError,
 )
 from dal_jax.models import DupireCalibrationSnapshot, LocalVolSurface
@@ -154,6 +160,12 @@ def _error_of(message):
         "InvalidModelIndex": InvalidModelIndex,
         "InvalidIndex": InvalidIndex,
         "InvalidHybridComponent": ScriptError,
+        "InvalidCalibrationRiskRequest": InvalidCalibrationRiskRequest,
+        "InvalidDupireRiskRequest": InvalidDupireRiskRequest,
+        "InvalidPathCount": InvalidPathCount,
+        "InvalidSetting": InvalidSetting,
+        "CalibrationRiskBudgetExceeded": CalibrationRiskBudgetExceeded,
+        "DupireSnapshotMismatch": DupireSnapshotMismatch,
     }[message.split(":")[0]]
 
 
@@ -894,3 +906,887 @@ def test_model_unsupported_currency_diverges_from_native(dal):
     assert dal.DupireModelData_New(_their_calibration(dal), INDEX, "XYZ", "F") is not None
     with pytest.raises(InvalidModelParameter, match="currency must be supported"):
         DupireModelData_New(_our_calibration(), INDEX, "XYZ", "F")
+
+
+#  ---------------------------------------------------------------------------
+#  Script-risk planners and the quote pullback (native DupireScriptRisk* chain).
+
+
+from dal_jax.api import (  # noqa: E402
+    CalibrationRiskRequest_,
+    DupireDirectQuoteAdjoints_,
+    DupireParameterAdjoints_,
+    DupireParameterAdjoints_FromRisk,
+    DupireQuoteBinding_,
+    DupireQuoteRisk_New,
+    DupireScriptQuoteRisk_New,
+    DupireScriptRiskPlan_New,
+    DupireScriptRiskRequest_,
+    DupireScriptRiskResult_New,
+    MonteCarloSettings_,
+    RiskRequest_,
+)
+
+RISK_PRODUCT_EVENTS = ["0.0", f"pay PAYS FIX({INDEX}) * FIX({INDEX}) / 100 + 3 * QUOTE"]
+QUOTE_JACOBIAN_ANCHOR = [22.25711331187233, 3.0437272799317725]
+QUOTE_REPORTED_ANCHOR = [0.2225711331187233, 1.5218636399658863]
+PULLBACK_ROW_ANCHOR = [3.0437272799317725, 7.320435909437947]
+
+
+def _our_risk_product():
+    return Product_New(["QUOTE", Date.ymd(2027, 9, 12)], RISK_PRODUCT_EVENTS)
+
+
+def _their_risk_product(dal):
+    return dal.Product_New(["QUOTE", dal.Date_(2027, 9, 12)], RISK_PRODUCT_EVENTS)
+
+
+def _our_script_request(**overrides):
+    kwargs = dict(num_paths=257, valuation=VALUATION)
+    kwargs.update(overrides)
+    return DupireScriptRiskRequest_(**kwargs)
+
+
+def _their_script_request(dal, **overrides):
+    kwargs = dict(num_paths=257, valuation=_their_valuation(dal))
+    kwargs.update(overrides)
+    return dal.DupireScriptRiskRequest_(**kwargs)
+
+
+def _our_plan(**overrides):
+    kwargs = dict(
+        product=_our_risk_product(),
+        modelData=_our_model(),
+        calibration=_our_calibration(),
+        component="equity",
+        request=_our_script_request(),
+    )
+    kwargs.update(overrides)
+    return DupireScriptRiskPlan_New(**kwargs)
+
+
+def _their_plan(dal, **overrides):
+    kwargs = dict(
+        product=_their_risk_product(dal),
+        modelData=_their_model(dal),
+        calibration=_their_calibration(dal),
+        component="equity",
+        request=_their_script_request(dal),
+    )
+    kwargs.update(overrides)
+    return dal.DupireScriptRiskPlan_New(**kwargs)
+
+
+def _quote_records(plan):
+    return [
+        (c.id, c.label, c.ordinal, c.row, c.column, c.native_unit, c.report_scale, c.value)
+        for c in plan.quote_plan.input_axis
+    ]
+
+
+def _assert_quote_plan_parity(ours, theirs):
+    assert _quote_records(ours) == _quote_records(theirs)
+    assert list(ours.quote_plan.selected_ordinals) == list(theirs.quote_plan.selected_ordinals)
+    assert [c.id for c in ours.quote_plan.complete_input_axis] == [
+        c.id for c in theirs.quote_plan.complete_input_axis
+    ]
+
+
+def test_script_risk_chain_parity(dal):
+    request = dict(
+        quotes=CalibrationRiskRequest_(inputs=["quote:3", "quote:0"], report_factors=[0.01, 0.5]),
+        direct_bindings=[DupireQuoteBinding_(constant_ordinal=0, quote_id="quote:3")],
+    )
+    ours_plan = _our_plan(request=_our_script_request(**request))
+    theirs_plan = _their_plan(
+        dal, request=_their_script_request(dal, **_native_quotes(dal, request))
+    )
+    ours = DupireScriptRiskResult_New(ours_plan)
+    theirs = dal.DupireScriptRiskResult_New(theirs_plan)
+    _assert_risk_parity(ours.valuation, theirs.valuation)
+    _assert_quote_plan_parity(ours_plan, theirs_plan)
+    assert ours.method == theirs.method == "NativeAADThenNativeAADCalibrationVJP"
+    assert ours.component == theirs.component == "equity"
+    assert [c.id for c in ours_plan.complete_input_axis] == [
+        c.id for c in theirs_plan.complete_input_axis
+    ]
+    assert [c.id for c in ours_plan.required_input_axis] == [
+        c.id for c in theirs_plan.required_input_axis
+    ]
+    np.testing.assert_allclose(
+        [list(row) for row in ours.quote_risk.jacobian],
+        theirs.quote_risk.jacobian.to_rows(),
+        rtol=1e-7,
+        atol=1e-9,
+    )
+    np.testing.assert_allclose(
+        [list(row) for row in ours.quote_risk.jacobian], [QUOTE_JACOBIAN_ANCHOR], rtol=1e-7
+    )
+    np.testing.assert_allclose(
+        [list(row) for row in ours.quote_risk.reported_jacobian],
+        [QUOTE_REPORTED_ANCHOR],
+        rtol=1e-7,
+    )
+
+
+def _native_quotes(dal, request):
+    native = dict(request)
+    if "quotes" in native:
+        quotes = native["quotes"]
+        native["quotes"] = dal.CalibrationRiskRequest_(
+            inputs=list(quotes.inputs),
+            report_factors=list(quotes.report_factors) if quotes.report_factors else None,
+        )
+    if "direct_bindings" in native:
+        native["direct_bindings"] = [
+            dal.DupireQuoteBinding_(constant_ordinal=b.constant_ordinal, quote_id=b.quote_id)
+            for b in native["direct_bindings"]
+        ]
+    return native
+
+
+def test_script_risk_default_request_parity(dal):
+    ours = DupireScriptRiskResult_New(_our_plan())
+    theirs = dal.DupireScriptRiskResult_New(_their_plan(dal))
+    _assert_risk_parity(ours.valuation, theirs.valuation)
+    assert list(_our_plan().quote_plan.selected_ordinals) == list(range(6))
+    np.testing.assert_allclose(
+        [list(row) for row in ours.quote_risk.jacobian],
+        theirs.quote_risk.jacobian.to_rows(),
+        rtol=1e-7,
+        atol=1e-9,
+    )
+    assert ours.quote_risk.quote_risk.method == theirs.quote_risk.quote_risk.method
+
+
+def test_script_risk_expired_and_retrained_methods(dal):
+    expired_request = dict(
+        num_paths=257, valuation=ValuationSettings(evaluation_date=Date.ymd(2028, 1, 1))
+    )
+    expired = DupireScriptRiskResult_New(
+        _our_plan(request=DupireScriptRiskRequest_(**expired_request))
+    )
+    native_expired = dal.DupireScriptRiskResult_New(
+        _their_plan(
+            dal,
+            request=dal.DupireScriptRiskRequest_(
+                num_paths=257,
+                valuation=dal.ScriptValuationSettings_(evaluation_date=dal.Date_(2028, 1, 1)),
+            ),
+        )
+    )
+    assert expired.method == native_expired.method == "ExpiredThenNativeAADCalibrationVJP"
+    assert expired.valuation.values == native_expired.valuation.values == [0.0]
+    np.testing.assert_allclose(
+        [list(row) for row in expired.quote_risk.jacobian], [[0.0] * 6], atol=1e-12
+    )
+    retrained_request = dict(
+        num_paths=64,
+        valuation=VALUATION,
+        simulation=MonteCarloSettings_(
+            enable_aad=True, lsmc_training_paths=64, lsmc_policy_risk_mode="RetrainedBump"
+        ),
+    )
+    events = [f"pay PAYS 1 EXERCISE MAX(100 - FIX({INDEX}), 0)"] * 2
+    dates = [Date.ymd(2027, 3, 12), Date.ymd(2027, 9, 12)]
+    ours = DupireScriptRiskResult_New(
+        DupireScriptRiskPlan_New(
+            Product_New(dates, events),
+            _our_model(),
+            _our_calibration(),
+            "equity",
+            DupireScriptRiskRequest_(**retrained_request),
+        )
+    )
+    theirs = dal.DupireScriptRiskResult_New(
+        dal.DupireScriptRiskPlan_New(
+            dal.Product_New([dal.Date_(2027, 3, 12), dal.Date_(2027, 9, 12)], events),
+            _their_model(dal),
+            _their_calibration(dal),
+            "equity",
+            dal.DupireScriptRiskRequest_(
+                num_paths=64,
+                valuation=_their_valuation(dal),
+                simulation=dal.MonteCarloSettings_(
+                    enable_aad=True, lsmc_training_paths=64, lsmc_policy_risk_mode="RetrainedBump"
+                ),
+            ),
+        )
+    )
+    assert ours.method == theirs.method
+
+
+def test_pullback_names_parity(dal):
+    valuation = MonteCarlo_ValueWithRisk(
+        _our_risk_product(), _our_model(), 257, valuation=VALUATION
+    )
+    native_valuation = dal.MonteCarlo_ValueWithRisk(
+        _their_risk_product(dal), _their_model(dal), 257, valuation=_their_valuation(dal)
+    )
+    ours_seeds = DupireParameterAdjoints_FromRisk(valuation, _our_calibration(), "equity")
+    theirs_seeds = dal.DupireParameterAdjoints_FromRisk(
+        native_valuation, _their_calibration(dal), "equity"
+    )
+    np.testing.assert_allclose(
+        [list(row) for row in ours_seeds.adjoints],
+        theirs_seeds.adjoints.to_rows(),
+        rtol=1e-9,
+        atol=1e-12,
+    )
+    assert ours_seeds.calibration.matches(_our_calibration())
+    ours_risk = DupireQuoteRisk_New(_our_calibration(), ours_seeds)
+    theirs_risk = dal.DupireQuoteRisk_New(_their_calibration(dal), theirs_seeds)
+    assert ours_risk.method == theirs_risk.method == "NativeAADCalibrationVJP"
+    assert ours_risk.unit == theirs_risk.unit == "decimal-vol"
+    assert ours_risk.boundary == theirs_risk.boundary
+    np.testing.assert_allclose(
+        [list(row) for row in ours_risk.calibration_adjoints],
+        theirs_risk.calibration_adjoints.to_rows(),
+        rtol=1e-7,
+        atol=1e-9,
+    )
+    assert list(ours_risk.calibration_adjoints[0]) == pytest.approx(PULLBACK_ROW_ANCHOR, rel=1e-7)
+    script = DupireScriptQuoteRisk_New(valuation, _our_calibration(), "equity")
+    native_script = dal.DupireScriptQuoteRisk_New(
+        native_valuation, _their_calibration(dal), "equity"
+    )
+    assert script.method == native_script.method == "NativeAADThenNativeAADCalibrationVJP"
+    assert script.component == native_script.component == "equity"
+    direct = DupireDirectQuoteAdjoints_(
+        calibration=_our_calibration(), adjoints=[[0.1] * 2 for _ in range(3)]
+    )
+    ours_direct = DupireScriptQuoteRisk_New(valuation, _our_calibration(), "equity", direct=direct)
+    native_direct = dal.DupireScriptQuoteRisk_New(
+        native_valuation,
+        _their_calibration(dal),
+        "equity",
+        direct=dal.DupireDirectQuoteAdjoints_(
+            calibration=_their_calibration(dal), adjoints=dal.DoubleMatrix_(3, 2, 0.1)
+        ),
+    )
+    np.testing.assert_allclose(
+        [list(row) for row in ours_direct.quote_risk.direct_adjoints],
+        native_direct.quote_risk.direct_adjoints.to_rows(),
+        rtol=1e-12,
+    )
+    np.testing.assert_allclose(
+        [list(row) for row in ours_direct.quote_risk.total_adjoints],
+        native_direct.quote_risk.total_adjoints.to_rows(),
+        rtol=1e-7,
+        atol=1e-9,
+    )
+
+
+#  ---------------------------------------------------------------------------
+#  Request, plan and pullback validation, both sides.
+
+
+def _crr(**overrides):
+    kwargs = dict(inputs=None, report_factors=None, numeric_payload_budget_bytes=None)
+    kwargs.update(overrides)
+    return CalibrationRiskRequest_(**kwargs)
+
+
+def _their_crr(dal, **overrides):
+    kwargs = dict(inputs=None, report_factors=None, numeric_payload_budget_bytes=None)
+    kwargs.update(overrides)
+    for key in ("inputs", "report_factors"):
+        if isinstance(kwargs[key], (list, tuple)):
+            kwargs[key] = list(kwargs[key])
+    return dal.CalibrationRiskRequest_(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        (
+            "inputs",
+            "quote:3",
+            "InvalidCalibrationRiskRequest: CalibrationRiskRequest_; inputs; type=str, value='quote:3'; expected list or tuple, or None",
+        ),
+        (
+            "inputs",
+            [3],
+            "InvalidCalibrationRiskRequest: CalibrationRiskRequest_; inputs; type=int, value=3; expected str or DAL String_ without NUL",
+        ),
+        (
+            "report_factors",
+            "x",
+            "InvalidCalibrationRiskRequest: CalibrationRiskRequest_; report_factors; type=str, value='x'; expected list or tuple, or None",
+        ),
+        (
+            "report_factors",
+            [True],
+            "InvalidCalibrationRiskRequest: CalibrationRiskRequest_; report_factors; type=bool, value=True; expected int or float, excluding bool",
+        ),
+        (
+            "numeric_payload_budget_bytes",
+            -1,
+            "InvalidCalibrationRiskRequest: CalibrationRiskRequest_; numeric_payload_budget_bytes; type=int, value=-1; expected nonnegative size_t integer or None, excluding bool",
+        ),
+        (
+            "numeric_payload_budget_bytes",
+            1.5,
+            "InvalidCalibrationRiskRequest: CalibrationRiskRequest_; numeric_payload_budget_bytes; type=float, value=1.5; expected nonnegative size_t integer or None, excluding bool",
+        ),
+    ],
+)
+def test_calibration_risk_request_validates_like_native(dal, field, value, message):
+    _assert_both_raise(
+        dal,
+        lambda: _their_crr(dal, **{field: value}),
+        lambda: _crr(**{field: value}),
+        message,
+    )
+
+
+@pytest.mark.parametrize(
+    ("quotes_kwargs", "message"),
+    [
+        (
+            {"inputs": ["quote:99"]},
+            "InvalidCalibrationRiskRequest: unknown input ID; input=quote:99",
+        ),
+        (
+            {"inputs": ["quote:3", "quote:3"]},
+            "InvalidCalibrationRiskRequest: repeated input ID; input=quote:3",
+        ),
+        (
+            {"inputs": ["quote:\x03"]},
+            "InvalidCalibrationRiskRequest: unknown input ID; input=quote:\x03",
+        ),
+        (
+            {"inputs": ["quote:3"], "report_factors": [1.0, 2.0]},
+            "InvalidCalibrationRiskRequest: report factor count must match selected inputs; field=reportFactors",
+        ),
+        (
+            {"inputs": ["quote:3"], "report_factors": [0.0]},
+            "InvalidCalibrationRiskRequest: report factor must be finite and positive; input=quote:3",
+        ),
+        (
+            {"inputs": ["quote:3"], "report_factors": [float("nan")]},
+            "InvalidCalibrationRiskRequest: report factor must be finite and positive; input=quote:3",
+        ),
+    ],
+)
+def test_plan_validates_quote_selection_like_native(dal, quotes_kwargs, message):
+    _assert_both_raise(
+        dal,
+        lambda: _their_plan(
+            dal,
+            request=_their_script_request(
+                dal,
+                quotes=dal.CalibrationRiskRequest_(
+                    **{k: (list(v) if v else v) for k, v in quotes_kwargs.items()}
+                ),
+            ),
+        ),
+        lambda: _our_plan(
+            request=_our_script_request(quotes=CalibrationRiskRequest_(**quotes_kwargs))
+        ),
+        message,
+    )
+
+
+def test_plan_budget_exceeded_like_native(dal):
+    message = (
+        "CalibrationRiskBudgetExceeded: combined valuation/quote payload exceeds "
+        "numericPayloadBudgetBytes; requiredBytes=296"
+    )
+    _assert_both_raise(
+        dal,
+        lambda: _their_plan(
+            dal,
+            request=_their_script_request(
+                dal, quotes=dal.CalibrationRiskRequest_(numeric_payload_budget_bytes=8)
+            ),
+        ),
+        lambda: _our_plan(
+            request=_our_script_request(
+                quotes=CalibrationRiskRequest_(numeric_payload_budget_bytes=8)
+            )
+        ),
+        message,
+    )
+    assert _our_plan().numeric_payload_bytes == 296
+    bound = _our_plan(
+        request=_our_script_request(
+            direct_bindings=[DupireQuoteBinding_(constant_ordinal=0, quote_id="quote:3")]
+        )
+    )
+    assert bound.numeric_payload_bytes == 304
+    assert _our_plan().quote_plan.numeric_payload_bytes == 144
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        (
+            {"constant_ordinal": -1, "quote_id": "quote:3"},
+            "InvalidDupireRiskRequest: DupireQuoteBinding_; constant_ordinal; type=int, value=-1; expected nonnegative size_t integer, excluding bool and enums",
+        ),
+        (
+            {"constant_ordinal": 1.5, "quote_id": "quote:3"},
+            "InvalidDupireRiskRequest: DupireQuoteBinding_; constant_ordinal; type=float, value=1.5; expected nonnegative size_t integer, excluding bool and enums",
+        ),
+        (
+            {"constant_ordinal": True, "quote_id": "quote:3"},
+            "InvalidDupireRiskRequest: DupireQuoteBinding_; constant_ordinal; type=bool, value=True; expected nonnegative size_t integer, excluding bool and enums",
+        ),
+        (
+            {"constant_ordinal": 0, "quote_id": 3},
+            "InvalidDupireRiskRequest: DupireQuoteBinding_; quote_id; type=int, value=3; expected str or DAL String_ without NUL",
+        ),
+    ],
+)
+def test_quote_binding_validates_like_native(dal, kwargs, message):
+    _assert_both_raise(
+        dal,
+        lambda: dal.DupireQuoteBinding_(**kwargs),
+        lambda: DupireQuoteBinding_(**kwargs),
+        message,
+    )
+    with pytest.raises(TypeError):
+        dal.DupireQuoteBinding_(0, "quote:3")
+    with pytest.raises(TypeError):
+        DupireQuoteBinding_(0, "quote:3")  # pylint: disable=too-many-function-args,missing-kwoa
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        (
+            "num_paths",
+            0,
+            "InvalidPathCount: DupireScriptRiskRequest_; num_paths; type=int, value=0; expected integer in 1..2147483647, excluding bool and enums; number of Monte Carlo paths must be positive",
+        ),
+        (
+            "num_paths",
+            True,
+            "InvalidPathCount: DupireScriptRiskRequest_; num_paths; type=bool, value=True; expected integer in 1..2147483647, excluding bool and enums",
+        ),
+        (
+            "num_paths",
+            "257",
+            "InvalidPathCount: DupireScriptRiskRequest_; num_paths; type=str, value='257'; expected integer in 1..2147483647, excluding bool and enums",
+        ),
+        (
+            "quotes",
+            "REQUEST",
+            "InvalidSetting: DupireScriptRiskRequest_; quotes; type=str, value='REQUEST'; expected CalibrationRiskRequest_ or None",
+        ),
+        (
+            "valuation",
+            "SETTINGS",
+            "InvalidSetting: DupireScriptRiskRequest_; valuation; type=str, value='SETTINGS'; expected ScriptValuationSettings_ or None",
+        ),
+        (
+            "simulation",
+            "x",
+            "InvalidSetting: DupireScriptRiskRequest_; simulation; type=str, value='x'; expected MonteCarloSettings_ or None",
+        ),
+        (
+            "direct",
+            "x",
+            "InvalidDupireRiskRequest: DupireScriptRiskRequest_; direct; type=str, value='x'; expected CalibrationDirectQuoteAdjoints_ or None",
+        ),
+        (
+            "direct_bindings",
+            "x",
+            "InvalidDupireRiskRequest: DupireScriptRiskRequest_; direct_bindings; type=str, value='x'; expected list or tuple, or None",
+        ),
+        (
+            "direct_bindings",
+            ["x"],
+            "InvalidDupireRiskRequest: DupireScriptRiskRequest_; direct_bindings; type=str, value='x'; expected DupireQuoteBinding_",
+        ),
+    ],
+)
+def test_script_risk_request_validates_like_native(dal, field, value, message):
+    def theirs():
+        kwargs = dict(num_paths=257, valuation=_their_valuation(dal))
+        kwargs[field] = value if field != "valuation" else value
+        return dal.DupireScriptRiskRequest_(**kwargs)
+
+    def ours():
+        kwargs = dict(num_paths=257, valuation=VALUATION)
+        kwargs[field] = value
+        return DupireScriptRiskRequest_(**kwargs)
+
+    _assert_both_raise(dal, theirs, ours, message)
+
+
+def test_plan_validates_arguments_like_native(dal):
+    cases = [
+        (
+            "product",
+            "x",
+            "InvalidDupireRiskRequest: DupireScriptRiskPlan_New; product; type=str, value='x'; expected ScriptProductData_",
+        ),
+        (
+            "modelData",
+            "x",
+            "InvalidDupireRiskRequest: DupireScriptRiskPlan_New; modelData; type=str, value='x'; expected ModelData_",
+        ),
+        (
+            "calibration",
+            "x",
+            "InvalidDupireRiskRequest: DupireScriptRiskPlan_New; calibration; type=str, value='x'; expected DupireCalibrationSnapshot_",
+        ),
+        (
+            "component",
+            1.5,
+            "InvalidDupireRiskRequest: DupireScriptRiskPlan_New; component; type=float, value=1.5; expected str or DAL String_ without NUL",
+        ),
+        (
+            "request",
+            "x",
+            "InvalidDupireRiskRequest: DupireScriptRiskPlan_New; request; type=str, value='x'; expected DupireScriptRiskRequest_",
+        ),
+    ]
+    for field, value, message in cases:
+        fields = dict(
+            product=_our_risk_product(),
+            modelData=_our_model(),
+            calibration=_our_calibration(),
+            component="equity",
+            request=_our_script_request(),
+        )
+        native_fields = dict(
+            product=_their_risk_product(dal),
+            modelData=_their_model(dal),
+            calibration=_their_calibration(dal),
+            component="equity",
+            request=_their_script_request(dal),
+        )
+        fields[field] = value
+        native_fields[field] = value
+        _assert_both_raise(
+            dal,
+            lambda native_fields=native_fields: dal.DupireScriptRiskPlan_New(**native_fields),
+            lambda fields=fields: DupireScriptRiskPlan_New(**fields),
+            message,
+        )
+    semantic = [
+        (
+            dict(modelData=BSModelData_New(100.0, 0.2, 0.05, 0.02)),
+            dict(modelData=dal.BSModelData_New(100.0, 0.2, 0.05, 0.02)),
+            "InvalidDupireRiskRequest: Hybrid model is required",
+        ),
+        (
+            dict(
+                simulation=MonteCarloSettings_(enable_aad=False),
+                request=_our_script_request(simulation=MonteCarloSettings_(enable_aad=False)),
+            )
+            if False
+            else dict(
+                request=_our_script_request(simulation=MonteCarloSettings_(enable_aad=False))
+            ),
+            dict(
+                request=_their_script_request(
+                    dal, simulation=dal.MonteCarloSettings_(enable_aad=False)
+                )
+            ),
+            "InvalidDupireRiskRequest: native AAD execution is required",
+        ),
+        (
+            dict(component="rate"),
+            dict(component="rate"),
+            "InvalidDupireRiskRequest: named local-vol equity is required; component=rate",
+        ),
+    ]
+    for overrides, native_overrides, message in semantic:
+        _assert_both_raise(
+            dal,
+            lambda native_overrides=native_overrides: _their_plan(dal, **native_overrides),
+            lambda overrides=overrides: _our_plan(**overrides),
+            message,
+        )
+
+
+def test_plan_validates_carry_surface_and_bindings_like_native(dal):
+    bumped = DupireCalibration_New(
+        BSModelData_New(101.0, 0.2, 0.05, 0.02), _ours_inputs(), name="frozen"
+    )
+    native_bumped = dal.DupireCalibration_New(
+        dal.BSModelData_New(101.0, 0.2, 0.05, 0.02), _their_inputs(dal), name="frozen"
+    )
+    carry_message = "DupireSnapshotMismatch: automatic request requires matching flat deterministic carry; component=equity"
+    _assert_both_raise(
+        dal,
+        lambda: _their_plan(dal, calibration=native_bumped),
+        lambda: _our_plan(calibration=bumped),
+        carry_message,
+    )
+    regridded = DupireCalibration_New(
+        _our_base(), _ours_inputs(inclusion_spots=[60.0, 101.0, 140.0]), name="frozen"
+    )
+    native_regridded = dal.DupireCalibration_New(
+        _their_base(dal),
+        _their_inputs(dal, inclusion_spots=[60.0, 101.0, 140.0]),
+        name="frozen",
+    )
+    grids_message = "DupireSnapshotMismatch: component surface grids changed; component=equity"
+    _assert_both_raise(
+        dal,
+        lambda: _their_plan(dal, calibration=native_regridded),
+        lambda: _our_plan(calibration=regridded),
+        grids_message,
+    )
+    other = DupireCalibration_New(
+        BSModelData_New(100.0, 0.25, 0.05, 0.02), _ours_inputs(), name="frozen"
+    )
+    native_other = dal.DupireCalibration_New(
+        dal.BSModelData_New(100.0, 0.25, 0.05, 0.02), _their_inputs(dal), name="frozen"
+    )
+    surface_message = "DupireSnapshotMismatch: component surface values changed; component=equity"
+    _assert_both_raise(
+        dal,
+        lambda: _their_plan(dal, calibration=native_other),
+        lambda: _our_plan(calibration=other),
+        surface_message,
+    )
+    binding_cases = [
+        (
+            dict(constant_ordinal=5, quote_id="quote:3"),
+            "InvalidDupireRiskRequest: unknown direct constant ordinal=5",
+        ),
+        (
+            dict(constant_ordinal=0, quote_id="quote:99"),
+            "InvalidDupireRiskRequest: unknown direct quote ID=quote:99",
+        ),
+        (
+            dict(constant_ordinal=0, quote_id="quote:4"),
+            "InvalidDupireRiskRequest: repeated direct constant; input=constant:0",
+        ),
+    ]
+    for extra, message in binding_cases:
+        repeated = extra["constant_ordinal"] == 0 and extra["quote_id"] == "quote:4"
+        ours = (
+            [
+                DupireQuoteBinding_(constant_ordinal=0, quote_id="quote:3"),
+                DupireQuoteBinding_(constant_ordinal=0, quote_id="quote:4"),
+            ]
+            if repeated
+            else [DupireQuoteBinding_(**extra)]
+        )
+        native = (
+            [
+                dal.DupireQuoteBinding_(constant_ordinal=0, quote_id="quote:3"),
+                dal.DupireQuoteBinding_(constant_ordinal=0, quote_id="quote:4"),
+            ]
+            if repeated
+            else [dal.DupireQuoteBinding_(**extra)]
+        )
+        _assert_both_raise(
+            dal,
+            lambda native=native: _their_plan(
+                dal, request=_their_script_request(dal, direct_bindings=native)
+            ),
+            lambda ours=ours: _our_plan(request=_our_script_request(direct_bindings=ours)),
+            message,
+        )
+    #  A model built from a bumped-spread calibration surfaces the value check.
+    spreads = [[0.0, 0.0], [0.0, 0.5], [0.0, 0.0]]
+    bumped_model = DupireModelData_New(
+        _bumped_calibration(spreads), INDEX, "USD", "F_LOCAL", max_step=0.25
+    )
+    native_bumped_cal = dal.DupireCalibration_New(
+        _their_base(dal), _their_inputs(dal, quote_spreads=spreads), name="frozen"
+    )
+    native_bumped_model = dal.DupireModelData_New(
+        native_bumped_cal, INDEX, "USD", "F_LOCAL", max_step=0.25
+    )
+    value_message = (
+        "InvalidDupireRiskRequest: direct constant/quote values disagree; "
+        "input=constant:0; quote=quote:3"
+    )
+    _assert_both_raise(
+        dal,
+        lambda: dal.DupireScriptRiskPlan_New(
+            _their_risk_product(dal),
+            native_bumped_model,
+            native_bumped_cal,
+            "equity",
+            _their_script_request(
+                dal,
+                direct_bindings=[dal.DupireQuoteBinding_(constant_ordinal=0, quote_id="quote:3")],
+            ),
+        ),
+        lambda: DupireScriptRiskPlan_New(
+            _our_risk_product(),
+            bumped_model,
+            _bumped_calibration(spreads),
+            "equity",
+            _our_script_request(
+                direct_bindings=[DupireQuoteBinding_(constant_ordinal=0, quote_id="quote:3")]
+            ),
+        ),
+        value_message,
+    )
+
+
+def _bumped_calibration(spreads):
+    return DupireCalibration_New(_our_base(), _ours_inputs(quote_spreads=spreads), name="frozen")
+
+
+def test_result_and_pullback_validate_like_native(dal):
+    valuation = MonteCarlo_ValueWithRisk(
+        _our_risk_product(), _our_model(), 257, valuation=VALUATION
+    )
+    native_valuation = dal.MonteCarlo_ValueWithRisk(
+        _their_risk_product(dal), _their_model(dal), 257, valuation=_their_valuation(dal)
+    )
+    other = DupireCalibration_New(
+        BSModelData_New(100.0, 0.25, 0.05, 0.02), _ours_inputs(), name="frozen"
+    )
+    native_other = dal.DupireCalibration_New(
+        dal.BSModelData_New(100.0, 0.25, 0.05, 0.02), _their_inputs(dal), name="frozen"
+    )
+    cases = [
+        (
+            lambda: dal.DupireScriptRiskResult_New("x"),
+            lambda: DupireScriptRiskResult_New("x"),
+            "InvalidDupireRiskRequest: DupireScriptRiskResult_New; plan; type=str, value='x'; expected DupireScriptRiskPlan_",
+        ),
+        (
+            lambda: dal.DupireParameterAdjoints_FromRisk("x", _their_calibration(dal), "equity"),
+            lambda: DupireParameterAdjoints_FromRisk("x", _our_calibration(), "equity"),
+            "InvalidDupirePullback: DupireParameterAdjoints_FromRisk; valuation; type=str, value='x'; expected RiskResult_",
+        ),
+        (
+            lambda: dal.DupireParameterAdjoints_FromRisk(native_valuation, "x", "equity"),
+            lambda: DupireParameterAdjoints_FromRisk(valuation, "x", "equity"),
+            "InvalidDupirePullback: DupireParameterAdjoints_FromRisk; calibration; type=str, value='x'; expected DupireCalibrationSnapshot_",
+        ),
+        (
+            lambda: dal.DupireParameterAdjoints_FromRisk(
+                native_valuation, _their_calibration(dal), "rate"
+            ),
+            lambda: DupireParameterAdjoints_FromRisk(valuation, _our_calibration(), "rate"),
+            "InvalidDupirePullback: component must be local-vol equity; component=rate",
+        ),
+        (
+            lambda: dal.DupireParameterAdjoints_FromRisk(native_valuation, native_other, "equity"),
+            lambda: DupireParameterAdjoints_FromRisk(valuation, other, "equity"),
+            "DupireSnapshotMismatch: component surface values changed; component=equity",
+        ),
+        (
+            lambda: dal.DupireParameterAdjoints_FromRisk(
+                dal.MonteCarlo_ValueWithRisk(
+                    _their_risk_product(dal),
+                    _their_model(dal),
+                    257,
+                    valuation=_their_valuation(dal),
+                    request=dal.RiskRequest_(inputs=["model:2"]),
+                ),
+                _their_calibration(dal),
+                "equity",
+            ),
+            lambda: DupireParameterAdjoints_FromRisk(
+                MonteCarlo_ValueWithRisk(
+                    _our_risk_product(),
+                    _our_model(),
+                    257,
+                    valuation=VALUATION,
+                    request=RiskRequest_(inputs=["model:2"]),
+                ),
+                _our_calibration(),
+                "equity",
+            ),
+            "InvalidDupirePullback: missing selected surface risk; input=model:3",
+        ),
+        (
+            lambda: dal.DupireParameterAdjoints_(calibration="x", adjoints=dal.DoubleMatrix_(9, 2)),
+            lambda: DupireParameterAdjoints_(calibration="x", adjoints=[[1.0] * 2] * 9),
+            "InvalidDupirePullback: DupireAdjoints; calibration; type=str, value='x'; expected DupireCalibrationSnapshot_",
+        ),
+        (
+            lambda: dal.DupireParameterAdjoints_(calibration="x", adjoints=dal.DoubleMatrix_(9, 2)),
+            lambda: DupireParameterAdjoints_(calibration="x", adjoints=[[1.0] * 2] * 9),
+            "InvalidDupirePullback: DupireAdjoints; calibration; type=str, value='x'; expected DupireCalibrationSnapshot_",
+        ),
+    ]
+    for their_call, our_call, message in cases:
+        _assert_both_raise(dal, their_call, our_call, message)
+    #  The adjoints container itself diverges by design: native insists on
+    #  DoubleMatrix_, ours accepts nested numeric rows (as quote_spreads does).
+    seeds = DupireParameterAdjoints_FromRisk(valuation, _our_calibration(), "equity")
+    native_seeds = dal.DupireParameterAdjoints_FromRisk(
+        native_valuation, _their_calibration(dal), "equity"
+    )
+    pullback_cases = [
+        (
+            lambda: dal.DupireQuoteRisk_New(
+                _their_calibration(dal),
+                dal.DupireParameterAdjoints_(
+                    calibration=_their_calibration(dal), adjoints=dal.DoubleMatrix_(3, 2, 1.0)
+                ),
+            ),
+            lambda: DupireQuoteRisk_New(
+                _our_calibration(),
+                DupireParameterAdjoints_(calibration=_our_calibration(), adjoints=[[1.0] * 2] * 3),
+            ),
+            "InvalidDupirePullback: seed dimensions disagree; field=parameters",
+        ),
+        (
+            lambda: dal.DupireQuoteRisk_New(
+                _their_calibration(dal),
+                dal.DupireParameterAdjoints_(
+                    calibration=_their_calibration(dal),
+                    adjoints=dal.DoubleMatrix_(9, 2, float("nan")),
+                ),
+            ),
+            lambda: DupireQuoteRisk_New(
+                _our_calibration(),
+                DupireParameterAdjoints_(
+                    calibration=_our_calibration(), adjoints=[[float("nan")] * 2] * 9
+                ),
+            ),
+            "InvalidDupirePullback: non-finite seed; field=parameters",
+        ),
+        (
+            lambda: dal.DupireQuoteRisk_New(
+                _their_calibration(dal),
+                native_seeds,
+                direct=dal.DupireDirectQuoteAdjoints_(
+                    calibration=_their_calibration(dal), adjoints=dal.DoubleMatrix_(2, 2, 0.1)
+                ),
+            ),
+            lambda: DupireQuoteRisk_New(
+                _our_calibration(),
+                seeds,
+                direct=DupireDirectQuoteAdjoints_(
+                    calibration=_our_calibration(), adjoints=[[0.1] * 2] * 2
+                ),
+            ),
+            "InvalidDupirePullback: seed dimensions disagree; field=directQuotes",
+        ),
+        (
+            lambda: dal.DupireQuoteRisk_New(native_other, native_seeds),
+            lambda: DupireQuoteRisk_New(other, seeds),
+            "DupireSnapshotMismatch: parameter seed calibration does not match",
+        ),
+        (
+            lambda: dal.DupireScriptQuoteRisk_New(
+                dal.MonteCarlo_ValueWithSettings(
+                    _their_risk_product(dal),
+                    _their_model(dal),
+                    257,
+                    valuation=_their_valuation(dal),
+                ),
+                _their_calibration(dal),
+                "equity",
+            ),
+            lambda: DupireScriptQuoteRisk_New(
+                MonteCarlo_ValueWithSettings(
+                    _our_risk_product(), _our_model(), 257, valuation=VALUATION
+                ),
+                _our_calibration(),
+                "equity",
+            ),
+            "InvalidDupirePullback: DupireScriptQuoteRisk_New; valuation; type=dict; expected RiskResult_",
+        ),
+    ]
+    for their_call, our_call, message in pullback_cases:
+        _assert_both_raise(dal, their_call, our_call, message)
