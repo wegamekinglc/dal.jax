@@ -251,8 +251,9 @@ def _request_codes(request):
 def _selected(axis, selector, request) -> tuple[list[RiskCoordinate], list[int]]:
     """Coordinates chosen by case-insensitive ID in request order, as DAL's ``SelectedInputs``.
 
-    Also returns the chosen var-table indices; current callers ignore them, the
-    weighted-risk path keeps them for index-addressed components.
+    Also returns the chosen var-table indices; every caller currently ignores
+    them (the selection itself is complete), kept for future index-addressed
+    components.
     """
     if selector is None:
         return list(axis), list(range(len(axis)))
@@ -373,20 +374,6 @@ def _risk_fields(engine, prepared, data, n_paths, request) -> dict:
         reported_jacobian=jacobian,
         legacy_values=legacy,
     )
-
-
-def value_with_risk(prepared, data, model, settings, n_paths, request=None) -> dict:
-    """One AAD run shaped like native ``RiskResult_``, as a plain dict with the keys:
-
-    ``values`` (list[float], the supported payoff's PV once per selected output),
-    ``output_ids`` (list[str]), ``input_axis`` / ``complete_input_axis``
-    (list[RiskCoordinate]), ``output_axis`` (list[RiskOutputCoordinate]),
-    ``jacobian`` and ``reported_jacobian`` (one float64 row over the selected
-    inputs, both the same matrix as native), and ``legacy_values`` (the engine's
-    ``PV`` plus every ``d_<label>``).
-    """
-    engine = prepared.engine(model, replace(settings, enable_aad=True))
-    return _risk_fields(engine, prepared, data, int(n_paths), request)
 
 
 def risk_result(prepared, data, model, settings, n_paths, request=None, method="NativeAAD"):
