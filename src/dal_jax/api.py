@@ -10,7 +10,12 @@ from typing import NamedTuple
 from dal_jax.dates.date import Date
 from dal_jax.errors import InvalidPathCount, InvalidSetting, script_error
 from dal_jax.mc import MonteCarloSettings
-from dal_jax.mc.plan import SegmentedMonteCarloSettings
+from dal_jax.mc.plan import (
+    SegmentedMonteCarloSettings,
+    black_scholes_plan,
+    get_curvature,
+    get_risk,
+)
 from dal_jax.mc.risk import (
     BumpOverAADRequest,
     JacobianRiskRequest,
@@ -43,6 +48,7 @@ from dal_jax.models.hybrid import (
     HybridLogDfRate,
     assemble_correlation,
 )
+from dal_jax.random.pseudorng import PseudoRSG
 from dal_jax.script import diagnostics
 from dal_jax.script.fixings import (
     FixingSnapshot,
@@ -450,8 +456,6 @@ def MonteCarlo_ValueWithWeightedRisk(  # noqa: N802
 
 
 def PseudoRSG_New(seed, ndim=1):  # noqa: N802
-    from dal_jax.random.pseudorng import PseudoRSG
-
     return PseudoRSG(seed, ndim)
 
 
@@ -459,8 +463,6 @@ def BlackScholesMonteCarloPlan_New(  # noqa: N802
     product: ScriptProductData, *, valuation=None, smoothing: float = 0.01
 ):
     """Prepare a script product once for revaluation at Black-Scholes model points."""
-    from dal_jax.mc.plan import black_scholes_plan
-
     return black_scholes_plan(product, valuation=valuation, smoothing=smoothing)
 
 
@@ -468,8 +470,6 @@ def BlackScholesMonteCarlo_Get_Risk(  # noqa: N802
     plan, point, num_path: int, *, settings=None
 ):
     """Value and differentiate a plan at one model point, as native Get_Risk."""
-    from dal_jax.mc.plan import get_risk
-
     return get_risk(plan, point, num_path, settings=settings)
 
 
@@ -477,8 +477,6 @@ def BlackScholesMonteCarlo_Get_Curvature(  # noqa: N802
     plan, point, num_path: int, bumps, *, settings=None
 ):
     """Bump-over-AAD curvature of a plan at one model point, as native Get_Curvature."""
-    from dal_jax.mc.plan import get_curvature
-
     return get_curvature(plan, point, num_path, bumps, settings=settings)
 
 
