@@ -302,7 +302,9 @@ class _ReplayEngine(MonteCarloEngine):
             return super()._random_normals(params, block_id, path_ids)
         offset, shift = params["_lsmc_random"]
         precise, polish = normal_inversion_flags(self.settings)
-        sequence = Sobol(dim=self.sim_dim, precise=precise, polish=polish)
+        #  The inversion flags apply at the explicit inverse_ncdf below; the
+        #  Sobol sequence itself only supplies integer state bits here.
+        sequence = Sobol(dim=self.sim_dim)
         states = jax.vmap(sequence.state)(path_ids + offset)
         uniforms = ((states ^ shift).astype(jnp.float64) + 0.5) * MUL
         normals = inverse_ncdf(uniforms, precise, polish)
