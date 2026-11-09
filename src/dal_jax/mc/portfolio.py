@@ -107,11 +107,14 @@ class PortfolioGroupExecution:
 
     One group per model owner per distinct timeline; trades sharing both are
     simulated on one scenario stream, so native merges them into a single
-    group with shared ``trade_positions``.  ``prefix_reversals`` and
-    ``suffix_reversals`` mirror native's per-replay tape reversal counts
-    (``generated_scenarios`` suffix, half that prefix); the tape byte peaks
-    live on the execution object and are zero because the JAX replay keeps no
-    native tape.
+    group with shared ``trade_positions``.  ``suffix_reversals`` counts one
+    tape reversal per path (``generated_scenarios``); ``prefix_reversals``
+    counts one per executed replay batch.  Native's batch decomposition
+    scales with its thread count (32 threads split 64 paths into 32 batches,
+    a 4-vCPU runner into 4), so it reports thread-scaled counts where this
+    engine reports its own block layout's batch count — cross-engine equality
+    is undefined, the same class of telemetry as the tape byte peaks and the
+    plan API's lanes.
     """
 
     actual_widths: list
@@ -643,11 +646,17 @@ def _group_counts(chosen, trade, weighted):
     return bool(selected), replays
 
 
-def _accumulate_groups(trades, runs, chosen, weighted):
-    """Group trades by (owner, timeline), accumulating positions and counts."""
+def _accumulate_groups(trades, runs, chosen, n_paths, weighted):
+    """Group trades by (owner, timeline), accumulating positions and counts.
+
+    ``batches`` totals the replay batches this engine executes for the group:
+    one block-layout decomposition per replay (per selected trade once for
+    the weighted variant, which never replays).
+    """
     groups, by_key = [], {}
     for trade, run in zip(trades, runs):
         selected, replays = _group_counts(chosen, trade, weighted)
+        blocks = run.engine.layout(n_paths).n_blocks
         key = (trade.owner, run.prepared.timeline)
         if key not in by_key:
             by_key[key] = {
@@ -655,6 +664,7 @@ def _accumulate_groups(trades, runs, chosen, weighted):
                 "positions": [],
                 "replays": 0,
                 "active": 0,
+                "batches": 0,
                 "run": run,
             }
             groups.append(by_key[key])
@@ -662,6 +672,10 @@ def _accumulate_groups(trades, runs, chosen, weighted):
         group["positions"].append(trade.position)
         group["replays"] += replays
         group["active"] += selected
+        if weighted:
+            group["batches"] = max(group["batches"], blocks if selected else 0)
+        else:
+            group["batches"] += blocks * replays
     return groups
 
 
@@ -694,7 +708,7 @@ def _group_execution(portfolio, group, n_paths, weighted) -> PortfolioGroupExecu
         factors=n_factors,
         generated_scenarios=generated,
         model_owner=group["owner"],
-        prefix_reversals=generated // 2,
+        prefix_reversals=group["batches"],
         random_dimension=len(run.prepared.timeline) * n_factors,
         replay_attempts=0 if weighted else group["replays"],
         sample_dates=list(run.prepared.event_dates),
@@ -715,7 +729,7 @@ def _execution_groups(portfolio, trades, runs, chosen, n_paths, weighted):
     """
     return [
         _group_execution(portfolio, group, n_paths, weighted)
-        for group in _accumulate_groups(trades, runs, chosen, weighted)
+        for group in _accumulate_groups(trades, runs, chosen, n_paths, weighted)
     ]
 
 

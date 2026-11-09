@@ -97,3 +97,12 @@ exercise/expired guard message omits native's
 `InvalidPortfolioPreparation: trade=<id>; cause=...` wrapper and raises
 the bare inner `UnsupportedPortfolioRisk: ...` code, consistent with the
 PR-#9 convention of matching native's final error line.
+
+A group's `prefix_reversals` counts one tape reversal per executed
+replay batch: native's batch decomposition scales with its thread count
+(`portfoliobatch.cpp` reverses once per batch — 32 threads split 64
+paths into 32 batches locally, a 4-vCPU runner into 4), so the count is
+native-thread-scaled telemetry; dal-jax reports its own block layout's
+batch count and the oracle assertion is structural, like the tape byte
+peaks and the plan API's lanes. `suffix_reversals` (one per path) is
+machine-independent and stays exactly asserted.
