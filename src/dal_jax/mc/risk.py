@@ -380,6 +380,11 @@ def risk_result(prepared, data, model, settings, n_paths, request=None, method="
     """A :class:`RiskResult` with native-matching provenance for the AAD risk variant."""
     settings = replace(settings, enable_aad=True)
     n_paths = int(n_paths)
+    #  Native labels a fully expired product's method "Expired" (it still values
+    #  to zero, unlike the guarded variants, which reject expired products
+    #  before this point); only the plain variant ever sees one prepared).
+    if prepared.expired:
+        method = "Expired"
     engine = prepared.engine(model, settings)
     return RiskResult(
         provenance=_provenance(prepared, settings, n_paths, method, engine),

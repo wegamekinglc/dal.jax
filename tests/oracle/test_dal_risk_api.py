@@ -1142,8 +1142,7 @@ def test_expired_exercise_products_raise_the_exercise_guard_before_binding(
 
 def test_value_with_risk_has_no_product_guards(dal):
     #  The plain AAD variant values fully expired products (to zero) instead of
-    #  rejecting them, exactly like native.  Provenance is not compared here:
-    #  native labels the method "Expired", ours still says "NativeAAD".
+    #  rejecting them, exactly like native, and labels the method "Expired".
     dates, events = [(2022, 1, 15)], ["p pays 1.0"]
     ours = _ours(dates, events, 64)
     theirs = _theirs(dal, dates, events, 64)
@@ -1151,3 +1150,8 @@ def test_value_with_risk_has_no_product_guards(dal):
     np.testing.assert_allclose(
         np.asarray(ours.jacobian), np.asarray(theirs.jacobian.to_rows()), rtol=1e-9, atol=1e-12
     )
+    assert ours.provenance.method == theirs.provenance.method == "Expired"
+    #  Partly expired products keep the regular method: only fully expired
+    #  ones (every event date strictly before the valuation date) short-circuit.
+    live = _theirs(dal, [(2022, 1, 15), (2024, 1, 2)], ["a = 1", "a pays 1.0"], 64)
+    assert live.provenance.method == "NativeAAD"
