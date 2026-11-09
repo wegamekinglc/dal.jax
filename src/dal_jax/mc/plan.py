@@ -16,7 +16,7 @@ from dal_jax.script.fixings import ValuationSettings, resolve_valuation
 from dal_jax.script.preparation import PreparedProduct, prepare
 from dal_jax.script.product import ScriptProductData
 
-MODEL_LABELS = ("spot", "vol", "rate", "div")
+MODEL_LABELS = BlackScholes.param_labels
 RSG_CHOICES = ("sobol", "mrg32", "irn")
 PRECISION_CHOICES = ("Default", "Fast", "Precise")
 _MAX_PATHS = 2147483647
@@ -207,12 +207,17 @@ def _check_point_entries(function, point) -> None:
         _require_number(function, "point", value)
 
 
-def _check_point_length(point, labels) -> None:
+def _check_point_length(point, labels, where=None) -> None:
+    """Wrong-size points name the segmented path; curvature wraps it with its context."""
     if len(point) != len(labels):
-        raise script_error("BlackScholesSegmentedPath: parameter size must equal ParameterLabels")
+        message = "BlackScholesSegmentedPath: parameter size must equal ParameterLabels"
+        raise script_error(f"MonteCarloCurvature: {where}; {message}" if where else message)
 
 
 def _check_path_count(function, num_path) -> int:
+    #  Intentionally not api._path_count: the plan API reports native's
+    #  function-named messages with the 1..2^31-1 range, pinned by the oracle
+    #  tests; the generic api-level message must not shadow them.
     if isinstance(num_path, bool) or not isinstance(num_path, numbers.Integral):
         raise script_error(
             f"InvalidPathCount: {function}; num_path / numPath; "
@@ -227,6 +232,17 @@ def _check_path_count(function, num_path) -> int:
             "number of Monte Carlo paths must be positive"
         )
     return int(num_path)
+
+
+def _validated_plan(function, plan) -> BlackScholesMonteCarloPlan:
+    """The bindings-level plan type check: plan is the first argument, so it fires first."""
+    if isinstance(plan, BlackScholesMonteCarloPlan):
+        return plan
+    described = f", value={plan!r}" if plan is None or isinstance(plan, str) else ""
+    raise script_error(
+        f"InvalidSegmentedMonteCarloRequest: {function}; plan; "
+        f"type={type(plan).__name__}{described}; expected BlackScholesMonteCarloPlan_"
+    )
 
 
 def _resolved_settings(function, settings) -> SegmentedMonteCarloSettings:
@@ -377,6 +393,7 @@ def black_scholes_plan(
 
 def get_risk(plan, point, num_path, settings=None) -> BlackScholesMonteCarloResult:
     """Value and differentiate the plan at one point, as native Get_Risk."""
+    plan = _validated_plan("BlackScholesMonteCarlo_Get_Risk", plan)
     _check_point_entries("BlackScholesMonteCarlo_Get_Risk", point)
     num_path = _check_path_count("BlackScholesMonteCarlo_Get_Risk", num_path)
     settings = _resolved_settings("BlackScholesMonteCarlo_Get_Risk", settings)
@@ -398,11 +415,12 @@ def get_risk(plan, point, num_path, settings=None) -> BlackScholesMonteCarloResu
 def get_curvature(plan, point, num_path, bumps, settings=None) -> MonteCarloCurvatureResult:
     """Bump-over-AAD curvature: one Hessian-times-direction row per bump."""
     function = "BlackScholesMonteCarlo_Get_Curvature"
+    plan = _validated_plan(function, plan)
     _check_point_entries(function, point)
     num_path = _check_path_count(function, num_path)
     settings = _resolved_settings(function, settings)
     steps, directions = _validated_bumps(bumps, len(point))
-    _check_point_length(point, plan.parameter_labels)
+    _check_point_length(point, plan.parameter_labels, where="base")
     model = _model_at(point, "base")
     for ordinal, (direction, step) in enumerate(zip(directions, steps)):
         _model_at(_bumped(point, direction, step), f"direction={ordinal}; plus")

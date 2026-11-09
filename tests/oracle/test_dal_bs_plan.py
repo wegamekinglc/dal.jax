@@ -809,3 +809,135 @@ def test_pseudo_random_settings_are_accepted(dal):
         assert ours.settings.rsg == theirs.settings.rsg == rsg
         assert ours.value != ours_sobol
         assert ours.value == pytest.approx(theirs.value, abs=tolerance)
+
+
+PLAN_TYPE_ERRORS = [
+    pytest.param(
+        "x",
+        "InvalidSegmentedMonteCarloRequest: BlackScholesMonteCarlo_Get_Risk; plan; "
+        "type=str, value='x'; expected BlackScholesMonteCarloPlan_",
+        id="string",
+    ),
+    pytest.param(
+        None,
+        "InvalidSegmentedMonteCarloRequest: BlackScholesMonteCarlo_Get_Risk; plan; "
+        "type=NoneType, value=None; expected BlackScholesMonteCarloPlan_",
+        id="none",
+    ),
+]
+
+
+@pytest.mark.parametrize(("plan_value", "message"), PLAN_TYPE_ERRORS)
+def test_plan_type_errors_match_native(dal, plan_value, message):
+    point = [100.0, 0.2, 0.03, 0.01]
+    bumps = [[1.0, 0.0, 0.0, 0.0]], [0.01]
+    with _raises_native(message):
+        dal.BlackScholesMonteCarlo_Get_Risk(plan_value, point, 64)
+    with _raises_ours(message):
+        BlackScholesMonteCarlo_Get_Risk(plan_value, point, 64)
+    curvature_message = message.replace("Get_Risk", "Get_Curvature")
+    with _raises_native(curvature_message):
+        dal.BlackScholesMonteCarlo_Get_Curvature(plan_value, point, 64, _native_bumps(dal, *bumps))
+    with _raises_ours(curvature_message):
+        BlackScholesMonteCarlo_Get_Curvature(plan_value, point, 64, _bumps(*bumps))
+
+
+def test_plan_type_check_precedes_other_validation(dal):
+    """plan is the first argument; its type error beats a bad point and path count."""
+    message = PLAN_TYPE_ERRORS[0].values[1]
+    with _raises_native(message):
+        dal.BlackScholesMonteCarlo_Get_Risk("x", {"spot": 1.0}, 0)
+    with _raises_ours(message):
+        BlackScholesMonteCarlo_Get_Risk("x", {"spot": 1.0}, 0)
+
+
+def test_non_plan_products_are_rejected_by_type_name(dal):
+    """Objects name their type without a value segment, exactly as the native binding."""
+    message = (
+        "InvalidSegmentedMonteCarloRequest: BlackScholesMonteCarlo_Get_Risk; plan; "
+        "type=ScriptProductData"
+    )
+    point = [100.0, 0.2, 0.03, 0.01]
+    with _raises_native(message):
+        dal.BlackScholesMonteCarlo_Get_Risk(_theirs_product(dal), point, 64)
+    #  Our class is spelled without the native trailing underscore, so match the prefix.
+    with pytest.raises(ScriptError, match="^" + re.escape(message)):
+        BlackScholesMonteCarlo_Get_Risk(
+            Product_New([Date.ymd(2024, 1, 2)], ["p pays spot()"]), point, 64
+        )
+
+
+def test_curvature_wraps_point_length_with_base_context(dal):
+    """A wrong-length point with matching direction columns reaches the path build."""
+    dates, events = [(2024, 1, 2)], ["p pays spot()"]
+    tail = "BlackScholesSegmentedPath: parameter size must equal ParameterLabels"
+    #  Native interleaves C++ frames between the wrap and the tail, so both are
+    #  checked as fragments; ours concatenates them into one message.
+    with pytest.raises(RuntimeError, match=re.escape("MonteCarloCurvature: base;")) as error:
+        dal.BlackScholesMonteCarlo_Get_Curvature(
+            _theirs(dal, dates, events),
+            [1.0, 2.0, 3.0],
+            64,
+            _native_bumps(dal, [[1.0, 0.0, 0.0]], [0.01]),
+        )
+    assert tail in str(error.value)
+    with _raises_ours(f"MonteCarloCurvature: base; {tail}"):
+        BlackScholesMonteCarlo_Get_Curvature(
+            _ours(dates, events), [1.0, 2.0, 3.0], 64, _bumps([[1.0, 0.0, 0.0]], [0.01])
+        )
+
+
+def test_curvature_wraps_base_model_validity(dal):
+    dates, events = [(2024, 1, 2)], ["p pays spot()"]
+    tail = "InvalidModelParameter: spot must be finite and positive"
+    with pytest.raises(RuntimeError, match=re.escape("MonteCarloCurvature: base;")) as error:
+        dal.BlackScholesMonteCarlo_Get_Curvature(
+            _theirs(dal, dates, events),
+            [0.0, 0.2, 0.03, 0.01],
+            64,
+            _native_bumps(dal, [[1.0, 0.0, 0.0, 0.0]], [0.01]),
+        )
+    assert tail in str(error.value)
+    with _raises_ours(f"MonteCarloCurvature: base; {tail}"):
+        BlackScholesMonteCarlo_Get_Curvature(
+            _ours(dates, events), [0.0, 0.2, 0.03, 0.01], 64, _bumps([[1.0, 0.0, 0.0, 0.0]], [0.01])
+        )
+
+
+def test_first_path_moves_constant_products(dal):
+    """The Sobol offset moves joined-label products (model params plus constants)."""
+    dates = ["K", (2024, 1, 2), (2024, 7, 2)]
+    events = ["100", "s = SPOT()", "p PAYS MAX(s - K, 0)"]
+    point = [100.0, 0.2, 0.03, 0.01, 100.0]
+    plan, native_plan = _ours(dates, events), _theirs(dal, dates, events)
+    base = BlackScholesMonteCarlo_Get_Risk(plan, point, 512).value
+    moved = BlackScholesMonteCarlo_Get_Risk(
+        plan, point, 512, settings=SegmentedMonteCarloSettings_(first_path=100)
+    ).value
+    native_moved = dal.BlackScholesMonteCarlo_Get_Risk(
+        native_plan, point, 512, settings=_settings(dal, first_path=100)
+    ).value
+    assert moved != base
+    assert moved == pytest.approx(native_moved, rel=1e-11)
+
+
+def test_scramble_key_boundary(dal):
+    """The full uint64 shift-key range is accepted; one past it is rejected."""
+    dates, events = [(2024, 1, 2)], ["p pays MAX(spot()-100.0,0)"]
+    point = [100.0, 0.2, 0.03, 0.01]
+    plan, native_plan = _ours(dates, events), _theirs(dal, dates, events)
+    ours = BlackScholesMonteCarlo_Get_Risk(
+        plan, point, 512, settings=SegmentedMonteCarloSettings_(scramble_key=2**64 - 1)
+    ).value
+    theirs = dal.BlackScholesMonteCarlo_Get_Risk(
+        native_plan, point, 512, settings=_settings(dal, scramble_key=2**64 - 1)
+    ).value
+    assert ours == pytest.approx(theirs, rel=1e-11)
+    message = (
+        "InvalidSegmentedMonteCarloRequest: SegmentedMonteCarloSettings_; scramble_key; "
+        "type=int, value=18446744073709551616; expected uint64 integer or None, excluding bool"
+    )
+    with _raises_native(message):
+        _settings(dal, scramble_key=2**64)
+    with _raises_ours(message):
+        SegmentedMonteCarloSettings_(scramble_key=2**64)
