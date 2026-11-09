@@ -125,7 +125,9 @@ class SegmentedMonteCarloExecution:
     """The executed simulation snapshot, mirroring ``SegmentedMonteCarloExecution_``.
 
     The ``max_path_*_bytes`` fields report native's AAD tape telemetry and stay
-    ``None``; the counts describe this engine's block layout.
+    ``None``; the counts describe this engine's block layout.  ``lanes`` is
+    engine-specific like them: native reports its thread lanes (capped by its
+    worker count), this engine the resolved device count of the layout.
     """
 
     path_count: int
@@ -334,7 +336,7 @@ def _execution(settings, num_path, engine) -> SegmentedMonteCarloExecution:
         segment_steps=settings.segment_steps,
         batches=layout.n_blocks,
         batch_size=layout.block_size,
-        lanes=layout.n_blocks,
+        lanes=layout.n_devices,
     )
 
 

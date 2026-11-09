@@ -3,6 +3,7 @@
 import math
 import re
 
+import jax
 import numpy as np
 import pytest
 
@@ -271,6 +272,21 @@ def test_get_risk_matches_native(dal, point):
     assert ours.execution.path_count == theirs.execution.path_count == 1024
     for field in EXECUTION_ECHO_FIELDS:
         assert getattr(ours.execution, field) == getattr(theirs.execution, field), field
+
+
+def test_get_risk_execution_lanes_report_the_device_count(dal):
+    #  Native's lanes is its thread-lane parallelism, capped by its worker
+    #  count and never exceeding its batches; this engine's analogue is the
+    #  resolved device count of the block layout, so the field is
+    #  engine-specific (like the max_path_*_bytes telemetry) rather than an
+    #  echo of batches.
+    dates, events = [(2024, 1, 2)], ["p pays spot()"]
+    point = [100.0, 0.2, 0.03, 0.01]
+    ours = BlackScholesMonteCarlo_Get_Risk(_ours(dates, events), point, 4096)
+    theirs = dal.BlackScholesMonteCarlo_Get_Risk(_theirs(dal, dates, events), list(point), 4096)
+    assert ours.execution.lanes == len(jax.local_devices())
+    assert 1 <= ours.execution.lanes <= ours.execution.batches
+    assert 1 <= theirs.execution.lanes <= theirs.execution.batches
 
 
 @pytest.mark.parametrize("strike", [100.0, 95.0])
