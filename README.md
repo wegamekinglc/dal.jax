@@ -222,13 +222,15 @@ The [P6/P7 performance report](docs/p6-p7-performance.md) adds million-path Berm
 src/dal_jax/
   config.py           x64, virtual CPU devices, PRNG implementation, compilation cache
   errors.py           DAL-named exceptions (InvalidSetting, InvalidPathCount, ScriptError subclasses, ...)
-  api.py              dal-python compatible Product_*, EvaluationDate_*, BSModelData_New, MonteCarlo_Value
+  api.py              dal-python compatible Product_*, EvaluationDate_*, BSModelData_New, MonteCarlo_Value,
+                      MonteCarlo_ValueWithRisk/WithJacobianRisk/WithWeightedRisk, BlackScholesMonteCarlo_*, PseudoRSG_*
   strings.py          DAL's case-insensitive strings and number parsing
   index.py            index names (EQ, FX, IR) and their canonical forms
   dates/              Date, increments, holidays (+ calendar_data.py), schedules, day bases
-  random/             sobol (+ directions.npy), inverse_normal, bridge, prng
+  random/             sobol (+ directions.npy), inverse_normal, bridge, prng, pseudorng (exact MRG32k3a PseudoRSG)
   models/             base (protocol, SampleDef, Scenario), bs, correlated_bs, localvol, gsr, gsrslv, hybrid
-  mc/                 settings, engine, parallel, tuning, lsmc, regression, regression_device
+  mc/                 settings, engine, parallel, tuning, lsmc, regression, regression_device, risk (request-driven
+                      risk results), plan (BlackScholesMonteCarlo plan API + segmented settings)
   script/             lexer, preprocessor, parser, ast, product, preparation, observation, fixings, debug, diagnostics, explain, lsmcprep
   script/passes/      varindex, ifmeta, constfold, domain (+ intervals), constcond, eventgroup
   script/lower/       exact/fuzzy/LSMC events, state, grouped execution, smoothing kernels

@@ -64,8 +64,9 @@ def sobol_state(path_id: Array, dirs: Array) -> Array:
 class Sobol:
     """Single-path Sobol generator; ``vmap`` over ``path_id`` for a batch.
 
-    ``precise``/``polish`` are DAL's ``InverseNCDF`` flags (both off in DAL's
-    Monte Carlo).  ``shift_key`` enables the digital shift.
+    ``precise``/``polish`` are DAL's ``InverseNCDF`` flags; the engine turns
+    both on when ``normal_precision='Precise'`` (see ``normal_inversion_flags``).
+    ``shift_key`` enables the digital shift.
     """
 
     dim: int
