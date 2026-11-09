@@ -25,7 +25,9 @@ from dal_jax.errors import (
     InvalidDupireInput,
     InvalidDupirePullback,
     InvalidDupireQuote,
+    InvalidIndex,
     InvalidModelIndex,
+    InvalidModelParameter,
     ScriptError,
 )
 from dal_jax.models import DupireCalibrationSnapshot, LocalVolSurface
@@ -150,6 +152,7 @@ def _error_of(message):
         "InvalidDupirePullback": InvalidDupirePullback,
         "InvalidDupireInput": InvalidDupireInput,
         "InvalidModelIndex": InvalidModelIndex,
+        "InvalidIndex": InvalidIndex,
         "InvalidHybridComponent": ScriptError,
     }[message.split(":")[0]]
 
@@ -788,6 +791,30 @@ def test_model_ctor_validates_like_native(dal):
             "InvalidModelIndex: expected an ordinary EQ index: IR[USD,XYZ]",
         ),
         (
+            {"index": "FOO[BAR]", "currency": "USD", "factor": "F"},
+            "InvalidModelIndex: expected an ordinary EQ index: FOO[BAR]",
+        ),
+        (
+            {"index": "foo:bar", "currency": "USD", "factor": "F"},
+            "InvalidModelIndex: expected an ordinary EQ index: foo:bar",
+        ),
+        (
+            {"index": "COMM[GOLD]", "currency": "USD", "factor": "F"},
+            "InvalidModelIndex: expected an ordinary EQ index: COMM[GOLD]",
+        ),
+        (
+            {"index": "EQ[ABC", "currency": "USD", "factor": "F"},
+            "InvalidIndex: EQ[ABC; equity index must contain a nonempty EQ[name]",
+        ),
+        (
+            {"index": "EQ[]", "currency": "USD", "factor": "F"},
+            "InvalidIndex: EQ[]; equity index must contain a nonempty EQ[name]",
+        ),
+        (
+            {"index": "eq[local", "currency": "USD", "factor": "F"},
+            "InvalidIndex: eq[local; equity index must contain a nonempty EQ[name]",
+        ),
+        (
             {"index": INDEX, "currency": "", "factor": "F"},
             "InvalidHybridComponent: local-vol equity name, currency, factor, and surface are required",
         ),
@@ -847,3 +874,23 @@ def test_model_defaults_and_lowercase_index(dal):
     #  Default max_step (1/12) prices differently from the 0.25 anchor fixture;
     #  this pins canonicalisation and defaults, not the anchor.
     assert ours["PV"] == pytest.approx(theirs_pv["PV"], rel=1e-10)
+    #  Canonicalisation upper-cases only the EQ prefix; the inner name keeps
+    #  its case, as native's RiskLabels report it.
+    risk = MonteCarlo_ValueWithRisk(_our_product(), plain, 129, valuation=VALUATION)
+    native_risk = dal.MonteCarlo_ValueWithRisk(
+        _their_product(dal), theirs, 129, valuation=_their_valuation(dal)
+    )
+    labels = [c.label for c in risk.input_axis]
+    assert labels[:2] == ["spot:EQ[local]", "div:EQ[local]"]
+    assert labels[-1] == "rate:USD"
+    assert labels == [c.label for c in native_risk.input_axis]
+
+
+def test_model_unsupported_currency_diverges_from_native(dal):
+    #  Known divergence: native accepts any currency string end-to-end (a
+    #  probed XYZ model even prices), while our hybrid reuses the LocalVol
+    #  currency gate and rejects construction.  Do not "fix" one side without
+    #  the other; revisit only if native starts validating currencies.
+    assert dal.DupireModelData_New(_their_calibration(dal), INDEX, "XYZ", "F") is not None
+    with pytest.raises(InvalidModelParameter, match="currency must be supported"):
+        DupireModelData_New(_our_calibration(), INDEX, "XYZ", "F")

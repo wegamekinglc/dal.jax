@@ -27,7 +27,6 @@ from dal_jax.errors import (
     InvalidDupireInput,
     InvalidDupirePullback,
     InvalidDupireQuote,
-    InvalidIndex,
     InvalidModelIndex,
     script_error,
 )
@@ -41,6 +40,7 @@ from dal_jax.models.hybrid import (
     HybridLocalVolEquity,
 )
 from dal_jax.models.localvol import LocalVolSurface
+from dal_jax.strings import ci_eq
 
 #  Native constants (dal-cpp dal/platform/consts.hpp and the Dupire sources).
 _DAL_EPSILON = 2e-14
@@ -645,11 +645,16 @@ def _setting_string(value, field, error=InvalidDupireCalibration):
 
 
 def _equity_index(index):
-    """The canonical EQ index name, as native's ordinary-EQ check reports it."""
-    try:
-        return plain_equity(index)
-    except InvalidIndex as error:
-        raise InvalidModelIndex(f"expected an ordinary EQ index: {index}") from error
+    """The canonical EQ index name, gated as native's ordinary-EQ check.
+
+    Native requires the name to CI-start with ``EQ[`` before parsing (DAL's
+    ``String_`` equality is case-insensitive); non-EQ names fail with
+    ``InvalidModelIndex`` while EQ-prefixed-but-malformed names surface the
+    equity parser's own ``InvalidIndex``.
+    """
+    if not ci_eq(index[:3], "EQ["):
+        raise InvalidModelIndex(f"expected an ordinary EQ index: {index}")
+    return plain_equity(index)
 
 
 def dupire_model_data(calibration, index, currency, factor, name="", max_step=1.0 / 12.0):
