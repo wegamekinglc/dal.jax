@@ -466,11 +466,6 @@ def risk_result(prepared, data, model, settings, n_paths, request=None, method="
     settings = replace(settings, enable_aad=True)
     n_paths = int(n_paths)
     validate_request_metadata(request)
-    #  Native labels a fully expired product's method "Expired" (it still values
-    #  to zero, unlike the guarded variants, which reject expired products
-    #  before this point); only the plain variant ever sees one prepared).
-    if prepared.expired:
-        method = "Expired"
     engine = prepared.engine(model, settings)
     #  Native labels fully expired valuations "Expired", and exercise products
     #  under a retrained policy-risk mode after their secant estimator; the
