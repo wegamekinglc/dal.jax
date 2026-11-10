@@ -62,10 +62,12 @@ class BumpOverAADRequest:
         #  Native's DoubleMatrix binding copies at construction; later edits of
         #  the caller's rows must not leak into the request.  Invalid inputs
         #  pass through untouched so use-site validation reports them as given.
-        if isinstance(self.directions, (list, tuple)):
-            object.__setattr__(self, "directions", tuple(tuple(row) for row in self.directions))
-        if isinstance(self.steps, (list, tuple)):
-            object.__setattr__(self, "steps", tuple(self.steps))
+        directions = self.directions
+        if isinstance(directions, (list, tuple)):
+            object.__setattr__(self, "directions", tuple(tuple(row) for row in directions))
+        steps = self.steps
+        if isinstance(steps, (list, tuple)):
+            object.__setattr__(self, "steps", tuple(steps))
 
 
 @dataclass(slots=True)
