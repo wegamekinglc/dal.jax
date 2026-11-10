@@ -58,6 +58,17 @@ class BumpOverAADRequest:
     numeric_payload_budget_bytes: int | None = None
     recording_capacity_budget_bytes: int | None = None
 
+    def __post_init__(self):
+        #  Native's DoubleMatrix binding copies at construction; later edits of
+        #  the caller's rows must not leak into the request.  Invalid inputs
+        #  pass through untouched so use-site validation reports them as given.
+        directions = self.directions
+        if isinstance(directions, (list, tuple)):
+            object.__setattr__(self, "directions", tuple(map(tuple, directions)))
+        steps = self.steps
+        if isinstance(steps, (list, tuple)):
+            object.__setattr__(self, "steps", tuple(steps))
+
 
 @dataclass(slots=True)
 class RiskExecutionSnapshot:
@@ -65,6 +76,7 @@ class RiskExecutionSnapshot:
     pricing_replicates: int
     method: str
     block_width: int
+    model: object = None  # retained for calibration pullbacks, as native's JSON snapshot
 
 
 @dataclass(slots=True)
@@ -176,18 +188,21 @@ def validate_risk_product(data, valuation, code, estimator) -> None:
 _PHYSICAL_UNITS = (("vol", "year^-1/2"), ("rate", "year^-1"), ("div", "year^-1"))
 
 
-def _physical_unit(label: str) -> str | None:
-    return next((unit for prefix, unit in _PHYSICAL_UNITS if label.startswith(prefix)), None)
+def _physical_unit(label: str, units) -> str | None:
+    return next((unit for prefix, unit in units if label.startswith(prefix)), None)
 
 
 def input_axis(model, script_params=()) -> list[RiskCoordinate]:
     """Model coordinates followed by script constants, mirroring DAL's risk axis.
 
     Model coordinates are ``model:<ordinal>`` in ``param_labels`` order with
-    ``vol``/``rate``/``div`` prefixes carrying a physical unit; script constants are
-    ``constant:<ordinal>`` with per-family ordinals and no physical unit.
+    ``vol``/``rate``/``div`` prefixes carrying a physical unit; hybrids override
+    ``parameter_physical_units`` to report none, as native's hybrid driver does.
+    Script constants are ``constant:<ordinal>`` with per-family ordinals and no
+    physical unit.
     """
     params = model.default_params()
+    units = tuple(getattr(model, "parameter_physical_units", _PHYSICAL_UNITS))
     axis = [
         RiskCoordinate(
             family="model",
@@ -195,7 +210,7 @@ def input_axis(model, script_params=()) -> list[RiskCoordinate]:
             label=label,
             ordinal=ordinal,
             native_unit="model-coordinate",
-            physical_unit=_physical_unit(label),
+            physical_unit=_physical_unit(label, units),
             report_scale=1.0,
             value=float(params[label]),
         )
@@ -408,7 +423,7 @@ def _weights(request, count) -> list[float]:
     return [float(weight) for weight in raw]
 
 
-def _provenance(prepared, settings, n_paths, method, engine) -> RiskResultProvenance:
+def _provenance(prepared, settings, n_paths, method, engine, model=None) -> RiskResultProvenance:
     return RiskResultProvenance(
         engine="dal-jax",
         method=method,
@@ -420,6 +435,7 @@ def _provenance(prepared, settings, n_paths, method, engine) -> RiskResultProven
             pricing_replicates=settings.lsmc_rqmc_replicates or 1,
             method=method,
             block_width=engine.layout(n_paths).block_size,
+            model=model,
         ),
     )
 
@@ -450,14 +466,18 @@ def risk_result(prepared, data, model, settings, n_paths, request=None, method="
     settings = replace(settings, enable_aad=True)
     n_paths = int(n_paths)
     validate_request_metadata(request)
-    #  Native labels a fully expired product's method "Expired" (it still values
-    #  to zero, unlike the guarded variants, which reject expired products
-    #  before this point); only the plain variant ever sees one prepared).
+    engine = prepared.engine(model, settings)
+    #  Native labels fully expired valuations "Expired", and exercise products
+    #  under a retrained policy-risk mode after their secant estimator; the
+    #  Dupire pullback composes its method string from this label.
+    parsed = data.product() if isinstance(data, ScriptProductData) else data
     if prepared.expired:
         method = "Expired"
-    engine = prepared.engine(model, settings)
+    elif method == "NativeAAD" and parsed.has_exercise:
+        if settings.lsmc_policy_risk_mode == "RetrainedBump":
+            method = "NativeAADWithRetrainedPolicySecant"
     return RiskResult(
-        provenance=_provenance(prepared, settings, n_paths, method, engine),
+        provenance=_provenance(prepared, settings, n_paths, method, engine, model),
         **_risk_fields(engine, prepared, data, n_paths, request),
     )
 

@@ -10,6 +10,27 @@ from typing import NamedTuple
 from dal_jax.dates.date import Date
 from dal_jax.errors import InvalidPathCount, InvalidSetting, script_error
 from dal_jax.mc import MonteCarloSettings
+from dal_jax.mc.dupire import (
+    CalibrationQuoteCoordinate,
+    CalibrationRiskPlan,
+    CalibrationRiskRequest,
+    DupireQuoteBinding,
+    DupireScriptCurvatureExecution,
+    DupireScriptCurvaturePlan,
+    DupireScriptCurvatureRequest,
+    DupireScriptCurvatureResult,
+    DupireScriptQuoteRisk,
+    DupireScriptRiskPlan,
+    DupireScriptRiskRequest,
+    DupireScriptRiskResult,
+    dupire_parameter_adjoints_from_risk,
+    dupire_quote_risk,
+    dupire_script_quote_risk,
+    plan_dupire_script_curvature,
+    plan_dupire_script_risk,
+    value_dupire_script_curvature,
+    value_dupire_script_risk,
+)
 from dal_jax.mc.plan import (
     SegmentedMonteCarloSettings,
     _check_path_count,
@@ -44,8 +65,24 @@ from dal_jax.mc.risk import (
     weighted_result,
 )
 from dal_jax.mc.settings import DEFAULT_SMOOTH
-from dal_jax.models import BlackScholes, CorrelatedBlackScholes, LocalVol, LocalVolSurface
+from dal_jax.models import (
+    IVS,
+    BlackScholes,
+    CorrelatedBlackScholes,
+    DupireCalibrationSnapshot,
+    DupireRiskInputs,
+    LocalVol,
+    LocalVolSurface,
+    MertonIVS,
+    calibrate_dupire,
+    dupire_model_data,
+)
 from dal_jax.models.base import Model
+from dal_jax.models.dupire import (
+    DupireDirectQuoteAdjoints,
+    DupireParameterAdjoints,
+    DupireQuoteRisk,
+)
 from dal_jax.models.gsr import GSR, GSRCurve, GSRVol, MultiFactorGSRVol
 from dal_jax.models.gsrslv import GSRSLV, GSRLeverage, GSRSLVSettings
 from dal_jax.models.hybrid import (
@@ -330,6 +367,79 @@ def HybridModelData_New(name, domestic_currency, components, correlation):  # no
 
 def MonteCarloSettings_(*, method="sobol", compiled=True, **settings):  # noqa: N802
     return MonteCarloSettings(rsg=method, compiled=compiled, **settings)
+
+
+DupireRiskInputs_ = DupireRiskInputs
+DupireCalibrationSnapshot_ = DupireCalibrationSnapshot
+IVS_ = IVS
+MertonIVS_ = MertonIVS
+
+
+def DupireCalibration_New(base, inputs, *, name=""):  # noqa: N802
+    """Calibrate the Dupire local-volatility snapshot, as native DupireCalibration_New."""
+    return calibrate_dupire(base, inputs, name)
+
+
+def DupireModelData_New(  # noqa: N802
+    calibration, index, currency, factor, *, name="", max_step=1.0 / 12.0
+):
+    """The Dupire model as a local-vol hybrid, as native DupireModelData_New."""
+    return dupire_model_data(calibration, index, currency, factor, name, max_step)
+
+
+CalibrationRiskRequest_ = CalibrationRiskRequest
+CalibrationRiskPlan_ = CalibrationRiskPlan
+DupireQuoteBinding_ = DupireQuoteBinding
+DupireScriptRiskRequest_ = DupireScriptRiskRequest
+DupireScriptRiskPlan_ = DupireScriptRiskPlan
+DupireScriptRiskResult_ = DupireScriptRiskResult
+DupireScriptQuoteRisk_ = DupireScriptQuoteRisk
+DupireParameterAdjoints_ = DupireParameterAdjoints
+DupireDirectQuoteAdjoints_ = DupireDirectQuoteAdjoints
+DupireQuoteRisk_ = DupireQuoteRisk
+
+
+def DupireScriptRiskPlan_New(product, modelData, calibration, component, request):  # noqa: N802
+    """Plan the Dupire script risk, as native DupireScriptRiskPlan_New."""
+    return plan_dupire_script_risk(product, modelData, calibration, component, request)
+
+
+def DupireScriptRiskResult_New(plan):  # noqa: N802
+    """Value a Dupire script-risk plan, as native DupireScriptRiskResult_New."""
+    return value_dupire_script_risk(plan)
+
+
+def DupireParameterAdjoints_FromRisk(valuation, calibration, component):  # noqa: N802
+    """Surface-node seeds from an AAD valuation, as native's FromRisk."""
+    return dupire_parameter_adjoints_from_risk(valuation, calibration, component)
+
+
+def DupireQuoteRisk_New(calibration, parameter_adjoints, *, direct=None):  # noqa: N802
+    """Pull surface seeds back to quote space, as native DupireQuoteRisk_New."""
+    return dupire_quote_risk(calibration, parameter_adjoints, direct)
+
+
+def DupireScriptQuoteRisk_New(valuation, calibration, component, *, direct=None):  # noqa: N802
+    """The valued pullback, as native DupireScriptQuoteRisk_New."""
+    return dupire_script_quote_risk(valuation, calibration, component, direct)
+
+
+DupireScriptCurvatureRequest_ = DupireScriptCurvatureRequest
+DupireScriptCurvaturePlan_ = DupireScriptCurvaturePlan
+DupireScriptCurvatureResult_ = DupireScriptCurvatureResult
+DupireScriptCurvatureExecution_ = DupireScriptCurvatureExecution
+
+
+def DupireScriptCurvaturePlan_New(  # noqa: N802
+    product, modelData, calibration, component, request
+):
+    """Plan the Dupire quote-space curvature, as native."""
+    return plan_dupire_script_curvature(product, modelData, calibration, component, request)
+
+
+def DupireScriptCurvatureResult_New(plan):  # noqa: N802
+    """Value the Dupire curvature plan, as native."""
+    return value_dupire_script_curvature(plan)
 
 
 def MonteCarlo_Value(
@@ -641,6 +751,40 @@ __all__ += (
     "JacobianRiskRequest_",
     "WeightedRiskRequest_",
     "BumpOverAADRequest_",
+)
+__all__ += (
+    "DupireRiskInputs_",
+    "DupireCalibration_New",
+    "DupireCalibrationSnapshot_",
+    "DupireModelData_New",
+    "IVS_",
+    "MertonIVS_",
+)
+__all__ += (
+    "CalibrationRiskRequest_",
+    "CalibrationRiskPlan_",
+    "CalibrationQuoteCoordinate",
+    "DupireQuoteBinding_",
+    "DupireScriptRiskRequest_",
+    "DupireScriptRiskPlan_",
+    "DupireScriptRiskPlan_New",
+    "DupireScriptRiskResult_",
+    "DupireScriptRiskResult_New",
+    "DupireScriptQuoteRisk_",
+    "DupireScriptQuoteRisk_New",
+    "DupireParameterAdjoints_",
+    "DupireParameterAdjoints_FromRisk",
+    "DupireDirectQuoteAdjoints_",
+    "DupireQuoteRisk_",
+    "DupireQuoteRisk_New",
+)
+__all__ += (
+    "DupireScriptCurvatureRequest_",
+    "DupireScriptCurvaturePlan_",
+    "DupireScriptCurvaturePlan_New",
+    "DupireScriptCurvatureResult_",
+    "DupireScriptCurvatureResult_New",
+    "DupireScriptCurvatureExecution_",
 )
 __all__ += (
     "MonteCarlo_ValueWithRisk",

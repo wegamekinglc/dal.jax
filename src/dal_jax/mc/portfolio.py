@@ -19,6 +19,7 @@ from dal_jax.dates.date import Date
 from dal_jax.errors import InvalidWeightedRiskRequest, script_error
 from dal_jax.mc.risk import (
     _BUDGET_FIELDS,
+    _PHYSICAL_UNITS,
     RiskCoordinate,
     RiskExecutionSnapshot,
     RiskOutputCoordinate,
@@ -395,6 +396,7 @@ def _portfolio_weights(request, outputs) -> list[float]:
 
 def _owner_axis(owner: int, model) -> list[RiskCoordinate]:
     params = model.default_params()
+    units = tuple(getattr(model, "parameter_physical_units", _PHYSICAL_UNITS))
     return [
         RiskCoordinate(
             family="model",
@@ -402,7 +404,7 @@ def _owner_axis(owner: int, model) -> list[RiskCoordinate]:
             label=label,
             ordinal=ordinal,
             native_unit="model-coordinate",
-            physical_unit=_physical_unit(label),
+            physical_unit=_physical_unit(label, units),
             report_scale=1.0,
             value=float(params[label]),
         )

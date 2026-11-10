@@ -260,6 +260,54 @@ class InvalidLocalVolSurface(DalError):
     code = "InvalidLocalVolSurface"
 
 
+class InvalidDupireQuote(DalError):
+    """Dupire quote-grid validation, as native ``InvalidDupireQuote``."""
+
+    code = "InvalidDupireQuote"
+
+
+class InvalidDupireCalibration(DalError):
+    """Dupire calibration validation, as native ``InvalidDupireCalibration``."""
+
+    code = "InvalidDupireCalibration"
+
+
+class InvalidDupirePullback(DalError):
+    """Dupire risk-input binding errors, as native ``InvalidDupirePullback``."""
+
+    code = "InvalidDupirePullback"
+
+
+class InvalidDupireInput(DalError):
+    """Dupire model-data setting errors, as native ``InvalidDupireInput``."""
+
+    code = "InvalidDupireInput"
+
+
+class InvalidDupireRiskRequest(DalError):
+    """Dupire script-risk request/plan errors, as native ``InvalidDupireRiskRequest``."""
+
+    code = "InvalidDupireRiskRequest"
+
+
+class InvalidCalibrationRiskRequest(DalError):
+    """Calibration quote-selection errors, as native ``InvalidCalibrationRiskRequest``."""
+
+    code = "InvalidCalibrationRiskRequest"
+
+
+class CalibrationRiskBudgetExceeded(DalError):
+    """Numeric payload budgets exceeded, as native ``CalibrationRiskBudgetExceeded``."""
+
+    code = "CalibrationRiskBudgetExceeded"
+
+
+class DupireSnapshotMismatch(DalError):
+    """Snapshot/model disagreements, as native ``DupireSnapshotMismatch``."""
+
+    code = "DupireSnapshotMismatch"
+
+
 class InvalidRandomSequence(DalError):
     code = "InvalidRandomSequence"
 

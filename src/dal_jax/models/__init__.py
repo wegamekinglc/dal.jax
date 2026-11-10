@@ -1,6 +1,14 @@
 from dal_jax.models.base import Model, Sample, SampleDef, Scenario, validate_timeline
 from dal_jax.models.bs import BlackScholes
 from dal_jax.models.correlated_bs import CorrelatedBlackScholes
+from dal_jax.models.dupire import (
+    IVS,
+    DupireCalibrationSnapshot,
+    DupireRiskInputs,
+    MertonIVS,
+    calibrate_dupire,
+    dupire_model_data,
+)
 from dal_jax.models.gsr import GSR, GSRCurve, GSRVol, MultiFactorGSRVol
 from dal_jax.models.gsrslv import GSRSLV, GSRLeverage, GSRSLVSettings
 from dal_jax.models.hybrid import Hybrid
@@ -9,8 +17,12 @@ from dal_jax.models.localvol import LocalVol, LocalVolSurface
 __all__ = (
     "BlackScholes",
     "CorrelatedBlackScholes",
+    "DupireCalibrationSnapshot",
+    "DupireRiskInputs",
+    "IVS",
     "LocalVol",
     "LocalVolSurface",
+    "MertonIVS",
     "GSR",
     "GSRCurve",
     "GSRVol",
@@ -19,6 +31,8 @@ __all__ = (
     "Sample",
     "SampleDef",
     "Scenario",
+    "calibrate_dupire",
+    "dupire_model_data",
     "validate_timeline",
 )
 __all__ += ("GSRSLV", "GSRSLVSettings", "GSRLeverage", "Hybrid")

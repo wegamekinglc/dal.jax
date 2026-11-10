@@ -1368,6 +1368,7 @@ def test_value_with_risk_has_no_product_guards(dal):
     ours = _ours(dates, events, 64)
     theirs = _theirs(dal, dates, events, 64)
     assert ours.values == theirs.values == [0.0]
+    assert ours.provenance.method == theirs.provenance.method == "Expired"
     np.testing.assert_allclose(
         np.asarray(ours.jacobian), np.asarray(theirs.jacobian.to_rows()), rtol=1e-9, atol=1e-12
     )
