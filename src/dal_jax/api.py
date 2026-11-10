@@ -15,6 +15,10 @@ from dal_jax.mc.dupire import (
     CalibrationRiskPlan,
     CalibrationRiskRequest,
     DupireQuoteBinding,
+    DupireScriptCurvatureExecution,
+    DupireScriptCurvaturePlan,
+    DupireScriptCurvatureRequest,
+    DupireScriptCurvatureResult,
     DupireScriptQuoteRisk,
     DupireScriptRiskPlan,
     DupireScriptRiskRequest,
@@ -22,7 +26,9 @@ from dal_jax.mc.dupire import (
     dupire_parameter_adjoints_from_risk,
     dupire_quote_risk,
     dupire_script_quote_risk,
+    plan_dupire_script_curvature,
     plan_dupire_script_risk,
+    value_dupire_script_curvature,
     value_dupire_script_risk,
 )
 from dal_jax.mc.plan import (
@@ -418,6 +424,24 @@ def DupireScriptQuoteRisk_New(valuation, calibration, component, *, direct=None)
     return dupire_script_quote_risk(valuation, calibration, component, direct)
 
 
+DupireScriptCurvatureRequest_ = DupireScriptCurvatureRequest
+DupireScriptCurvaturePlan_ = DupireScriptCurvaturePlan
+DupireScriptCurvatureResult_ = DupireScriptCurvatureResult
+DupireScriptCurvatureExecution_ = DupireScriptCurvatureExecution
+
+
+def DupireScriptCurvaturePlan_New(  # noqa: N802
+    product, modelData, calibration, component, request
+):
+    """Plan the Dupire quote-space curvature, as native."""
+    return plan_dupire_script_curvature(product, modelData, calibration, component, request)
+
+
+def DupireScriptCurvatureResult_New(plan):  # noqa: N802
+    """Value the Dupire curvature plan, as native."""
+    return value_dupire_script_curvature(plan)
+
+
 def MonteCarlo_Value(
     product: ScriptProductData,
     model: Model,
@@ -753,6 +777,14 @@ __all__ += (
     "DupireDirectQuoteAdjoints_",
     "DupireQuoteRisk_",
     "DupireQuoteRisk_New",
+)
+__all__ += (
+    "DupireScriptCurvatureRequest_",
+    "DupireScriptCurvaturePlan_",
+    "DupireScriptCurvaturePlan_New",
+    "DupireScriptCurvatureResult_",
+    "DupireScriptCurvatureResult_New",
+    "DupireScriptCurvatureExecution_",
 )
 __all__ += (
     "MonteCarlo_ValueWithRisk",

@@ -58,6 +58,15 @@ class BumpOverAADRequest:
     numeric_payload_budget_bytes: int | None = None
     recording_capacity_budget_bytes: int | None = None
 
+    def __post_init__(self):
+        #  Native's DoubleMatrix binding copies at construction; later edits of
+        #  the caller's rows must not leak into the request.  Invalid inputs
+        #  pass through untouched so use-site validation reports them as given.
+        if isinstance(self.directions, (list, tuple)):
+            object.__setattr__(self, "directions", tuple(tuple(row) for row in self.directions))
+        if isinstance(self.steps, (list, tuple)):
+            object.__setattr__(self, "steps", tuple(self.steps))
+
 
 @dataclass(slots=True)
 class RiskExecutionSnapshot:

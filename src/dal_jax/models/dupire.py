@@ -1061,3 +1061,44 @@ def _same_quotes(lhs, rhs):
         and lhs.quote_maturities == rhs.quote_maturities
         and lhs.quote_spreads == rhs.quote_spreads
     )
+
+
+#  ---------------------------------------------------------------------------
+#  Recalibration on bumped quotes, mirroring native RecalibrateDupireWithRisk:
+#  the frozen base and bands are kept, only the spread view changes.
+
+
+def recalibrate_dupire(snapshot, quote_spreads):
+    """Recalibrate on bumped spreads over the frozen base, as native."""
+    replaced, carry, samples, spread = _check_recalibration(snapshot, quote_spreads)
+    vols = _calibrate_grid(samples, carry, snapshot.spots, snapshot.times, snapshot.bands, spread)
+    return DupireCalibrationSnapshot(
+        inputs=replaced,
+        spot=snapshot.spot,
+        rate=snapshot.rate,
+        dividend_yield=snapshot.dividend_yield,
+        surface=LocalVolSurface(
+            name=snapshot.surface.name, spots=snapshot.spots, times=snapshot.times, vols=vols
+        ),
+        base_samples=snapshot.base_samples,
+        bands=snapshot.bands,
+    )
+
+
+def _check_recalibration(snapshot, quote_spreads):
+    """Native ValidateDupireQuoteRecalibration: shape, finiteness, then domains."""
+    replaced = DupireRiskInputs(
+        quote_strikes=snapshot.inputs.quote_strikes,
+        quote_maturities=snapshot.inputs.quote_maturities,
+        quote_spreads=[[float(value) for value in row] for row in _spreads_input(quote_spreads)],
+        inclusion_spots=snapshot.inputs.inclusion_spots,
+        max_spot_spacing=snapshot.inputs.max_spot_spacing,
+        inclusion_times=snapshot.inputs.inclusion_times,
+        max_time_spacing=snapshot.inputs.max_time_spacing,
+    )
+    _validate_inputs(replaced)
+    carry = (snapshot.spot, snapshot.rate, snapshot.dividend_yield)
+    samples = dict(snapshot.base_samples)
+    spread = _spread_view(replaced)
+    _calibrate_grid(samples, carry, snapshot.spots, snapshot.times, snapshot.bands, spread)
+    return replaced, carry, samples, spread

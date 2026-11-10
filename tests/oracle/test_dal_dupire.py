@@ -166,6 +166,9 @@ def _error_of(message):
         "InvalidSetting": InvalidSetting,
         "CalibrationRiskBudgetExceeded": CalibrationRiskBudgetExceeded,
         "DupireSnapshotMismatch": DupireSnapshotMismatch,
+        "InvalidCurvatureRequest": InvalidCurvatureRequest,
+        "BumpOverAAD": ScriptError,
+        "DupireScriptCurvature": ScriptError,
     }[message.split(":")[0]]
 
 
@@ -1790,3 +1793,386 @@ def test_result_and_pullback_validate_like_native(dal):
     ]
     for their_call, our_call, message in pullback_cases:
         _assert_both_raise(dal, their_call, our_call, message)
+
+
+#  ---------------------------------------------------------------------------
+#  Quote-space curvature: bump the flattened spreads, recalibrate, revalue.
+
+from dal_jax.api import (  # noqa: E402
+    BumpOverAADRequest_,
+    DupireScriptCurvaturePlan_New,
+    DupireScriptCurvatureRequest_,
+    DupireScriptCurvatureResult_New,
+)
+from dal_jax.errors import InvalidCurvatureRequest  # noqa: E402
+
+#  Native anchors (dal-python 2026.11.1) at 257 paths, directions {quote:0,
+#  quote:3} with steps 0.01.  Parity tolerance derivation: the hessian is the
+#  central quotient (g+ - g-)/(2h) of the total quote gradients, and our
+#  analytic VJP agrees with native's AAD replay to ~2e-9 relative on gradient
+#  magnitudes up to ~20, i.e. ~4e-8 absolute per evaluation.  The quotient
+#  amplifies that difference by 1/(2*0.01) = 50, bounding the disagreement by
+#  ~4e-6 absolute; measured worst cells are ~6e-7 absolute and ~4e-8 relative
+#  (native's own h-dependence at halved steps is ~1.4 ABSOLUTE, so parity only
+#  holds at equal steps).  The tolerance below carries >10x headroom.
+CURVATURE_HESSIAN_ANCHOR = [
+    [
+        -19.197883317247033,
+        10.90832638728898,
+        -13.619165022464585,
+        9.914050975203281,
+        3.2441534975077957,
+        7.087305648019537,
+    ],
+    [
+        9.660772961797193,
+        1.8474208627594635,
+        12.588976890401682,
+        -50.91892433956673,
+        49.03924013633514,
+        31.803567546012346,
+    ],
+]
+CURVATURE_TOLERANCE = dict(rtol=1e-6, atol=1e-5)
+
+
+def _our_bumps(rows=None, steps=None, **kwargs):
+    rows = (
+        rows
+        if rows is not None
+        else [[1.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0, 0.0, 0.0]]
+    )
+    return BumpOverAADRequest_(directions=rows, steps=steps or [0.01] * len(rows), **kwargs)
+
+
+def _their_bumps(dal, rows=None, steps=None, **kwargs):
+    rows = (
+        rows
+        if rows is not None
+        else [[1.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0, 0.0, 0.0]]
+    )
+    return dal.BumpOverAADRequest_(
+        directions=dal.DoubleMatrix_(rows), steps=steps or [0.01] * len(rows), **kwargs
+    )
+
+
+def _our_curvature_request(**overrides):
+    kwargs = dict(risk=_our_script_request(), bumps=_our_bumps())
+    kwargs.update(overrides)
+    return DupireScriptCurvatureRequest_(**kwargs)
+
+
+def _their_curvature_request(dal, **overrides):
+    kwargs = dict(risk=_their_script_request(dal), bumps=_their_bumps(dal))
+    kwargs.update(overrides)
+    return dal.DupireScriptCurvatureRequest_(**kwargs)
+
+
+def _our_curvature_plan(**overrides):
+    kwargs = dict(
+        product=_our_risk_product(),
+        modelData=_our_model(),
+        calibration=_our_calibration(),
+        component="equity",
+        request=_our_curvature_request(),
+    )
+    kwargs.update(overrides)
+    return DupireScriptCurvaturePlan_New(**kwargs)
+
+
+def _their_curvature_plan(dal, **overrides):
+    kwargs = dict(
+        product=_their_risk_product(dal),
+        modelData=_their_model(dal),
+        calibration=_their_calibration(dal),
+        component="equity",
+        request=_their_curvature_request(dal),
+    )
+    kwargs.update(overrides)
+    return dal.DupireScriptCurvaturePlan_New(**kwargs)
+
+
+def test_curvature_chain_parity(dal):
+    ours_plan = _our_curvature_plan()
+    theirs_plan = _their_curvature_plan(dal)
+    assert list(ours_plan.point) == theirs_plan.point == [0.0] * 6
+    assert [list(row) for row in ours_plan.directions] == theirs_plan.directions.to_rows()
+    assert list(ours_plan.steps) == theirs_plan.steps == [0.01, 0.01]
+    assert ours_plan.numeric_payload_bytes == theirs_plan.numeric_payload_bytes == 608
+    assert ours_plan.base_plan.component == theirs_plan.base_plan.component == "equity"
+    assert ours_plan.base_plan.num_paths == theirs_plan.base_plan.num_paths == 257
+    ours = DupireScriptCurvatureResult_New(ours_plan)
+    theirs = dal.DupireScriptCurvatureResult_New(theirs_plan)
+    assert (
+        ours.execution.method
+        == theirs.execution.method
+        == "BumpOverRecalibratedNativeDupireMonteCarloAAD"
+    )
+    assert (
+        ours.execution.quote_gradient_evaluations
+        == theirs.execution.quote_gradient_evaluations
+        == 5
+    )
+    assert ours.execution.paths_per_evaluation == theirs.execution.paths_per_evaluation == 257
+    assert ours.execution.numeric_payload_bytes == theirs.execution.numeric_payload_bytes == 608
+    assert ours.base.method == theirs.base.method
+    assert ours.base.valuation.values == pytest.approx(theirs.base.valuation.values, rel=1e-12)
+    np.testing.assert_allclose(list(ours.gradient), theirs.gradient, rtol=1e-7, atol=1e-8)
+    assert [c.id for c in ours.input_axis] == [c.id for c in theirs.input_axis]
+    np.testing.assert_allclose(
+        [list(row) for row in ours.hessian_products],
+        theirs.hessian_products.to_rows(),
+        **CURVATURE_TOLERANCE,
+    )
+    np.testing.assert_allclose(
+        [list(row) for row in ours.hessian_products],
+        CURVATURE_HESSIAN_ANCHOR,
+        **CURVATURE_TOLERANCE,
+    )
+
+
+def test_curvature_detaches_directions(dal):
+    rows = [[1.0, 0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0, 0.0, 0.0]]
+    ours_bumps = _our_bumps(rows=rows)
+    theirs_bumps = _their_bumps(dal, rows=rows)
+    rows[0][1] = 5.0
+    assert [list(row) for row in tuple(ours_bumps.directions)] == [
+        [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+    ]
+    assert theirs_bumps.directions.to_rows()[0][1] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        (
+            "steps",
+            [0.01, 0.02],
+            "InvalidCurvatureRequest: BumpOverAADRequest_; steps requires one value per direction row",
+        ),
+        (
+            "steps",
+            [0.0],
+            "InvalidCurvatureRequest: BumpOverAADRequest_; steps must be finite and positive",
+        ),
+        (
+            "steps",
+            [float("nan")],
+            "InvalidCurvatureRequest: BumpOverAADRequest_; steps must be finite and positive",
+        ),
+        (
+            "steps",
+            ["0.01"],
+            "InvalidCurvatureRequest: BumpOverAADRequest_; steps; type=str, value='0.01'; expected int or float, excluding bool",
+        ),
+        (
+            "steps",
+            "x",
+            "InvalidCurvatureRequest: BumpOverAADRequest_; steps; type=str, value='x'; expected list or tuple, or None",
+        ),
+    ],
+)
+def test_bump_request_steps_validate_like_native(dal, field, value, message):
+    _assert_both_raise(
+        dal,
+        lambda: _their_curvature_request(
+            dal, bumps=_their_bumps(dal, rows=[[1.0] * 6], steps=value)
+        ),
+        lambda: _our_curvature_request(
+            bumps=BumpOverAADRequest_(directions=[[1.0] * 6], steps=value)
+        ),
+        message,
+    )
+
+
+def test_bump_request_directions_validate_like_native(dal):
+    nan_rows = [[float("nan")] + [0.0] * 5]
+    _assert_both_raise(
+        dal,
+        lambda: _their_curvature_request(dal, bumps=_their_bumps(dal, rows=nan_rows)),
+        lambda: _our_curvature_request(bumps=_our_bumps(rows=nan_rows)),
+        "InvalidCurvatureRequest: BumpOverAADRequest_; directions must be finite",
+    )
+    #  Directions with a bad entry type surface native's DoubleMatrix binding
+    #  error; ours accepts nested numeric rows and flags the entry itself.
+    with pytest.raises(InvalidCurvatureRequest, match="expected int or float, excluding bool"):
+        _our_curvature_request(bumps=_our_bumps(rows=[[True] + [0.0] * 5]))
+
+
+def test_curvature_request_validates_types_like_native(dal):
+    _assert_both_raise(
+        dal,
+        lambda: dal.DupireScriptCurvatureRequest_(risk="x", bumps=_their_bumps(dal)),
+        lambda: DupireScriptCurvatureRequest_(risk="x", bumps=_our_bumps()),
+        "InvalidCurvatureRequest: DupireScriptCurvatureRequest_; risk; type=str, value='x'; expected DupireScriptRiskRequest_",
+    )
+    _assert_both_raise(
+        dal,
+        lambda: dal.DupireScriptCurvatureRequest_(risk=_their_script_request(dal), bumps="x"),
+        lambda: DupireScriptCurvatureRequest_(risk=_our_script_request(), bumps="x"),
+        "InvalidCurvatureRequest: DupireScriptCurvatureRequest_; bumps; type=str, value='x'; expected BumpOverAADRequest_",
+    )
+
+
+def test_curvature_plan_validates_like_native(dal):
+    cases = [
+        (
+            dict(product="x"),
+            dict(product="x"),
+            "InvalidCurvatureRequest: DupireScriptCurvaturePlan_New; product; type=str, value='x'; expected ScriptProductData_",
+        ),
+        (
+            dict(component=1.5),
+            dict(component=1.5),
+            "InvalidCurvatureRequest: DupireScriptCurvaturePlan_New; component; type=float, value=1.5; expected str or DAL String_ without NUL",
+        ),
+        (
+            dict(request="x"),
+            dict(request="x"),
+            "InvalidCurvatureRequest: DupireScriptCurvaturePlan_New; request; type=str, value='x'; expected DupireScriptCurvatureRequest_",
+        ),
+    ]
+    for overrides, native_overrides, message in cases:
+        _assert_both_raise(
+            dal,
+            lambda native_overrides=native_overrides: _their_curvature_plan(
+                dal, **native_overrides
+            ),
+            lambda overrides=overrides: _our_curvature_plan(**overrides),
+            message,
+        )
+    semantic = [
+        #  One column per flattened quote entry: seven columns do not fit.
+        (
+            dict(request=_our_curvature_request(bumps=_our_bumps(rows=[[1.0] * 7]))),
+            dict(request=_their_curvature_request(dal, bumps=_their_bumps(dal, rows=[[1.0] * 7]))),
+            "BumpOverAAD: directions must have nonnegative rows and one column per input",
+        ),
+        (
+            dict(request=_our_curvature_request(bumps=_our_bumps(rows=[[0.0] * 6]))),
+            dict(request=_their_curvature_request(dal, bumps=_their_bumps(dal, rows=[[0.0] * 6]))),
+            "BumpOverAAD: direction=0; direction must be nonzero",
+        ),
+        (
+            dict(
+                request=_our_curvature_request(
+                    bumps=_our_bumps(rows=[[0.0, 0.0, 0.0, -1.0, 0.0, 0.0]], steps=[0.3])
+                )
+            ),
+            dict(
+                request=_their_curvature_request(
+                    dal,
+                    bumps=_their_bumps(dal, rows=[[0.0, 0.0, 0.0, -1.0, 0.0, 0.0]], steps=[0.3]),
+                )
+            ),
+            "DupireScriptCurvature: admission; direction=0; plus; InvalidDupireCalibration: local variance is nonpositive or non-finite",
+        ),
+        (
+            dict(
+                request=_our_curvature_request(
+                    bumps=BumpOverAADRequest_(
+                        directions=[[1.0] * 6], steps=[0.01], recording_capacity_budget_bytes=8
+                    )
+                )
+            ),
+            dict(
+                request=_their_curvature_request(
+                    dal,
+                    bumps=dal.BumpOverAADRequest_(
+                        directions=dal.DoubleMatrix_(1, 6, 1.0),
+                        steps=[0.01],
+                        recording_capacity_budget_bytes=8,
+                    ),
+                )
+            ),
+            "DupireScriptCurvature: worker recording capacity limits are unsupported",
+        ),
+        (
+            dict(
+                request=_our_curvature_request(
+                    bumps=BumpOverAADRequest_(
+                        directions=[[1.0] * 6], steps=[0.01], numeric_payload_budget_bytes=8
+                    )
+                )
+            ),
+            dict(
+                request=_their_curvature_request(
+                    dal,
+                    bumps=dal.BumpOverAADRequest_(
+                        directions=dal.DoubleMatrix_(1, 6, 1.0),
+                        steps=[0.01],
+                        numeric_payload_budget_bytes=8,
+                    ),
+                )
+            ),
+            "BumpOverAAD: numeric payload budget exceeded",
+        ),
+    ]
+    for overrides, native_overrides, message in semantic:
+        _assert_both_raise(
+            dal,
+            lambda native_overrides=native_overrides: _their_curvature_plan(
+                dal, **native_overrides
+            ),
+            lambda overrides=overrides: _our_curvature_plan(**overrides),
+            message,
+        )
+
+
+def test_curvature_rejects_exercise_products_like_native(dal):
+    events = [f"pay PAYS 1 EXERCISE MAX(100 - FIX({INDEX}), 0)"] * 2
+    message = (
+        "DupireScriptCurvature: rebuild; base; RecalibrateDupireScriptRisk: "
+        "exercise-policy curvature is unsupported"
+    )
+    _assert_both_raise(
+        dal,
+        lambda: _their_curvature_plan(
+            dal,
+            product=dal.Product_New([dal.Date_(2027, 3, 12), dal.Date_(2027, 9, 12)], events),
+        ),
+        lambda: _our_curvature_plan(
+            product=Product_New([Date.ymd(2027, 3, 12), Date.ymd(2027, 9, 12)], events)
+        ),
+        message,
+    )
+    _assert_both_raise(
+        dal,
+        lambda: dal.DupireScriptCurvatureResult_New("x"),
+        lambda: DupireScriptCurvatureResult_New("x"),
+        "InvalidCurvatureRequest: DupireScriptCurvatureResult_New; plan; type=str, value='x'; expected DupireScriptCurvaturePlan_",
+    )
+
+
+def test_curvature_with_direct_bindings_parity(dal):
+    ours = DupireScriptCurvatureResult_New(
+        _our_curvature_plan(
+            request=_our_curvature_request(
+                risk=_our_script_request(
+                    direct_bindings=[DupireQuoteBinding_(constant_ordinal=0, quote_id="quote:3")]
+                )
+            )
+        )
+    )
+    theirs = dal.DupireScriptCurvatureResult_New(
+        _their_curvature_plan(
+            dal,
+            request=_their_curvature_request(
+                dal,
+                risk=_their_script_request(
+                    dal,
+                    direct_bindings=[
+                        dal.DupireQuoteBinding_(constant_ordinal=0, quote_id="quote:3")
+                    ],
+                ),
+            ),
+        )
+    )
+    assert ours.execution.method == theirs.execution.method
+    np.testing.assert_allclose(list(ours.gradient), theirs.gradient, rtol=1e-7, atol=1e-8)
+    np.testing.assert_allclose(
+        [list(row) for row in ours.hessian_products],
+        theirs.hessian_products.to_rows(),
+        **CURVATURE_TOLERANCE,
+    )

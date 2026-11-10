@@ -831,3 +831,395 @@ def dupire_script_quote_risk(valuation, calibration, component, direct=None):
         component=component,
         method=f"{valuation.provenance.method}Then{quote_risk.method}",
     )
+
+
+#  ---------------------------------------------------------------------------
+#  Quote-space curvature: bump the flattened spreads, recalibrate, revalue.
+
+
+from dal_jax.errors import InvalidCurvatureRequest, script_error  # noqa: E402
+from dal_jax.mc.risk import BumpOverAADRequest  # noqa: E402
+from dal_jax.models.dupire import (  # noqa: E402
+    _check_recalibration,
+    dupire_model_data,
+    recalibrate_dupire,
+)
+from dal_jax.script.product import ScriptProductData  # noqa: E402
+
+_CURVATURE_METHOD = "BumpOverRecalibratedNativeDupireMonteCarloAAD"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DupireScriptCurvatureRequest:
+    """Curvature configuration, mirroring native ``DupireScriptCurvatureRequest_``."""
+
+    risk: DupireScriptRiskRequest
+    bumps: BumpOverAADRequest
+
+    def __post_init__(self):
+        for field, accepted, expected in (
+            ("risk", DupireScriptRiskRequest, "DupireScriptRiskRequest_"),
+            ("bumps", BumpOverAADRequest, "BumpOverAADRequest_"),
+        ):
+            value = getattr(self, field)
+            if not isinstance(value, accepted):
+                raise InvalidCurvatureRequest(
+                    _detail(value, f"DupireScriptCurvatureRequest_; {field}", expected)
+                )
+        _validate_bump_request(self.bumps)
+
+
+def _validate_bump_request(bumps):
+    """Native NewBumps: steps one per direction row, finite and positive."""
+    steps = bumps.steps
+    if not isinstance(steps, (list, tuple)):
+        raise InvalidCurvatureRequest(
+            _detail(steps, "BumpOverAADRequest_; steps", "list or tuple, or None")
+        )
+    _check_bump_steps(steps)
+    if len(steps) != len(bumps.directions):
+        raise InvalidCurvatureRequest(
+            "BumpOverAADRequest_; steps requires one value per direction row"
+        )
+    _check_bump_directions(bumps.directions)
+
+
+def _check_bump_steps(steps):
+    for step in steps:
+        _check_bump_number(step)
+        if not math.isfinite(step) or step <= 0.0:
+            raise InvalidCurvatureRequest("BumpOverAADRequest_; steps must be finite and positive")
+
+
+def _check_bump_directions(directions):
+    for row in directions:
+        for entry in row:
+            _check_bump_number(entry)
+            if not math.isfinite(entry):
+                raise InvalidCurvatureRequest("BumpOverAADRequest_; directions must be finite")
+
+
+def _check_bump_number(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise InvalidCurvatureRequest(
+            _detail(value, "BumpOverAADRequest_; steps", "int or float, excluding bool")
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class DupireScriptCurvaturePlan:
+    """A frozen curvature plan, mirroring native ``DupireScriptCurvaturePlan_``."""
+
+    base_plan: DupireScriptRiskPlan
+    point: tuple
+    directions: tuple
+    steps: tuple
+    numeric_payload_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class DupireScriptCurvatureExecution:
+    """The curvature execution record, native ``DupireScriptCurvatureExecution_``."""
+
+    method: str = _CURVATURE_METHOD
+    quote_gradient_evaluations: int = 0
+    paths_per_evaluation: int = 0
+    numeric_payload_bytes: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class DupireScriptCurvatureResult:
+    """The valued curvature, mirroring native ``DupireScriptCurvatureResult_``."""
+
+    base: DupireScriptRiskResult
+    point: tuple
+    gradient: tuple
+    directions: tuple
+    steps: tuple
+    hessian_products: tuple
+    execution: DupireScriptCurvatureExecution
+
+    @property
+    def input_axis(self):
+        return self.base.quote_risk.plan.complete_input_axis
+
+
+def _curvature_input(value, field, expected, accepted):
+    if not isinstance(value, accepted):
+        raise InvalidCurvatureRequest(_detail(value, field, expected))
+    return value
+
+
+def _validate_bumps(point, bumps):
+    """Native GradientBumpsDetail::Validate over the flattened quote point."""
+    if len(point) > _INT_MAX:
+        raise script_error("BumpOverAAD: point exceeds matrix integer range")
+    directions = bumps.directions
+    if any(len(row) != len(point) for row in directions):
+        raise script_error(
+            "BumpOverAAD: directions must have nonnegative rows and one column per input"
+        )
+    if len(bumps.steps) != len(directions):
+        raise script_error("BumpOverAAD: exactly one step per direction required")
+    _require_finite_point(point)
+    for row, (direction, step) in enumerate(zip(directions, bumps.steps)):
+        _validate_direction(row, direction, step, point)
+    bytes_ = _bump_payload_bytes(point, directions)
+    budget = bumps.numeric_payload_budget_bytes
+    if budget is not None and bytes_ > budget:
+        raise script_error("BumpOverAAD: numeric payload budget exceeded")
+    return bytes_
+
+
+def _require_finite_point(point):
+    for value in point:
+        if not math.isfinite(value):
+            raise script_error("BumpOverAAD: point components must be finite")
+
+
+def _bump_payload_bytes(point, directions):
+    return 8 * (1 + 2 * len(point) + 2 * len(point) * len(directions) + len(directions))
+
+
+def _validate_direction(row, direction, step, point):
+    context = f"BumpOverAAD: direction={row}"
+    if not math.isfinite(step) or step <= 0.0:
+        raise script_error(f"{context}; step must be finite and positive")
+    nonzero = _require_direction_components(context, direction, step, point)
+    if not nonzero:
+        raise script_error(f"{context}; direction must be nonzero")
+
+
+def _require_direction_components(context, direction, step, point):
+    nonzero = False
+    for column, entry in enumerate(direction):
+        if not math.isfinite(entry):
+            raise script_error(f"{context}; direction components must be finite")
+        if entry == 0.0:
+            continue
+        nonzero = True
+        _require_bump_moves(context, step, entry, point[column])
+    return nonzero
+
+
+def _require_bump_moves(context, step, entry, value):
+    for sign in (-1.0, 1.0):
+        bumped = math.fma(sign * step, entry, value)
+        if not math.isfinite(bumped) or bumped == value:
+            raise script_error(f"{context}; bump must be finite and change every nonzero component")
+
+
+def _bumped_point(point, direction, step, sign):
+    return tuple(math.fma(sign * step, entry, value) for value, entry in zip(point, direction))
+
+
+def _central_quotient(plus, minus, step):
+    """Native CentralQuotient: a cancellation-safe central difference."""
+    _, plus_exponent = math.frexp(max(abs(plus), abs(minus)))
+    step_fraction, step_exponent = math.frexp(step)
+    difference = math.ldexp(plus, -plus_exponent) - math.ldexp(minus, -plus_exponent)
+    result = math.ldexp(difference / step_fraction, plus_exponent - step_exponent - 1)
+    if not math.isfinite(result) or (difference != 0.0 and result == 0.0):
+        raise script_error("BumpOverAAD: central quotient outside nonzero finite double range")
+    return result
+
+
+def _quote_point(calibration):
+    return tuple(value for row in calibration.inputs.quote_spreads for value in row)
+
+
+def _rebuild_plan(plan, point, context):
+    """Native RebuildPoint: recalibrate, rebind constants, re-plan."""
+    original = plan.quote_plan.calibration
+    spreads = [list(row) for row in _quote_matrix(original, point)]
+    try:
+        return recalibrate_script_risk_plan(plan, spreads)
+    except Exception as error:
+        raise script_error(f"DupireScriptCurvature: rebuild; {context}; {error}") from error
+
+
+def _quote_matrix(calibration, point):
+    rows = len(calibration.inputs.quote_spreads)
+    columns = len(calibration.inputs.quote_maturities)
+    return [point[row * columns : (row + 1) * columns] for row in range(rows)]
+
+
+def recalibrate_script_risk_plan(plan, spreads):
+    """Mirror native RecalibrateDupireScriptRisk on bumped quote spreads."""
+    parsed = plan.product.product() if isinstance(plan.product, ScriptProductData) else plan.product
+    if parsed.has_exercise:
+        raise script_error("RecalibrateDupireScriptRisk: exercise-policy curvature is unsupported")
+    calibration = recalibrate_dupire(plan.quote_plan.calibration, spreads)
+    product = _rebound_product(plan, spreads)
+    model = _rebuilt_model(plan, calibration)
+    request = DupireScriptRiskRequest(
+        num_paths=plan.num_paths,
+        quotes=CalibrationRiskRequest(
+            inputs=tuple(coordinate.id for coordinate in plan.quote_plan.input_axis),
+            report_factors=tuple(
+                coordinate.report_scale for coordinate in plan.quote_plan.input_axis
+            ),
+        ),
+        direct_bindings=plan.direct_bindings,
+        valuation=plan.valuation,
+        simulation=plan.simulation,
+    )
+    return plan_dupire_script_risk(product, model, calibration, plan.component, request)
+
+
+def _rebound_product(plan, spreads):
+    """Native ReboundProduct: bound constants adopt their bumped quote values."""
+    events = list(plan.product.events)
+    for binding in plan.direct_bindings:
+        constant = next(
+            (
+                coordinate
+                for coordinate in plan.complete_input_axis
+                if coordinate.family == "constant"
+                and coordinate.ordinal == binding.constant_ordinal
+            ),
+            None,
+        )
+        quote = next(c for c in plan.quote_plan.complete_input_axis if c.id == binding.quote_id)
+        row = plan.product.dates.index(constant.label)
+        events[row] = repr(spreads[quote.row][quote.column])
+    return ScriptProductData(plan.product.dates, events, plan.product.settings)
+
+
+def _rebuilt_model(plan, calibration):
+    """Native RebuiltModel: the equity component adopts the recalibrated surface."""
+    equity = next(
+        item
+        for item in plan.model.components
+        if item.name.lower() == plan.component.lower() and isinstance(item, HybridLocalVolEquity)
+    )
+    return dupire_model_data(
+        calibration,
+        equity.index,
+        equity.currency,
+        equity.factor,
+        plan.model.name,
+        equity.max_step,
+    )
+
+
+def plan_dupire_script_curvature(product, model, calibration, component, request):
+    """Mirror native PlanDupireScriptCurvature."""
+    _curvature_input(
+        product, "DupireScriptCurvaturePlan_New; product", "ScriptProductData_", ScriptProductData
+    )
+    _curvature_input(model, "DupireScriptCurvaturePlan_New; modelData", "ModelData_", Model)
+    _curvature_input(
+        calibration,
+        "DupireScriptCurvaturePlan_New; calibration",
+        "DupireCalibrationSnapshot_",
+        DupireCalibrationSnapshot,
+    )
+    _text_input(component, "DupireScriptCurvaturePlan_New; component", InvalidCurvatureRequest)
+    _curvature_input(
+        request,
+        "DupireScriptCurvaturePlan_New; request",
+        "DupireScriptCurvatureRequest_",
+        DupireScriptCurvatureRequest,
+    )
+    if request.risk.direct is not None:
+        raise script_error(
+            "DupireScriptCurvature: external first-order direct seeds do not define curvature"
+        )
+    if request.bumps.recording_capacity_budget_bytes is not None:
+        raise script_error(
+            "DupireScriptCurvature: worker recording capacity limits are unsupported"
+        )
+    point = _quote_point(calibration)
+    bump_bytes = _validate_bumps(point, request.bumps)
+    _admit_point(calibration, point, "base")
+    for row in range(len(request.bumps.directions)):
+        context = f"direction={row}"
+        _admit_point(
+            calibration,
+            _bumped_point(point, request.bumps.directions[row], request.bumps.steps[row], 1.0),
+            f"{context}; plus",
+        )
+        _admit_point(
+            calibration,
+            _bumped_point(point, request.bumps.directions[row], request.bumps.steps[row], -1.0),
+            f"{context}; minus",
+        )
+    base = plan_dupire_script_risk(product, model, calibration, component, request.risk)
+    payload = bump_bytes + base.numeric_payload_bytes
+    budget = request.bumps.numeric_payload_budget_bytes
+    if budget is not None and payload > budget:
+        raise script_error(
+            f"DupireScriptCurvature: combined numeric payload budget exceeded; requiredBytes={payload}"
+        )
+    base = _rebuild_plan(base, point, "base")
+    for row in range(len(request.bumps.directions)):
+        context = f"direction={row}"
+        _rebuild_plan(
+            base,
+            _bumped_point(point, request.bumps.directions[row], request.bumps.steps[row], 1.0),
+            f"{context}; plus",
+        )
+        _rebuild_plan(
+            base,
+            _bumped_point(point, request.bumps.directions[row], request.bumps.steps[row], -1.0),
+            f"{context}; minus",
+        )
+    return DupireScriptCurvaturePlan(
+        base_plan=base,
+        point=point,
+        directions=tuple(tuple(row) for row in request.bumps.directions),
+        steps=tuple(request.bumps.steps),
+        numeric_payload_bytes=payload,
+    )
+
+
+def _admit_point(calibration, point, context):
+    """Native ValidateCalibrationPoint, wrapped as the admission check."""
+    try:
+        _check_recalibration(calibration, _quote_matrix(calibration, point))
+    except Exception as error:
+        raise script_error(f"DupireScriptCurvature: admission; {context}; {error}") from error
+
+
+def value_dupire_script_curvature(plan):
+    """Mirror native ValueByMonteCarloWithDupireCurvature."""
+    _curvature_input(
+        plan,
+        "DupireScriptCurvatureResult_New; plan",
+        "DupireScriptCurvaturePlan_",
+        DupireScriptCurvaturePlan,
+    )
+
+    def gradient(point, context):
+        rebuilt = _rebuild_plan(plan.base_plan, point, context)
+        result = value_dupire_script_risk(rebuilt)
+        total = result.quote_risk.quote_risk.total_adjoints
+        return result, tuple(value for row in total for value in row)
+
+    base_result, base_gradient = gradient(plan.point, "base")
+    products = []
+    for direction, step in zip(plan.directions, plan.steps):
+        context = f"direction={plan.directions.index(direction)}"
+        _, plus = gradient(_bumped_point(plan.point, direction, step, 1.0), f"{context}; plus")
+        _, minus = gradient(_bumped_point(plan.point, direction, step, -1.0), f"{context}; minus")
+        products.append(
+            tuple(
+                _central_quotient(plus[column], minus[column], step)
+                for column in range(len(plan.point))
+            )
+        )
+    execution = DupireScriptCurvatureExecution(
+        quote_gradient_evaluations=1 + 2 * len(plan.steps),
+        paths_per_evaluation=plan.base_plan.num_paths,
+        numeric_payload_bytes=plan.numeric_payload_bytes,
+    )
+    return DupireScriptCurvatureResult(
+        base=base_result,
+        point=plan.point,
+        gradient=base_gradient,
+        directions=plan.directions,
+        steps=plan.steps,
+        hessian_products=tuple(products),
+        execution=execution,
+    )
