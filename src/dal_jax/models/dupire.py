@@ -5,7 +5,10 @@ order mirror the native ``DupireCentral1e-4FixedBaseBand/v1`` implementation
 (dal-cpp ``dal/model/dupirerisk.cpp``).  The pricing helpers below are exact
 float mirrors of the native Black/Merton/Brent stack — they only use libm
 functions through :mod:`math`, which the native wheel shares — so calibrated
-snapshot values match native bit-for-bit.
+snapshot values matched native bit-for-bit on every probed fixture
+(Black-Scholes, Merton, callable and bumped-quote bases; a fresh callable
+smile measured one cell 4e-13 off, well inside native's own ReplayAgrees
+rounding bound).
 
 Base implied-volatility surfaces come in three kinds, as natively: a
 Black-Scholes model (constant volatility), a Merton jump-diffusion smile, or
