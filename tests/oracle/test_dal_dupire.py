@@ -1477,14 +1477,7 @@ def test_plan_validates_arguments_like_native(dal):
             "InvalidDupireRiskRequest: Hybrid model is required",
         ),
         (
-            dict(
-                simulation=MonteCarloSettings_(enable_aad=False),
-                request=_our_script_request(simulation=MonteCarloSettings_(enable_aad=False)),
-            )
-            if False
-            else dict(
-                request=_our_script_request(simulation=MonteCarloSettings_(enable_aad=False))
-            ),
+            dict(request=_our_script_request(simulation=MonteCarloSettings_(enable_aad=False))),
             dict(
                 request=_their_script_request(
                     dal, simulation=dal.MonteCarloSettings_(enable_aad=False)
@@ -2181,11 +2174,6 @@ def test_curvature_with_direct_bindings_parity(dal):
 def test_curvature_budget_precedes_direction_faults(dal):
     #  Native checks the bump payload budget before the direction rules, so a
     #  request with both faults reports the budget.
-    def bumps(request):
-        return BumpOverAADRequest_(
-            directions=[[0.0] * 6], steps=[0.01], numeric_payload_budget_bytes=8
-        )
-
     _assert_both_raise(
         dal,
         lambda: _their_curvature_plan(
