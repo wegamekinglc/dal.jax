@@ -961,13 +961,13 @@ def _validate_bumps(point, bumps):
         )
     if len(bumps.steps) != len(directions):
         raise script_error("BumpOverAAD: exactly one step per direction required")
-    _require_finite_point(point)
-    for row, (direction, step) in enumerate(zip(directions, bumps.steps)):
-        _validate_direction(row, direction, step, point)
     bytes_ = _bump_payload_bytes(point, directions)
     budget = bumps.numeric_payload_budget_bytes
     if budget is not None and bytes_ > budget:
         raise script_error("BumpOverAAD: numeric payload budget exceeded")
+    _require_finite_point(point)
+    for row, (direction, step) in enumerate(zip(directions, bumps.steps)):
+        _validate_direction(row, direction, step, point)
     return bytes_
 
 
@@ -1081,8 +1081,12 @@ def _rebound_product(plan, spreads):
             None,
         )
         quote = next(c for c in plan.quote_plan.complete_input_axis if c.id == binding.quote_id)
-        row = plan.product.dates.index(constant.label)
-        events[row] = repr(spreads[quote.row][quote.column])
+        if constant.label not in plan.product.dates:
+            raise script_error(
+                "RecalibrateDupireScriptRisk: direct binding requires a scalar "
+                f"definition; constant={constant.label}"
+            )
+        events[plan.product.dates.index(constant.label)] = repr(spreads[quote.row][quote.column])
     return ScriptProductData(plan.product.dates, events, plan.product.settings)
 
 
@@ -1193,14 +1197,17 @@ def value_dupire_script_curvature(plan):
 
     def gradient(point, context):
         rebuilt = _rebuild_plan(plan.base_plan, point, context)
-        result = value_dupire_script_risk(rebuilt)
+        try:
+            result = value_dupire_script_risk(rebuilt)
+        except Exception as error:
+            raise script_error(f"DupireScriptCurvature: execution; {context}; {error}") from error
         total = result.quote_risk.quote_risk.total_adjoints
         return result, tuple(value for row in total for value in row)
 
     base_result, base_gradient = gradient(plan.point, "base")
     products = []
-    for direction, step in zip(plan.directions, plan.steps):
-        context = f"direction={plan.directions.index(direction)}"
+    for row, (direction, step) in enumerate(zip(plan.directions, plan.steps)):
+        context = f"direction={row}"
         _, plus = gradient(_bumped_point(plan.point, direction, step, 1.0), f"{context}; plus")
         _, minus = gradient(_bumped_point(plan.point, direction, step, -1.0), f"{context}; minus")
         products.append(

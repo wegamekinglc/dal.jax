@@ -64,7 +64,7 @@ class BumpOverAADRequest:
         #  pass through untouched so use-site validation reports them as given.
         directions = self.directions
         if isinstance(directions, (list, tuple)):
-            object.__setattr__(self, "directions", tuple(tuple(row) for row in directions))
+            object.__setattr__(self, "directions", tuple(map(tuple, directions)))
         steps = self.steps
         if isinstance(steps, (list, tuple)):
             object.__setattr__(self, "steps", tuple(steps))

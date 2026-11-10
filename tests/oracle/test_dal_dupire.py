@@ -2176,3 +2176,62 @@ def test_curvature_with_direct_bindings_parity(dal):
         theirs.hessian_products.to_rows(),
         **CURVATURE_TOLERANCE,
     )
+
+
+def test_curvature_budget_precedes_direction_faults(dal):
+    #  Native checks the bump payload budget before the direction rules, so a
+    #  request with both faults reports the budget.
+    def bumps(request):
+        return BumpOverAADRequest_(
+            directions=[[0.0] * 6], steps=[0.01], numeric_payload_budget_bytes=8
+        )
+
+    _assert_both_raise(
+        dal,
+        lambda: _their_curvature_plan(
+            dal,
+            request=_their_curvature_request(
+                dal,
+                bumps=dal.BumpOverAADRequest_(
+                    directions=dal.DoubleMatrix_(1, 6),
+                    steps=[0.01],
+                    numeric_payload_budget_bytes=8,
+                ),
+            ),
+        ),
+        lambda: _our_curvature_plan(
+            request=_our_curvature_request(
+                bumps=BumpOverAADRequest_(
+                    directions=[[0.0] * 6], steps=[0.01], numeric_payload_budget_bytes=8
+                )
+            )
+        ),
+        "BumpOverAAD: numeric payload budget exceeded",
+    )
+
+
+def test_rebound_product_requires_scalar_definition():
+    #  Native rebinds a direct binding by rewriting the product's scalar
+    #  definition row; when the constant's name is absent it reports
+    #  "direct binding requires a scalar definition".  Constants always come
+    #  from the product's own string cells, so the guard is defensive on both
+    #  sides; exercise it directly.
+    from types import SimpleNamespace
+
+    from dal_jax.mc.dupire import _rebound_product
+
+    coordinate = SimpleNamespace(family="constant", ordinal=0, label="QUOTE")
+    plan = SimpleNamespace(
+        complete_input_axis=[coordinate],
+        quote_plan=SimpleNamespace(
+            complete_input_axis=[SimpleNamespace(id="quote:3", row=1, column=1)]
+        ),
+        direct_bindings=(DupireQuoteBinding_(constant_ordinal=0, quote_id="quote:3"),),
+        product=Product_New([Date.ymd(2027, 9, 12)], [f"pay PAYS FIX({INDEX})"]),
+    )
+    message = (
+        "RecalibrateDupireScriptRisk: direct binding requires a scalar definition; constant=QUOTE"
+    )
+    with pytest.raises(ScriptError, match=re.escape(message)) as error:
+        _rebound_product(plan, [[0.0] * 2] * 3)
+    assert str(error.value) == message
